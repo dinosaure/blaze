@@ -1,0 +1,23 @@
+opam-version: "2.0"
+name:         "blaze"
+maintainer:   "Romain Calascibetta <romain.calascibetta@gmail.com>"
+authors:      "Romain Calascibetta <romain.calascibetta@gmail.com>"
+homepage:     "https://github.com/dinosaure/blaze"
+bug-reports:  "https://github.com/dinosaure/blaze/issues"
+dev-repo:     "git+https://github.com/dinosaure/blaze.git"
+doc:          "https://dinosaure.github.io/blaze/"
+license:      "MIT"
+synopsis:     "Tools to manipulate emails"
+description: """Conan is a re-implementation in OCaml of the file command.
+The library is system-agnostic and can be used with MirageOS."""
+
+build:
+  [ [ "dune" "build" "-p" name "-j" jobs ]
+    [ "dune" "runtest" "-p" name "-j" jobs ] {with-test} ]
+
+depends: [
+  "ocaml"       {>= "4.08.0"}
+  "mrmime"
+  "bigstringaf"
+  "emile"
+]

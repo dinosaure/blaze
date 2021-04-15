@@ -1,0 +1,47 @@
+(executable
+ (name addr)
+ (modules addr)
+ (public_name blaze.addr)
+ (libraries cmdliner fpath rresult mrmime bigstringaf emile))
+
+(executable
+ (name hdr)
+ (modules hdr)
+ (public_name blaze.hdr)
+ (libraries cmdliner fpath rresult mrmime bigstringaf fmt))
+
+(executable
+ (name recv)
+ (modules recv)
+ (public_name blaze.recv)
+ (libraries
+  ocamlgraph
+  cmdliner
+  fpath
+  rresult
+  mrmime
+  bigstringaf
+  fmt
+  received
+  colombe.emile
+  unix
+  ptime.clock.os))
+
+(executable
+ (name dkim)
+ (modules dkim)
+ (public_name blaze.dkim)
+ (libraries
+  cmdliner
+  fpath
+  rresult
+  mrmime
+  bigstringaf
+  fmt
+  uri
+  dkim
+  dns-client.unix
+  logs.cli
+  fmt.cli
+  logs.fmt
+  fmt.tty))

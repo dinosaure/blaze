@@ -1,0 +1,81 @@
+Return-Path: <tbraibant@janestreet.com>
+Delivered-To: romain.calascibetta@gmail.com
+Received: by 10.36.56.134 with SMTP id b128csp540801ita;
+        Thu, 29 Oct 2015 08:38:33 -0700 (PDT)
+X-Received: by 10.55.52.210 with SMTP id b201mr3082180qka.37.1446133113260;
+        Thu, 29 Oct 2015 08:38:33 -0700 (PDT)
+Received: from mxout4.mail.janestreet.com (mxout4.mail.janestreet.com. [38.105.200.233])
+        by mx.google.com with ESMTPS id e37si1673465qgd.116.2015.10.29.08.38.33
+        for <romain.calascibetta@gmail.com>
+        (version=TLSv1.2 cipher=ECDHE-RSA-AES128-GCM-SHA256 bits=128/128);
+        Thu, 29 Oct 2015 08:38:33 -0700 (PDT)
+Received-SPF: pass (google.com: domain of tbraibant@janestreet.com designates 38.105.200.233 as permitted sender) client-ip=38.105.200.233;
+Authentication-Results: mx.google.com;
+       spf=pass (google.com: domain of tbraibant@janestreet.com designates 38.105.200.233 as permitted sender) smtp.mailfrom=tbraibant@janestreet.com;
+       dkim=pass header.i=@janestreet.com
+Received: from tot-qpr-mailcore2.delacy.com ([172.27.56.106] helo=tot-qpr-mailcore2)
+	by mxout4.mail.janestreet.com with esmtps (TLSv1:DHE-RSA-AES256-SHA:256)
+	(Exim 4.82)
+	(envelope-from <tbraibant@janestreet.com>)
+	id 1ZrpHc-0003HL-Rl
+	for romain.calascibetta@gmail.com; Thu, 29 Oct 2015 11:38:32 -0400
+X-JS-Flow: external
+Received: by tot-qpr-mailcore2 with JS-mailcore (0.1)
+	(envelope-from <tbraibant@janestreet.com>)
+	id BWMj14-AAAA79-Zg; 2015-10-29 11:38:32.817089-04:00
+Received: from mail-vk0-f48.google.com ([209.85.213.48])
+	by mxgoog1.mail.janestreet.com with esmtps (UNKNOWN:AES128-GCM-SHA256:128)
+	(Exim 4.72)
+	(envelope-from <tbraibant@janestreet.com>)
+	id 1ZrpHc-0006AE-Mz
+	for romain.calascibetta@gmail.com; Thu, 29 Oct 2015 11:38:32 -0400
+Received: by vkex70 with SMTP id x70so28855493vke.3
+        for <romain.calascibetta@gmail.com>; Thu, 29 Oct 2015 08:38:32 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=janestreet.com; s=google;
+        h=mime-version:from:date:message-id:subject:to:content-type;
+        bh=GyAmxDGX0W8Gqaw7woZv/Z1PRyMhWnPrYABiKZttB+E=;
+        b=MglJGvGHXDs+h1G34fzV5w0CLUPwlTpI9SVPFYP3gb504ilBSpDXPBD/6o0SjTNwdB
+         wKZY0tZC7zdTZVsnSd0lbgYYyCNRx1poSAfHSLuvkSLzf9uSrQj/u8LyqnDlIYml3Cw2
+         9OmWEpOoACV11Ews5BgKT4MisOkm+jxPvWA0c=
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20130820;
+        h=x-gm-message-state:mime-version:from:date:message-id:subject:to
+         :content-type;
+        bh=GyAmxDGX0W8Gqaw7woZv/Z1PRyMhWnPrYABiKZttB+E=;
+        b=H/MIUPm780gvxECQ2E6zVqht23yPf7VIUGg7W8In1ElH7K/bd8erkFs4Ory2Tn7BhG
+         eTo/TDM2V3ZJrkc9MNQ5dHBoEsCWV4M+ocm7vwnbU2c08LXiswrW+LVDY15yi6KMp7QP
+         gLw+8L0u+TC8xaqLU5zyluPPbgW6xZjoRI0SRrIV24SWhdz/so/aru4aDmKNiOphTSwX
+         rEzvu9GvxXHQXilQKpo6fVKv94JA2iqfX8OqN0i0KzePLdT4IgZXiKe7qsJn+jWtsQka
+         f6Uui5FskxKDmhel9Qp4nTW9FvxWyLJGPg3+6/k9W4LAXAMGLdEvc6iFQAtO9Ey8jKfb
+         9jCw==
+X-Gm-Message-State: ALoCoQnOehqqM8cKBmU5xD6x9K2QS1fn5pgrfVkXc6ueHy/+yb43RMqFrkVD9wfV0pf6DdUyKaKtgxo+eRuobnJWnN80Zc/NlHJzBzfcJR6H+gg0/scPh07uznBHaXurujxcwnVbZgj0GtCK+5cZMk77f+Ih/qenag==
+X-Received: by 10.31.33.75 with SMTP id h72mr1665920vkh.144.1446133112476;
+        Thu, 29 Oct 2015 08:38:32 -0700 (PDT)
+X-Received: by 10.31.33.75 with SMTP id h72mr1665915vkh.144.1446133112403;
+ Thu, 29 Oct 2015 08:38:32 -0700 (PDT)
+MIME-Version: 1.0
+Received: by 10.31.135.131 with HTTP; Thu, 29 Oct 2015 08:38:12 -0700 (PDT)
+From: Thomas Braibant <tbraibant@janestreet.com>
+Date: Thu, 29 Oct 2015 11:38:12 -0400
+Message-ID: <CABhmBUFWvxg5nhmh244xz40PnyWV3pQvzHd60mu+jScA+kZH3w@mail.gmail.com>
+Subject: Salle Algorithme, 10 novembre
+To: Roberto Di Cosmo <roberto@dicosmo.org>,
+	=?UTF-8?B?TG91aXMgUm9jaMOp?= <louis@cryptosense.com>,
+	Gabriel Scherer <gabriel.scherer@inria.fr>,
+	Romain Calascibetta <romain.calascibetta@gmail.com>
+Content-Type: text/plain; charset=UTF-8
+X-JS-Processed-by: mailcore
+X-getmail-retrieved-from-mailbox: INBOX
+X-GMAIL-LABELS: =?utf-8?b?IlxcSW1wb3J0YW50Ig==?=
+X-GMAIL-THRID: =?utf-8?q?1516380475326008196?=
+X-GMAIL-MSGID: =?utf-8?q?1516380475326008196?=
+
+Bonjour Roberto,
+
+Est ce que tu peux nous confirmer que la salle algorithme est bien
+reservee pour le meetup le 10 novembre?
+
+Merci d'avance.
+-- 
+Thomas

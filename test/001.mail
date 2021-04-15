@@ -1,0 +1,97 @@
+Return-Path:
+  <bounces+848413-e276-romain.calascibetta=gmail.com@sgmail.github.com>
+Delivered-To: romain.calascibetta@gmail.com
+Received: by 10.103.97.5 with SMTP id v5csp377109vsb;
+        Wed, 9 Nov 2016 12:10:29 -0800 (PST)
+X-Received: by 10.107.23.132 with SMTP id 126mr2066605iox.162.1478722229144;
+        Wed, 09 Nov 2016 12:10:29 -0800 (PST)
+Received: from o3.sgmail.github.com (o3.sgmail.github.com. [192.254.112.98])
+        by mx.google.com with ESMTPS id z2si859821pac.156.2016.11.09.12.10.28
+        for <romain.calascibetta@gmail.com>
+        (version=TLS1_2 cipher=ECDHE-RSA-AES128-GCM-SHA256 bits=128/128);
+        Wed, 09 Nov 2016 12:10:29 -0800 (PST)
+Received-SPF: pass (google.com: domain of bounces+848413-e276-romain.calascibetta=gmail.com@sgmail.github.com designates 192.254.112.98 as permitted sender) client-ip=192.254.112.98;
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@github.com;
+       dkim=pass header.i=@sendgrid.info;
+       spf=pass (google.com: domain of bounces+848413-e276-romain.calascibetta=gmail.com@sgmail.github.com designates 192.254.112.98 as permitted sender) smtp.mailfrom=bounces+848413-e276-romain.calascibetta=gmail.com@sgmail.github.com;
+       dmarc=pass (p=NONE dis=NONE) header.from=github.com
+DKIM-Signature: v=1; a=rsa-sha1; c=relaxed; d=github.com; 
+	h=from:reply-to:to:in-reply-to:references:subject:mime-version:content-type:content-transfer-encoding:list-id:list-archive:list-post:list-unsubscribe; 
+	s=s20150108; bh=s6/5UvcmmcpgdLr/3NPN3KPXQkM=; b=SuEKjwfkRl80MV9g
+	CKDfzQlCeN/DteYLBKvZ0N+5mvGS1ZhvU3dTUqULNRRYUQ3cfg27+GoAOgRI0v4K
+	sOhiA9TJMISOM6cjgK8RGFsFtJpumQWBCGU6ar1c3aZi+BJFMXXVgojF2k4usfg6
+	ivI84LCjaJK+JJgK65TDiedXBwg=
+DKIM-Signature: v=1; a=rsa-sha1; c=relaxed; d=sendgrid.info; 
+	h=from:reply-to:to:in-reply-to:references:subject:mime-version:content-type:content-transfer-encoding:list-id:list-archive:list-post:list-unsubscribe:x-feedback-id; 
+	s=smtpapi; bh=s6/5UvcmmcpgdLr/3NPN3KPXQkM=; b=iIicLeoJbjxponA15g
+	qgGQ7tAszmj/EK0V6aLVnmKeUr6ESwIWxh9X/jVmTft386dsvmcmdDaljPH3DEWG
+	3UlnlUHawvw6M1jXqIitaTYH6DGwcg/0G6YheGulw9oOQuMSFnyljEYU9P9WLdOq
+	ob84IH4kfp+oGTyZWKf1QKc+g=
+Received: by filter0103p1las1.sendgrid.net with SMTP id filter0103p1las1-15046-582382B3-12
+        2016-11-09 20:10:27.258036245 +0000 UTC
+Received: from github-smtp2b-ext-cp1-prd.iad.github.net (github-smtp2b-ext-cp1-prd.iad.github.net [192.30.253.17])
+	by ismtpd0004p1iad1.sendgrid.net (SG) with ESMTP id sCMGnCRJTneGeHsvYr_ZrQ
+	for <romain.calascibetta@gmail.com>; Wed, 09 Nov 2016 20:10:27.367 +0000 (UTC)
+Date: Wed, 09 Nov 2016 12:10:27 -0800
+From: Thomas Gazagnaire <notifications@github.com>
+Reply-To: mirage/irmin <reply+0004e976450d3015e434a818b602473d45afa079962ab62292cf00000001143b44b392a169ce0b37f3a2@reply.github.com>
+To: mirage/irmin <irmin@noreply.github.com>
+Message-ID: <mirage/irmin/pull/378/c259513470@github.com>
+In-Reply-To: <mirage/irmin/pull/378@github.com>
+References: <mirage/irmin/pull/378@github.com>
+Subject: Re: [mirage/irmin] use a numerical version in META (_NUM strips
+ leading v) (#378)
+Mime-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="--==_mimepart_582382b3482a9_41fe3fcae2335134114081";
+ charset=UTF-8
+Content-Transfer-Encoding: 7bit
+Precedence: list
+X-GitHub-Sender: samoht
+X-GitHub-Recipient: dinosaure
+List-ID: mirage/irmin <irmin.mirage.github.com>
+List-Archive: https://github.com/mirage/irmin
+List-Post: <mailto:reply+0004e976450d3015e434a818b602473d45afa079962ab62292cf00000001143b44b392a169ce0b37f3a2@reply.github.com>
+List-Unsubscribe: <mailto:unsub+0004e976450d3015e434a818b602473d45afa079962ab62292cf00000001143b44b392a169ce0b37f3a2@reply.github.com>,
+ <https://github.com/notifications/unsubscribe/AATpdrPIRiVpVpXT9Y_7trbVc4iBYbRTks5q8iizgaJpZM4KtZTf>
+X-Auto-Response-Suppress: All
+X-GitHub-Recipient-Address: romain.calascibetta@gmail.com
+X-SG-EID: cmZW6+3/0nIS8wiCq3K5Gx142PtEnYtDodOm+A+XOu1I4um33tvQzCB/qgw7ttUwp5+ca0gThBkIFA
+ QgX8ETLCAANVJiBg4fghHzmvUPXlL1piLUotS21nFGcpk2k3Y8u/frKhDf1FOUG3Vj95iEAquHo/H2
+ +BrGZB6ljwNTFHIsjNn2scRyPuov1FkVZmyKRJMkJXPT/0gd9pywiNVVY+aJlmUnEYLdJvjd00G7Ey
+ 9rrwfDq9T59ARt+YoGtMGZ
+X-Feedback-ID: 848413:6xvVEJqleZlAW7/vhv7PzD/cv5tamo2SWZDKyvugGvg=:6xvVEJqleZlAW7/vhv7PzD/cv5tamo2SWZDKyvugGvg=:SG
+X-getmail-retrieved-from-mailbox: INBOX
+X-GMAIL-THRID: =?utf-8?q?1550517059353564079?=
+X-GMAIL-MSGID: =?utf-8?q?1550552640229331727?=
+
+----==_mimepart_582382b3482a9_41fe3fcae2335134114081
+Content-Type: text/plain;
+ charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+The TravisCI error is unrelated.
+
+-- 
+You are receiving this because you are subscribed to this thread.
+Reply to this email directly or view it on GitHub:
+https://github.com/mirage/irmin/pull/378#issuecomment-259513470
+----==_mimepart_582382b3482a9_41fe3fcae2335134114081
+Content-Type: text/html;
+ charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+<p>The TravisCI error is unrelated.</p>
+
+<p style="font-size:small;-webkit-text-size-adjust:none;color:#666;">&mdash;<br />You are receiving this because you are subscribed to this thread.<br />Reply to this email directly, <a href="https://github.com/mirage/irmin/pull/378#issuecomment-259513470">view it on GitHub</a>, or <a href="https://github.com/notifications/unsubscribe-auth/AATpdkl1MKFIIwwvF7-fRVodb9xxlzZGks5q8iizgaJpZM4KtZTf">mute the thread</a>.<img alt="" height="1" src="https://github.com/notifications/beacon/AATpdgJVA5s1NzB-JUxavLNXSOSaB6Khks5q8iizgaJpZM4KtZTf.gif" width="1" /></p>
+<div itemscope itemtype="http://schema.org/EmailMessage">
+<div itemprop="action" itemscope itemtype="http://schema.org/ViewAction">
+  <link itemprop="url" href="https://github.com/mirage/irmin/pull/378#issuecomment-259513470"></link>
+  <meta itemprop="name" content="View Pull Request"></meta>
+</div>
+<meta itemprop="description" content="View this Pull Request on GitHub"></meta>
+</div>
+
+<script type="application/json" data-scope="inboxmarkup">{"api_version":"1.0","publisher":{"api_key":"05dde50f1d1a384dd78767c55493e4bb","name":"GitHub"},"entity":{"external_key":"github/mirage/irmin","title":"mirage/irmin","subtitle":"GitHub repository","main_image_url":"https://cloud.githubusercontent.com/assets/143418/17495839/a5054eac-5d88-11e6-95fc-7290892c7bb5.png","avatar_image_url":"https://cloud.githubusercontent.com/assets/143418/15842166/7c72db34-2c0b-11e6-9aed-b52498112777.png","action":{"name":"Open in GitHub","url":"https://github.com/mirage/irmin"}},"updates":{"snippets":[{"icon":"PERSON","message":"@samoht in #378: The TravisCI error is unrelated."}],"action":{"name":"View Pull Request","url":"https://github.com/mirage/irmin/pull/378#issuecomment-259513470"}}}</script>
+----==_mimepart_582382b3482a9_41fe3fcae2335134114081--

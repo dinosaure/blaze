@@ -1,0 +1,210 @@
+Return-Path: <noreply@github.com>
+Delivered-To: romain.calascibetta@gmail.com
+Received: by 2002:a0c:8b6e:0:0:0:0:0 with SMTP id d46csp10537574qvc;
+        Thu, 6 Dec 2018 04:45:36 -0800 (PST)
+X-Google-Smtp-Source: AFSGD/WUVwB34rhb7WzrddyrzlpTItS2BDRiFVF5aBgdXFnpTXq4Fet8Bfd5B7H28uJgGhFkMVdj
+X-Received: by 2002:a37:52d6:: with SMTP id g205mr26395616qkb.335.1544100336431;
+        Thu, 06 Dec 2018 04:45:36 -0800 (PST)
+ARC-Seal: i=1; a=rsa-sha256; t=1544100336; cv=none;
+        d=google.com; s=arc-20160816;
+        b=yxuQpTtUGLkxXRZ1uXEgzTrmcQZJGJ7kg5vBUZsT3+naoOaznots+iPBZ58igS7hMw
+         SzYfwm09AhQLUDW58+wMOV0jAXpqtfxGLszKYlr+TeUDhksV+VJ8tiBsnv8qCFmoxz/Z
+         fiMdT0ODWOi4ri2MhlEMYn5z17amiwkJnW6JtFjM4FJ1rzGK5on8ACg2ebThAeVSlWId
+         VVekE56/ZbCPU1nur+JEO2tAyRRmqdVp2HkMaK8+aCA4Pz49bGD3qW9DSVlpbsTAsCAw
+         zDxtH8kNPqJL84lsgqKicfh8ngH+/1hDD6RgRMBnzSEYeOAIWcMathkEQF2i1x7Fxkfm
+         H3eA==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20160816;
+        h=list-unsubscribe:list-post:list-archive:list-id:precedence
+         :content-transfer-encoding:mime-version:subject:references
+         :in-reply-to:message-id:cc:to:reply-to:from:dkim-signature:date;
+        bh=JC5Ppi0bIF0LjaqLBvsdmlGUddy9IBANMcZlB4r/jg0=;
+        b=K0ZBUMibHCdKNMZdAI3TY6sJW+wtSgmE4Ju5obpsF/+oMv88bqK/EM3/LHsONgJVK1
+         N+Ht7Z5tB3eeV0L9HBqRu9hGqfotsUwNzK3p4G+Oxi2g0LDwHZ/Luc1UXeVJ6QEv4SfD
+         57LQeHG00KZ6mZzkdpr8KwwjVa/pcdFV0/MjsL+It354oSkfAbmFbt3jS/3rP1IG+qRp
+         7j4k0sVU/u+POFgXczV3s0AssbG1cUk6T6/qc7e7ZcruPVXa7FLwPOChGHt1R7TOsTMO
+         +6sFc2TVHUIaMcnEAYO5hT8ayFcE1I6eZp4IJTe/yRcjCKD0WZJjhQ/TPZnaRUpyTJyg
+         XOEw==
+ARC-Authentication-Results: i=1; mx.google.com;
+       dkim=pass (test mode) header.i=@github.com header.s=pf2014 header.b=1crXUDuJ;
+       spf=pass (google.com: domain of noreply@github.com designates 192.30.252.192 as permitted sender) smtp.mailfrom=noreply@github.com;
+       dmarc=pass (p=NONE sp=NONE dis=NONE) header.from=github.com
+Received: from out-1.smtp.github.com (out-1.smtp.github.com. [192.30.252.192])
+        by mx.google.com with ESMTPS id 55si171645qvx.1.2018.12.06.04.45.36
+        for <romain.calascibetta@gmail.com>
+        (version=TLS1_2 cipher=ECDHE-RSA-AES128-GCM-SHA256 bits=128/128);
+        Thu, 06 Dec 2018 04:45:36 -0800 (PST)
+Received-SPF: pass (google.com: domain of noreply@github.com designates 192.30.252.192 as permitted sender) client-ip=192.30.252.192;
+Authentication-Results: mx.google.com;
+       dkim=pass (test mode) header.i=@github.com header.s=pf2014 header.b=1crXUDuJ;
+       spf=pass (google.com: domain of noreply@github.com designates 192.30.252.192 as permitted sender) smtp.mailfrom=noreply@github.com;
+       dmarc=pass (p=NONE sp=NONE dis=NONE) header.from=github.com
+Date: Thu, 06 Dec 2018 04:45:36 -0800
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=github.com;
+	s=pf2014; t=1544100336;
+	bh=JC5Ppi0bIF0LjaqLBvsdmlGUddy9IBANMcZlB4r/jg0=;
+	h=Date:From:Reply-To:To:Cc:In-Reply-To:References:Subject:List-ID:
+	 List-Archive:List-Post:List-Unsubscribe:From;
+	b=1crXUDuJO2iqzhbE/SM4v5F8MWzU2JaZmn8qvPPy0YzEfR9iXTGe9maYVC0owrHzA
+	 HH6TYsRMvWFi4PIWQ4w9mf9n3w6hsMYqyn6rTZwU02ObRNgZWgmWcrMwmDRdknvR/4
+	 EQZZOCdBtpE5Y95xJ3x6xnS5k2QwT6OXovA7pczQ=
+From: =?UTF-8?B?WWFubiBSw6lnaXMgR2lhbmFz?= <notifications@github.com>
+Reply-To: mirage/decompress <reply+0004e976d9ee97bc1d2d238f13f646219cc36441871e86af92cf000000011820dbf092a169ce1722a3ee@reply.github.com>
+To: mirage/decompress <decompress@noreply.github.com>
+Cc: Calascibetta Romain <romain.calascibetta@gmail.com>, 
+ Mention <mention@noreply.github.com>
+Message-ID: <mirage/decompress/issues/65/444859318@github.com>
+In-Reply-To: <mirage/decompress/issues/65@github.com>
+References: <mirage/decompress/issues/65@github.com>
+Subject: Re: [mirage/decompress] Outdated documentation (#65)
+Mime-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="--==_mimepart_5c0919f027e25_99f3fa5ab2d45c01692e9";
+ charset=UTF-8
+Content-Transfer-Encoding: 7bit
+Precedence: list
+X-GitHub-Sender: yurug
+X-GitHub-Recipient: dinosaure
+X-GitHub-Reason: mention
+List-ID: mirage/decompress <decompress.mirage.github.com>
+List-Archive: https://github.com/mirage/decompress
+List-Post: <mailto:reply+0004e976d9ee97bc1d2d238f13f646219cc36441871e86af92cf000000011820dbf092a169ce1722a3ee@reply.github.com>
+List-Unsubscribe: <mailto:unsub+0004e976d9ee97bc1d2d238f13f646219cc36441871e86af92cf000000011820dbf092a169ce1722a3ee@reply.github.com>,
+ <https://github.com/notifications/unsubscribe/AATpdt8-IBuKx5FuEHMO53bALTgNqJ0yks5u2RFwgaJpZM4ZGNcx>
+X-Auto-Response-Suppress: All
+X-GitHub-Recipient-Address: romain.calascibetta@gmail.com
+X-getmail-retrieved-from-mailbox: INBOX
+X-GMAIL-THRID: =?utf-8?q?1619097479752438042?=
+X-GMAIL-MSGID: =?utf-8?q?1619106554327842224?=
+
+
+----==_mimepart_5c0919f027e25_99f3fa5ab2d45c01692e9
+Content-Type: text/plain;
+ charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+Thanks @dinosaure!
+
+-- 
+You are receiving this because you were mentioned.
+Reply to this email directly or view it on GitHub:
+https://github.com/mirage/decompress/issues/65#issuecomment-444859318
+----==_mimepart_5c0919f027e25_99f3fa5ab2d45c01692e9
+Content-Type: text/html;
+ charset=UTF-8
+Content-Transfer-Encoding: quoted-printable
+
+<p>Thanks <a class=3D"user-mention" data-hovercard-type=3D"user" data-hov=
+ercard-url=3D"/hovercards?user_id=3D321910" data-octo-click=3D"hovercard-=
+link-click" data-octo-dimensions=3D"link_type:self" href=3D"https://githu=
+b.com/dinosaure">@dinosaure</a>!</p>=0D
+=0D
+<p style=3D"font-size:small;-webkit-text-size-adjust:none;color:#666;">&m=
+dash;<br />You are receiving this because you were mentioned.<br />Reply =
+to this email directly, <a href=3D"https://github.com/mirage/decompress/i=
+ssues/65#issuecomment-444859318">view it on GitHub</a>, or <a href=3D"htt=
+ps://github.com/notifications/unsubscribe-auth/AATpdjCbF18WSI4lmfyTyZ_nhD=
+ChaTTdks5u2RFwgaJpZM4ZGNcx">mute the thread</a>.<img src=3D"https://githu=
+b.com/notifications/beacon/AATpdhvF3DgSh7jkQyrG6vL-FAQw1gdzks5u2RFwgaJpZM=
+4ZGNcx.gif" height=3D"1" width=3D"1" alt=3D"" /></p>=0D
+<script type=3D"application/json" data-scope=3D"inboxmarkup">{"api_versio=
+n":"1.0","publisher":{"api_key":"05dde50f1d1a384dd78767c55493e4bb","name"=
+:"GitHub"},"entity":{"external_key":"github/mirage/decompress","title":"m=
+irage/decompress","subtitle":"GitHub repository","main_image_url":"https:=
+//assets-cdn.github.com/images/email/message_cards/header.png","avatar_im=
+age_url":"https://assets-cdn.github.com/images/email/message_cards/avatar=
+.png","action":{"name":"Open in GitHub","url":"https://github.com/mirage/=
+decompress"}},"updates":{"snippets":[{"icon":"PERSON","message":"@yurug i=
+n #65: Thanks @dinosaure!"}],"action":{"name":"View Issue","url":"https:/=
+/github.com/mirage/decompress/issues/65#issuecomment-444859318"}}}</scrip=
+t>=0D
+<script type=3D"application/ld+json">[=0D
+{=0D
+"@context": "http://schema.org",=0D
+"@type": "EmailMessage",=0D
+"potentialAction": {=0D
+"@type": "ViewAction",=0D
+"target": "https://github.com/mirage/decompress/issues/65#issuecomment-44=
+4859318",=0D
+"url": "https://github.com/mirage/decompress/issues/65#issuecomment-44485=
+9318",=0D
+"name": "View Issue"=0D
+},=0D
+"description": "View this Issue on GitHub",=0D
+"publisher": {=0D
+"@type": "Organization",=0D
+"name": "GitHub",=0D
+"url": "https://github.com"=0D
+}=0D
+},=0D
+{=0D
+"@type": "MessageCard",=0D
+"@context": "http://schema.org/extensions",=0D
+"hideOriginalBody": "false",=0D
+"originator": "AF6C5A86-E920-430C-9C59-A73278B5EFEB",=0D
+"title": "Re: [mirage/decompress] Outdated documentation (#65)",=0D
+"sections": [=0D
+{=0D
+"text": "",=0D
+"activityTitle": "**Yann R=C3=A9gis Gianas**",=0D
+"activityImage": "https://assets-cdn.github.com/images/email/message_card=
+s/avatar.png",=0D
+"activitySubtitle": "@yurug",=0D
+"facts": [=0D
+=0D
+]=0D
+}=0D
+],=0D
+"potentialAction": [=0D
+{=0D
+"name": "Add a comment",=0D
+"@type": "ActionCard",=0D
+"inputs": [=0D
+{=0D
+"isMultiLine": true,=0D
+"@type": "TextInput",=0D
+"id": "IssueComment",=0D
+"isRequired": false=0D
+}=0D
+],=0D
+"actions": [=0D
+{=0D
+"name": "Comment",=0D
+"@type": "HttpPOST",=0D
+"target": "https://api.github.com",=0D
+"body": "{\n\"commandName\": \"IssueComment\",\n\"repositoryFullName\": \=
+"mirage/decompress\",\n\"issueId\": 65,\n\"IssueComment\": \"{{IssueComme=
+nt.value}}\"\n}"=0D
+}=0D
+]=0D
+},=0D
+{=0D
+"name": "Close issue",=0D
+"@type": "HttpPOST",=0D
+"target": "https://api.github.com",=0D
+"body": "{\n\"commandName\": \"IssueClose\",\n\"repositoryFullName\": \"m=
+irage/decompress\",\n\"issueId\": 65\n}"=0D
+},=0D
+{=0D
+"targets": [=0D
+{=0D
+"os": "default",=0D
+"uri": "https://github.com/mirage/decompress/issues/65#issuecomment-44485=
+9318"=0D
+}=0D
+],=0D
+"@type": "OpenUri",=0D
+"name": "View on GitHub"=0D
+},=0D
+{=0D
+"name": "Unsubscribe",=0D
+"@type": "HttpPOST",=0D
+"target": "https://api.github.com",=0D
+"body": "{\n\"commandName\": \"MuteNotification\",\n\"threadId\": 4210583=
+53\n}"=0D
+}=0D
+],=0D
+"themeColor": "26292E"=0D
+}=0D
+]</script>=
+
+----==_mimepart_5c0919f027e25_99f3fa5ab2d45c01692e9--
