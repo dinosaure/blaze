@@ -182,7 +182,7 @@ let sign _verbose input output private_key seed selector fields hash canon
     domain_name =
   match (seed, private_key) with
   | None, None -> `Error (true, "A private key or a seed is required.")
-  | _, Some (`RSA pk) ->
+  | _, Some pk ->
       sign _verbose input output pk selector fields hash canon domain_name
   | Some (`Seed seed), None ->
       let pk = priv_of_seed seed in
@@ -224,13 +224,13 @@ let inet_addr_of_string str =
 
 let pp_nameserver ppf = function
   | `TCP, (inet_addr, 53) ->
-      Fmt.pf ppf "tcp://%s/" (Unix.string_of_inet_addr inet_addr)
+      Fmt.pf ppf "tcp://%a/" Ipaddr.pp inet_addr
   | `UDP, (inet_addr, 53) ->
-      Fmt.pf ppf "udp://%s/" (Unix.string_of_inet_addr inet_addr)
+      Fmt.pf ppf "udp://%a/" Ipaddr.pp inet_addr 
   | `TCP, (inet_addr, port) ->
-      Fmt.pf ppf "tcp://%s:%d/" (Unix.string_of_inet_addr inet_addr) port
+      Fmt.pf ppf "tcp://%a:%d/" Ipaddr.pp inet_addr port
   | `UDP, (inet_addr, port) ->
-      Fmt.pf ppf "udp://%s:%d/" (Unix.string_of_inet_addr inet_addr) port
+      Fmt.pf ppf "udp://%a:%d/" Ipaddr.pp inet_addr port
 
 let nameserver =
   let parser str =
@@ -242,9 +242,9 @@ let nameserver =
       | Some scheme -> Fmt.invalid_arg "Invalid scheme: %S" scheme in
     match (Option.bind (Uri.host uri) inet_addr_of_string, Uri.port uri) with
     | None, None -> None
-    | None, Some port -> Some (via, (Unix.inet_addr_loopback, port))
-    | Some inet_addr, None -> Some (via, (inet_addr, 53))
-    | Some inet_addr, Some port -> Some (via, (inet_addr, port)) in
+    | None, Some port -> Some (via, (Ipaddr_unix.of_inet_addr Unix.inet_addr_loopback, port))
+    | Some inet_addr, None -> Some (via, (Ipaddr_unix.of_inet_addr inet_addr, 53))
+    | Some inet_addr, Some port -> Some (via, (Ipaddr_unix.of_inet_addr inet_addr, port)) in
   let parser str =
     match parser str with
     | Some v -> Ok v
@@ -371,7 +371,8 @@ let private_key =
       >>| Cstruct.of_string
       >>= X509.Private_key.decode_der
     with
-    | Ok _ as v -> v
+    | Ok (`RSA key) -> Ok key
+    | Ok _ -> R.error_msgf "We handle only RSA key"
     | Error _ ->
     match Fpath.of_string str with
     | Ok _ when Sys.file_exists str ->
@@ -380,7 +381,10 @@ let private_key =
         let rs = Bytes.create ln in
         really_input ic rs 0 ln ;
         let rs = Bytes.unsafe_to_string rs in
-        X509.Private_key.decode_pem (Cstruct.of_string rs)
+        ( match X509.Private_key.decode_pem (Cstruct.of_string rs) with
+        | Ok (`RSA key) -> Ok key
+        | Ok _ -> R.error_msgf "We handle only RSA key"
+        | Error _ as err -> err )
     | Ok fpath -> R.error_msgf "%a does not exist" Fpath.pp fpath
     | Error _ as err -> err in
   let pp ppf _pk = Fmt.pf ppf "<private-key>" in
