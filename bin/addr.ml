@@ -52,8 +52,7 @@ let pp_mailbox ppf = function
 
 let parse_header p ic =
   let open Rresult in
-  let chunk = Bigstringaf.create 0x1000 in
-  let decoder = Hd.decoder ~p chunk in
+  let decoder = Hd.decoder p in
   let rec go (addresses : Emile.mailbox list) =
     match Hd.decode decoder with
     | `Malformed err -> Error (`Msg err)
@@ -73,10 +72,11 @@ let parse_header p ic =
     | `Await ->
     match input_line ic with
     | line ->
-        Hd.src decoder (line ^ "\r\n") 0 (String.length line + 2) >>= fun () ->
+        Hd.src decoder (line ^ "\r\n") 0 (String.length line + 2) ;
         go addresses
-    | exception End_of_file -> Hd.src decoder "" 0 0 >>= fun () -> go addresses
-  in
+    | exception End_of_file ->
+        Hd.src decoder "" 0 0 ;
+        go addresses in
   go []
 
 let run want_to_decode_rfc2047 fields input =

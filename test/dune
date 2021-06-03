@@ -6,4 +6,5 @@
   %{bin:blaze.dkim}
   %{bin:blaze.recv}
   %{bin:blaze.addr}
-  %{bin:blaze.hdr}))
+  %{bin:blaze.hdr}
+  %{bin:blaze.spf}))

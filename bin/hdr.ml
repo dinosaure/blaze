@@ -67,8 +67,7 @@ let pp_address ppf = function
   | `Mailbox m -> pp_mailbox ppf m
 
 let parse_header p ic =
-  let chunk = Bigstringaf.create 0x1000 in
-  let decoder = Hd.decoder ~p chunk in
+  let decoder = Hd.decoder p in
   let rec go hdr =
     match Hd.decode decoder with
     | `Malformed err -> Error (`Msg err)
@@ -77,9 +76,11 @@ let parse_header p ic =
     | `Await ->
     match input_line ic with
     | line ->
-        Hd.src decoder (line ^ "\r\n") 0 (String.length line + 2) >>= fun () ->
+        Hd.src decoder (line ^ "\r\n") 0 (String.length line + 2) ;
         go hdr
-    | exception End_of_file -> Hd.src decoder "" 0 0 >>= fun () -> go hdr in
+    | exception End_of_file ->
+        Hd.src decoder "" 0 0 ;
+        go hdr in
   go []
 
 let pp_value ppf = function

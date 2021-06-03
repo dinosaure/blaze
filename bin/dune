@@ -11,6 +11,21 @@
  (libraries cmdliner fpath rresult mrmime bigstringaf fmt))
 
 (executable
+ (name spf)
+ (modules spf)
+ (public_name blaze.spf)
+ (libraries
+  cmdliner
+  fpath
+  rresult
+  uri
+  fmt.cli
+  logs.fmt
+  fmt.tty
+  logs.cli
+  spf.unix))
+
+(executable
  (name recv)
  (modules recv)
  (public_name blaze.recv)
