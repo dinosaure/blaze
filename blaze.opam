@@ -1,23 +1,59 @@
 opam-version: "2.0"
-name:         "blaze"
-maintainer:   "Romain Calascibetta <romain.calascibetta@gmail.com>"
-authors:      "Romain Calascibetta <romain.calascibetta@gmail.com>"
-homepage:     "https://github.com/dinosaure/blaze"
-bug-reports:  "https://github.com/dinosaure/blaze/issues"
-dev-repo:     "git+https://github.com/dinosaure/blaze.git"
-doc:          "https://dinosaure.github.io/blaze/"
-license:      "MIT"
-synopsis:     "Tools to manipulate emails"
-description: """Conan is a re-implementation in OCaml of the file command.
+name: "blaze"
+synopsis: "Tools to manipulate emails"
+description: """\
+Conan is a re-implementation in OCaml of the file command.
 The library is system-agnostic and can be used with MirageOS."""
-
-build:
-  [ [ "dune" "build" "-p" name "-j" jobs ]
-    [ "dune" "runtest" "-p" name "-j" jobs ] {with-test} ]
-
+maintainer: "Romain Calascibetta <romain.calascibetta@gmail.com>"
+authors: "Romain Calascibetta <romain.calascibetta@gmail.com>"
+license: "MIT"
+homepage: "https://github.com/dinosaure/blaze"
+doc: "https://dinosaure.github.io/blaze/"
+bug-reports: "https://github.com/dinosaure/blaze/issues"
 depends: [
-  "ocaml"       {>= "4.08.0"}
+  "ocaml" {>= "4.08.0"}
   "mrmime"
   "bigstringaf"
   "emile"
+  "cmdliner" {>= "1.0.4"}
+  "colombe" {>= "0.4.1"}
+  "dkim" {>= "0.2.0"}
+  "dns-client" {>= "5.0.1"}
+  "dune" {>= "2.8.5"}
+  "fmt" {>= "0.8.9"}
+  "fpath" {>= "0.7.3"}
+  "logs" {>= "0.7.0"}
+  "ocamlgraph" {>= "2.0.0"}
+  "ptime" {>= "0.8.5"}
+  "received" {>= "0.5.0"}
+  "rresult" {>= "0.6.0"}
+  "spf" {>= "2.0.2"}
+  "uri" {>= "4.2.0"}
+]
+build: [
+  ["dune" "build" "-p" name "-j" jobs]
+  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
+]
+dev-repo: "git+https://github.com/dinosaure/blaze.git"
+pin-depends: [
+  [
+    "mrmime.dev"
+    "git+https://github.com/mirage/mrmime.git#39101eb0049ae4cf1db49ee2179cada74ca5bd6a"
+  ]
+  [
+    "pecu.dev"
+    "git+https://github.com/mirage/pecu.git#b33965ed8ade1102ae1f18ba6c95aa5d696ec9c3"
+  ]
+  [
+    "colombe.dev"
+    "git+https://github.com/mirage/colombe.git#a2c706f14e5b890d9b6e7b812163fd030bd4936d"
+  ]
+  [
+    "dkim.dev"
+    "git+https://github.com/dinosaure/ocaml-dkim.git#bdd0a7d3f242436af36861a7bdf585b097772c95"
+  ]
+  [
+    "spf.dev"
+    "git+https://github.com/dinosaure/ocaml-spf.git#d58b154619131cf1f55ef786476f7f2826c584ab"
+  ]
 ]
