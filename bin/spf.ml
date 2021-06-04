@@ -57,7 +57,8 @@ let stamp quiet nameserver timeout hostname sender helo ip input output =
       Fmt.pr "%a: %s\n%!" Mrmime.Field_name.pp field_name
         (unstrctrd_to_utf_8_string_with_lf unstrctrd) ;
       transmit ic oc ;
-      close_ic ic ; close_oc oc ;
+      close_ic ic ;
+      close_oc oc ;
       `Ok 0
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 

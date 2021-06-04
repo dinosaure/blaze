@@ -54,7 +54,7 @@ pin-depends: [
   ]
   [
     "dkim.dev"
-    "git+https://github.com/dinosaure/ocaml-dkim.git#264ef7db0c369e27700eab0067087afe2187c9e4"
+    "git+https://github.com/dinosaure/ocaml-dkim.git#ec4613460edebf5dcaf47b8c7706b1fc03fa139f"
   ]
   [
     "spf.dev"

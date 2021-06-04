@@ -4,6 +4,8 @@
   002.mail
   003.mail
   004.mail
+  (source_tree mdir)
+  %{bin:blaze.mdir}
   %{bin:blaze.dkim}
   %{bin:blaze.recv}
   %{bin:blaze.addr}
