@@ -56,16 +56,21 @@ let show_fields valid =
   let fields = List.fold_left fold [] valid in
   List.iter (Fmt.pr "%a\n%!" Mrmime.Field_name.pp) fields
 
-let show_result valid invalid =
+let show_result valid expired invalid =
   let show_valid dkim =
     Fmt.pr "[%a]: %a\n%!"
       Fmt.(styled `Green string)
       "OK" Domain_name.pp (Dkim.domain dkim) in
+  let show_expired dkim =
+    Fmt.pr "[%a]: %a\n%!"
+      Fmt.(styled `Yellow string)
+      "EX" Domain_name.pp (Dkim.domain dkim) in
   let show_invalid dkim =
     Fmt.pr "[%a]: %a\n%!"
       Fmt.(styled `Red string)
       "ER" Domain_name.pp (Dkim.domain dkim) in
   List.iter show_valid valid ;
+  List.iter show_expired expired ;
   List.iter show_invalid invalid
 
 module Infix = struct
@@ -76,6 +81,8 @@ module Infix = struct
   let ( >>? ) x f =
     x >>= function Ok x -> f x | Error err -> return (Error err)
 end
+
+let epoch () = Int64.of_float (Unix.gettimeofday ())
 
 let verify quiet fields nameserver input =
   let dns = Dns_client_unix.create ?nameserver () in
@@ -88,7 +95,7 @@ let verify quiet fields nameserver input =
   >>= fun ({ Dkim.prelude; dkim_fields; _ } as extracted) ->
   Dkim.extract_body ~newline ic caml (module Caml_flow) ~prelude |> prj |> R.ok
   >>= fun body ->
-  let fold (valid, invalid) (dkim_field_name, dkim_field_value, m) =
+  let fold (valid, expired, invalid) (dkim_field_name, dkim_field_value, m) =
     let fiber =
       let open Infix in
       Dkim.post_process_dkim m |> return >>? fun dkim ->
@@ -96,18 +103,20 @@ let verify quiet fields nameserver input =
       Dkim.post_process_server n |> return >>? fun server ->
       return (Ok (dkim, server)) in
     match Caml_scheduler.prj fiber with
-    | Error _ -> (valid, invalid)
+    | Error _ -> (valid, expired, invalid)
     | Ok (dkim, server) ->
     match
-      Dkim.verify extracted.Dkim.fields
-        (dkim_field_name, dkim_field_value)
-        dkim server body
+      ( Dkim.verify ~epoch extracted.Dkim.fields
+          (dkim_field_name, dkim_field_value)
+          dkim server body,
+        Dkim.expired ~epoch dkim )
     with
-    | true -> (dkim :: valid, invalid)
-    | false -> (valid, dkim :: invalid) in
-  let valid, invalid = List.fold_left fold ([], []) dkim_fields in
+    | true, false -> (dkim :: valid, expired, invalid)
+    | true, true -> (valid, dkim :: expired, invalid)
+    | false, _ -> (valid, expired, dkim :: invalid) in
+  let valid, expired, invalid = List.fold_left fold ([], [], []) dkim_fields in
   if (not quiet) && not fields
-  then show_result valid invalid
+  then show_result valid expired invalid
   else if (not quiet) && fields
   then show_fields valid ;
   close ic ;

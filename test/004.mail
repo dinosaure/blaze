@@ -1,0 +1,173 @@
+Return-Path: <ocaml+verp-cdef9eaa098cd788943a4314c682b75a@discoursemail.com>
+Delivered-To: romain.calascibetta@gmail.com
+Received: by 10.12.195.133 with SMTP id o5csp1021946qvi;
+        Wed, 28 Mar 2018 15:01:18 -0700 (PDT)
+X-Google-Smtp-Source: AIpwx48v4O7s67bC8SJXN97+vP+R9+zZJgOoYig7/CbSM3HQ+2KMJRo0h4S79jjGG8sS/PBSpNIt
+X-Received: by 10.99.67.1 with SMTP id q1mr3686835pga.365.1522274478680;
+        Wed, 28 Mar 2018 15:01:18 -0700 (PDT)
+ARC-Seal: i=1; a=rsa-sha256; t=1522274478; cv=none;
+        d=google.com; s=arc-20160816;
+        b=CXc64U6fkuKdWCoLGbNrMVqGSL7C3wN4Qhu0hq6y0Aw51Qkx7/kKGPHRwQAuP+zVf7
+         llKUdev7/3CoXECRwELPnp0haFF3pYzpGMAjx0S3gDqxxOv28QHrUa6Htt0z9Bxm2t7w
+         53xorW3SZHpUHQos/pNX+ZOPc9p7mW/QQMG1JruHIzk0DQPHnAjsK/7BU2ymspEtwAqs
+         35xEaNUHJ/RTBucZS7Ds/UfhHINtfRkNpPeNx9nh01rtySjFd4QhsGOdV2ZISgDkpLZ6
+         RHNrOYcAMTLVGW9h9uBL4CqjSrLJLj7qHxLlSGt5YXKM61Qnd6cV6oae9m4bXbh7A5nm
+         NcHA==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20160816;
+        h=list-archive:list-id:precedence:auto-submitted:list-unsubscribe
+         :content-transfer-encoding:mime-version:subject:references
+         :in-reply-to:message-id:to:reply-to:from:date:dkim-signature
+         :arc-authentication-results;
+        bh=ZdGqJdNQN89dxdSnp2OTNCT9sFs6eWJfQgJNHULMQmI=;
+        b=ftc00BZ0+5PbzgcJN5kOwrGPeJxBXD51tvi2SOJhPlgqjUkFQcaK8snsHSeuW9CT7h
+         QjseLh1KioTtKRiJTm9IvLgvSwM6S/lL2q5jXCdvetHZPGSnz1EXdJ+HBs+03ytbzr5p
+         LeR1S4xLyNqEGA4zU8Uv53mwDPr2mJN929eBsqu0jLOautbiFTJoQ/duoFKAOGJQ+DpE
+         knYrcVx/tPoSFLXXyEchVFv438AHehHU5gi3t2GgFTj2lhui5uQcmjebun7f8c38e7F6
+         B43tHv31bR3FE/ie/hnRRmIeD4HQWevOMiHcTM4fB3b3F+rPx4IfEdSOpbCNWlKdqA79
+         /miQ==
+ARC-Authentication-Results: i=1; mx.google.com;
+       dkim=pass header.i=@discoursemail.com header.s=sjc2 header.b=VmvuZ8wM;
+       spf=pass (google.com: domain of ocaml+verp-cdef9eaa098cd788943a4314c682b75a@discoursemail.com designates 216.218.240.121 as permitted sender) smtp.mailfrom=ocaml+verp-cdef9eaa098cd788943a4314c682b75a@discoursemail.com;
+       dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=discoursemail.com
+Received: from mx-out-01b.sjc2.discourse.org (mx-out-01b.sjc2.discourse.org. [216.218.240.121])
+        by mx.google.com with ESMTPS id bj5-v6si4246535plb.712.2018.03.28.15.01.17
+        for <romain.calascibetta@gmail.com>
+        (version=TLS1_2 cipher=ECDHE-RSA-AES128-GCM-SHA256 bits=128/128);
+        Wed, 28 Mar 2018 15:01:18 -0700 (PDT)
+Received-SPF: pass (google.com: domain of ocaml+verp-cdef9eaa098cd788943a4314c682b75a@discoursemail.com designates 216.218.240.121 as permitted sender) client-ip=216.218.240.121;
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@discoursemail.com header.s=sjc2 header.b=VmvuZ8wM;
+       spf=pass (google.com: domain of ocaml+verp-cdef9eaa098cd788943a4314c682b75a@discoursemail.com designates 216.218.240.121 as permitted sender) smtp.mailfrom=ocaml+verp-cdef9eaa098cd788943a4314c682b75a@discoursemail.com;
+       dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=discoursemail.com
+Received: from localhost.localdomain (unknown [IPv6:2001:470:107:1::212:8d46:a771])
+	by mx-out-01b.sjc2.discourse.org (Postfix) with ESMTP id 98C035E012C
+	for <romain.calascibetta@gmail.com>; Wed, 28 Mar 2018 22:01:17 +0000 (UTC)
+DKIM-Signature: v=1; a=rsa-sha256; c=simple/simple; d=discoursemail.com;
+	s=sjc2; t=1522274477;
+	bh=0KfgF1n2wDD+Fbyhl4WJ9itDLHq672fuUrX2TKL6JX0=;
+	h=Date:From:Reply-To:To:In-Reply-To:References:Subject:
+	 List-Unsubscribe:List-ID:List-Archive;
+	b=VmvuZ8wMp5tiiS5AT4iGiuup+K0ymLD4lkcR+GoWEy/n1dhcjBesmciwcheee+Dfw
+	 j2wRK3QtDXWNGiBg0HnNhjV3G/qgU4jS/gxFRzVP8NJlEX1AqKFo+s6+G+hSJu0X5z
+	 BTt/EUqnldTfduSd2ysewofLOyjF1Z4d0Bqib8rlDdwm6aUaQHyO6qhr6VlOmG7/MQ
+	 XbwpK1rWN5RN4CIH08xVdGOGEJb//OsNoas1J9nGYwc6rbAbPEPNH4nMlMXNt9JNaE
+	 D8Ven7fzOS7FQGIVQjFphSzRPToGMfgPWVht9LSoEq1UjBF48/u7zQZkhPx8vRA4rs
+	 LWDx9qyhXevhg==
+Date: Wed, 28 Mar 2018 22:01:17 +0000
+From: Yaron Minsky <ocaml@discoursemail.com>
+Reply-To: OCaml <ocaml+bf77c89f3ca4a05f160a08f134224d72@discoursemail.com>
+To: romain.calascibetta@gmail.com
+Message-ID: <topic/1378/8068@discuss.ocaml.org>
+In-Reply-To: <topic/1378@discuss.ocaml.org>
+References: <topic/1378@discuss.ocaml.org>
+Subject: [OCaml] [Learning] OCaml Style guide?
+Mime-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="--==_mimepart_5abc10ad75205_5dea3fb094a687e8622af";
+ charset=UTF-8
+Content-Transfer-Encoding: 7bit
+List-Unsubscribe: <https://discuss.ocaml.org/email/unsubscribe/2fd70e1c317382c3b71d8459a94d0b0c105212eb757d87142a0412d92d107f03>
+X-Auto-Response-Suppress: All
+Auto-Submitted: auto-generated
+Precedence: list
+List-ID: <learning.discuss.ocaml.org>
+List-Archive: https://discuss.ocaml.org/t/ocaml-style-guide/1378
+X-getmail-retrieved-from-mailbox: Inbox
+X-GMAIL-THRID: =?utf-8?q?1588517903135480835?=
+X-GMAIL-MSGID: =?utf-8?q?1596220483834877081?=
+
+
+----==_mimepart_5abc10ad75205_5dea3fb094a687e8622af
+Content-Type: text/plain;
+ charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+
+
+Hardly definitive, but we just posted our style guide here:
+
+https://opensource.janestreet.com/standards/
+
+
+
+
+
+---
+[Visit Topic](https://discuss.ocaml.org/t/ocaml-style-guide/1378/6) or reply to this email to respond.
+
+You are receiving this because you enabled mailing list mode.
+
+To unsubscribe from these emails, [click here](https://discuss.ocaml.org/email/unsubscribe/2fd70e1c317382c3b71d8459a94d0b0c105212eb757d87142a0412d92d107f03).
+
+----==_mimepart_5abc10ad75205_5dea3fb094a687e8622af
+Content-Type: text/html;
+ charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+<div>
+
+  <div></div>
+
+    <div style="margin-bottom:25px;">
+  <table cellspacing="0" cellpadding="0" border="0">
+    <tr>
+      <td style="vertical-align:top;width:55px;">
+        <img src="https://discourse-cdn-sjc2.com/standard11/user_avatar/discuss.ocaml.org/yaron_minsky/45/11_1.png" title="Yaron_Minsky" width="45" height="45">
+      </td>
+      <td>
+        <a href="https://discuss.ocaml.org/u/yaron_minsky" target="_blank" style="text-decoration: none; font-weight: bold; color: #006699;; font-size:13px;font-family:'lucida grande',tahoma,verdana,arial,sans-serif;color:#3b5998;text-decoration:none;font-weight:bold">Yaron_Minsky</a>
+          <span style="font-size:13px;font-family:'lucida grande',tahoma,verdana,arial,sans-serif;text-decoration:none;margin-left:7px;color: #999;">Maintainer</span>
+        <br>
+        <span style="text-align:right;color:#999999;padding-right:5px;font-family:'lucida grande',tahoma,verdana,arial,sans-serif;font-size:11px">March 28</span>
+      </td>
+    </tr>
+  </table>
+  <div style="padding-top:5px;">
+<p style="margin-top:0; border: 0;">Hardly definitive, but we just posted our style guide here:</p>
+<div style="border: 5px solid #e9e9e9; padding: 12px 25px 12px 12px;">
+  <div>
+      <img src="https://opensource.janestreet.com/assets/lambda_favicon-d57abe9d9a96d94770e04d615da09578bfc68f22f926450135539761af00d1c6.ico" width="256" height="256" style="width: 16px; height: 16px; margin-right: 3px;">
+      <a href="https://opensource.janestreet.com/standards/" target="_blank" rel="nofollow noopener" style="text-decoration: none; font-weight: bold; color: #006699;; color: #222222; text-decoration: none;">Jane Street Open Source</a>
+  </div>
+  <div style="clear: both">
+    <div style="--aspect-ratio:690/294;"><img src="https://discourse-cdn-sjc2.com/standard11/uploads/ocaml/original/1X/426044fc1f77833b38fbf9b22083034efe26578a.png" style="max-height: 80%; max-width: 20%; height: auto; float: left; margin-right: 10px;"></div>
+
+<h3 style="margin: 15px 0 20px 0;; font-size: 1.17em; margin: 10px 0;"><a href="https://opensource.janestreet.com/standards/" target="_blank" rel="nofollow noopener" style="text-decoration: none; font-weight: bold; color: #006699;">Jane Street Open Source</a></h3>
+
+<p style="margin-top:0; border: 0;">A collection of Jane Street Open Source libraries</p>
+
+
+  </div>
+  <div style="color: #919191">
+    
+    
+  </div>
+  <div style="clear: both"></div>
+</div>
+</div>
+</div>
+
+
+
+
+
+
+  <div style="color:#666;">
+<hr style="background-color: #ddd; height: 1px; border: 1px;; background-color: #ddd; height: 1px; border: 1px;">
+<p><a href="https://discuss.ocaml.org/t/ocaml-style-guide/1378/6" style="text-decoration: none; font-weight: bold; color: #006699;; background-color: #006699; color:#ffffff; border-top: 4px solid #006699; border-right: 6px solid #006699; border-bottom: 4px solid #006699; border-left: 6px solid #006699; display: inline-block;">Visit Topic</a> or reply to this email to respond.</p>
+</div>
+  <div style="color:#666;">
+<p>You are receiving this because you enabled mailing list mode.</p>
+<p>To unsubscribe from these emails, <a href="https://discuss.ocaml.org/email/unsubscribe/2fd70e1c317382c3b71d8459a94d0b0c105212eb757d87142a0412d92d107f03" style="text-decoration: none; font-weight: bold; color: #006699;; color:#666;">click here</a>.</p>
+</div>
+
+</div>
+
+<div itemscope itemtype="http://schema.org/EmailMessage" style="display:none">
+  <div itemprop="action" itemscope itemtype="http://schema.org/ViewAction">
+    <link itemprop="url" href="https://discuss.ocaml.org/t/ocaml-style-guide/1378/6">
+    <meta itemprop="name" content="Read full topic">
+  </div>
+</div>
+
+----==_mimepart_5abc10ad75205_5dea3fb094a687e8622af--

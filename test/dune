@@ -3,6 +3,7 @@
   001.mail
   002.mail
   003.mail
+  004.mail
   %{bin:blaze.dkim}
   %{bin:blaze.recv}
   %{bin:blaze.addr}

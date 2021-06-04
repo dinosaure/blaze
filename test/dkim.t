@@ -3,7 +3,8 @@ Tests on DKIM fields
   [OK]: sendgrid.info
   [OK]: github.com
   $ blaze.dkim verify 002.mail
-  [OK]: github.com
+  [WARNING][dkim]: The given DKIM-Signature expired.
+  [EX]: github.com
   $ blaze.dkim verify 003.mail
   [OK]: janestreet.com
   $ blaze.dkim verify -q 001.mail
@@ -28,3 +29,6 @@ Tests on DKIM fields
   Subject
   To
   Content-Type
+  $ blaze.dkim verify 004.mail
+  [WARNING][dkim]: The given DKIM-Signature expired.
+  [EX]: discoursemail.com
