@@ -37,11 +37,15 @@ let unstrctrd_to_utf_8_string_with_lf l =
   Unstrctrd.iter ~f l ;
   Buffer.contents buf
 
-let stamp quiet nameserver timeout hostname sender helo ip input _output =
+let stamp quiet nameserver timeout hostname sender helo ip input output =
   let ic, close_ic =
     match input with
     | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
     | None -> (stdin, ignore) in
+  let oc, close_oc =
+    match output with
+    | Some fpath -> (open_out (Fpath.to_string fpath), close_out)
+    | None -> (stdout, ignore) in
   let ctx = ctx sender helo ip in
   match Spf_unix.check ?nameserver ~timeout ctx with
   | Ok res when quiet -> (
@@ -52,8 +56,8 @@ let stamp quiet nameserver timeout hostname sender helo ip input _output =
       let field_name, unstrctrd = Spf.to_field ~ctx ~receiver:hostname res in
       Fmt.pr "%a: %s\n%!" Mrmime.Field_name.pp field_name
         (unstrctrd_to_utf_8_string_with_lf unstrctrd) ;
-      transmit ic stdout ;
-      close_ic ic ;
+      transmit ic oc ;
+      close_ic ic ; close_oc oc ;
       `Ok 0
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
@@ -291,12 +295,10 @@ let default =
       `S Manpage.s_description;
       `P
         "Use $(tname) $(i,stamp) to stamp the incoming email with an \
-         Received-SPF\n\
-        \        result.";
+         Received-SPF result.";
       `P
         "Use $(tname) $(i,analyze) to check Received-SPF fields from the \
-         incoming\n\
-        \        email.";
+         incoming email.";
     ] in
   (Term.(ret (const (`Help (`Pager, None)))), Term.info "spf" ~doc ~man)
 

@@ -58,6 +58,6 @@ pin-depends: [
   ]
   [
     "spf.dev"
-    "git+https://github.com/dinosaure/ocaml-spf.git#d58b154619131cf1f55ef786476f7f2826c584ab"
+    "git+https://github.com/dinosaure/ocaml-spf.git#a6eb6805035e5db125259cc84331e353983c8456"
   ]
 ]

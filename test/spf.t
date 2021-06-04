@@ -13,4 +13,6 @@ Tests on SPF fields
   >  tbraibant@janestreet.com; identity=mailfrom; receiver=omelet; mechanism=
   >  ip4:38.105.200.78/32;
   [1]
+  $ blaze.spf analyze 004.mail
+  ocaml+verp-cdef9eaa098cd788943a4314c682b75a@discoursemail.com from 216.218.240.121: pass (expected: pass)
 
