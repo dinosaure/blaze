@@ -49,6 +49,10 @@ pin-depends: [
     "git+https://github.com/mirage/colombe.git#a2c706f14e5b890d9b6e7b812163fd030bd4936d"
   ]
   [
+    "received.dev"
+    "git+https://github.com/mirage/colombe.git#a2c706f14e5b890d9b6e7b812163fd030bd4936d"
+  ]
+  [
     "dkim.dev"
     "git+https://github.com/dinosaure/ocaml-dkim.git#bdd0a7d3f242436af36861a7bdf585b097772c95"
   ]
