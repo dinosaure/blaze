@@ -119,6 +119,14 @@ let new_message =
   let doc = "If the message is a new one." in
   Arg.(value & flag & info [ "n"; "new" ] ~doc)
 
+let seed =
+  let doc = "Seed used by the random number generator." in
+  let base64 =
+    Arg.conv
+      ((fun str -> Base64.decode str), Fmt.using Base64.encode_string Fmt.string)
+  in
+  Arg.(value & opt (some base64) None & info [ "s"; "seed" ] ~doc)
+
 let get =
   let doc = "Load and store the given message to the $(i,output)." in
   let man = [] in
@@ -135,13 +143,23 @@ let get =
 
 let new_messages =
   let doc = "Scan and show new messages from the given $(i,maildir)." in
-  let man = [] in
+  let man =
+    [
+      `S Manpage.s_description;
+      `P "From the given $(i,maildir), $(b,new) shows new messages.";
+    ] in
   ( Term.(ret (const new_messages $ setup_logs $ hostname $ maildir)),
     Term.info "new" ~doc ~man )
 
 let default =
   let doc = "A tool to manipulate a $(i,maildir) directory." in
-  let man = [ `S Manpage.s_description ] in
+  let man =
+    [
+      `S Manpage.s_description;
+      `P
+        "From the given $(i,maildir) and the message $(i,id), $(b,get) loads \
+         and shows the entire message.";
+    ] in
   (Term.(ret (const (`Help (`Pager, None)))), Term.info "mdir" ~doc ~man)
 
 let () = Term.(exit_status @@ eval_choice default [ get; new_messages ])

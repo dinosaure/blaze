@@ -15,6 +15,7 @@
  (modules mdir)
  (public_name blaze.mdir)
  (libraries
+  base64
   logs.cli
   fmt.tty
   fmt.cli

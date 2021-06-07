@@ -267,8 +267,16 @@ let ip =
   Arg.(value & opt (some ipaddr) None & info [ "ip" ] ~doc)
 
 let stamp =
-  let doc = "" in
-  let man = [] in
+  let doc =
+    "Stamps the given message with the Received-SPF field and its result." in
+  let man =
+    [
+      `S Manpage.s_description;
+      `P
+        "Stamps the given email with a new Received-SPF field and its result \
+         from given arguments (such as the $(i,ip) address and the \
+         $(i,sender)).";
+    ] in
   ( Term.(
       ret
         (const stamp
@@ -284,8 +292,16 @@ let stamp =
     Term.info "stamp" ~doc ~man )
 
 let analyze =
-  let doc = "" in
-  let man = [] in
+  let doc =
+    "Analyzes Received-SPF fields from the given message and shows their \
+     results and the reproductibility of these results." in
+  let man =
+    [
+      `S Manpage.s_description;
+      `P
+        "Analyzes the given email and extract Received-SPF fields to reproduce \
+         expected results.";
+    ] in
   ( Term.(ret (const analyze $ setup_logs $ nameserver $ timeout $ input)),
     Term.info "analyze" ~doc ~man )
 
