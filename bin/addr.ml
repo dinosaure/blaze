@@ -50,6 +50,16 @@ let pp_mailbox ppf = function
       Fmt.pf ppf "@[<hov>%a@] %a" pp_phrase name Emile.pp_mailbox
         { v with Emile.name = None }
 
+let pp_mailbox_without_name ppf = function
+  | { Emile.local; domain = domain, _; _ } ->
+      Fmt.pf ppf "%a" Emile.pp_mailbox
+        { Emile.local; domain = (domain, []); name = None }
+
+let pp_mailbox ~without_name =
+  match without_name with
+  | true -> pp_mailbox_without_name
+  | false -> pp_mailbox
+
 let parse_header p ic =
   let open Rresult in
   let decoder = Hd.decoder p in
@@ -79,7 +89,7 @@ let parse_header p ic =
         go addresses in
   go []
 
-let run want_to_decode_rfc2047 fields input =
+let run want_to_decode_rfc2047 without_name fields input =
   decode_rfc2047 := want_to_decode_rfc2047 ;
   let ic, close =
     match input with
@@ -96,7 +106,9 @@ let run want_to_decode_rfc2047 fields input =
     res
   with
   | Ok addresses ->
-      List.iter (print_endline <.> Fmt.str "%a" pp_mailbox) addresses ;
+      List.iter
+        (print_endline <.> Fmt.str "%a" (pp_mailbox ~without_name))
+        addresses ;
       `Ok 0
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
@@ -126,13 +138,17 @@ let decode_rfc2047 =
   let doc = "Decode the $(i,hdrs) according to RFC 2047." in
   Arg.(value & flag & info [ "d" ] ~doc)
 
+let without_name =
+  let doc = "Show email addresses without their names." in
+  Arg.(value & flag & info [ "without-name" ] ~doc)
+
 let cmd =
   let doc = "Extract addresses from an email." in
   let man =
     [
       `S Manpage.s_description; `P "$(tname) extracts addresses from an email.";
     ] in
-  ( Term.(ret (const run $ decode_rfc2047 $ fields $ input)),
+  ( Term.(ret (const run $ decode_rfc2047 $ without_name $ fields $ input)),
     Term.info "addr" ~doc ~man )
 
 let () = Term.(exit_status @@ eval cmd)
