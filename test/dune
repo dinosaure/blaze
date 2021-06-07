@@ -10,4 +10,5 @@
   %{bin:blaze.recv}
   %{bin:blaze.addr}
   %{bin:blaze.hdr}
+  %{bin:blaze.map}
   %{bin:blaze.spf}))
