@@ -9,8 +9,8 @@ Tests on DKIM fields
   $ blaze.dkim verify 003.mail
   [OK]: janestreet.com
   $ blaze.dkim verify -q 001.mail
-  $ cat 002.mail | blaze.dkim verify -q -n tcp://$(grep -m1 nameserver /etc/resolv.conf | cut -d' ' -f2) -
-  $ cat 002.mail | blaze.dkim verify -q -n udp://$(grep -m1 nameserver /etc/resolv.conf | cut -d' ' -f2) -
+  $ cat 002.mail | blaze.dkim verify -q -
+  $ cat 002.mail | blaze.dkim verify -q -
   $ dd if=/dev/urandom bs=32 count=1 status=none | base64 - > seed
   $ blaze.dkim gen --seed $(cat seed) key.pem | cut -d' ' -f3 > seed.out
   $ diff seed seed.out
