@@ -89,7 +89,8 @@ let maildir =
 
 let maildir =
   let doc = "The $(i,maildir) path." in
-  Arg.(required & opt (some maildir) None & info [ "D"; "maildir" ] ~doc)
+  let env = Arg.env_var ~doc "BLAZE_MDIR" in
+  Arg.(required & opt (some maildir) None & info [ "D"; "maildir" ] ~env ~doc)
 
 let message =
   let parser str = Maildir.of_filename str in
