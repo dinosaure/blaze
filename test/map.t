@@ -11,4 +11,3 @@ Tests isomorphism
   $ blaze.addr 003.prim > addr.prim
   $ blaze.addr 003.mail > addr.mail
   $ diff addr.prim addr.mail
-  $ blaze.map 003.mail | blaze.dkim verify -vvv

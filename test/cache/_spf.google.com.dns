@@ -1,0 +1,1 @@
+txt:v=spf1 include:_netblocks.google.com include:_netblocks2.google.com include:_netblocks3.google.com ~all

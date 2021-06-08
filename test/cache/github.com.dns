@@ -1,0 +1,1 @@
+txt:v=spf1 ip4:192.30.252.0/22 include:_spf.google.com include:esp.github.com include:servers.mcsv.net include:_spf.salesforce.com  include:spf.protection.outlook.com ~all

@@ -5,6 +5,7 @@
   003.mail
   004.mail
   (source_tree mdir)
+  (source_tree cache)
   %{bin:blaze.mdir}
   %{bin:blaze.dkim}
   %{bin:blaze.recv}

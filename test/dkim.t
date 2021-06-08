@@ -1,4 +1,5 @@
 Tests on DKIM fields
+  $ export BLAZE_DNS=cache
   $ blaze.dkim verify 001.mail
   [OK]: sendgrid.info
   [OK]: github.com

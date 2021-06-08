@@ -1,0 +1,1 @@
+txt:v=spf1 ip4:198.2.181.148 include:spf.mandrillapp.com -all

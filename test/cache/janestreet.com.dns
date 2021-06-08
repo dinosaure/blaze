@@ -1,0 +1,1 @@
+txt:v=spf1 +ip4:38.105.200.78 +ip4:38.105.200.79 +ip4:64.215.233.18 +ip4:64.215.233.21 include:bloomberg.net include:_spf.google.com include:aspmx.pardot.com -all

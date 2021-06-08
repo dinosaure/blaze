@@ -17,7 +17,7 @@ end
 let extra_servers = Hashtbl.create 0x100
 
 module Dns = struct
-  include Dns_client_unix
+  include Ldns
 
   type backend = Caml_scheduler.t
 
@@ -84,8 +84,8 @@ end
 
 let epoch () = Int64.of_float (Unix.gettimeofday ())
 
-let verify quiet fields nameserver input =
-  let dns = Dns_client_unix.create ?nameserver () in
+let verify quiet local fields nameserver input =
+  let dns = Ldns.create ?nameserver ~local () in
   let ic, close =
     match input with
     | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
@@ -127,7 +127,7 @@ let extra_to_string pk =
   Fmt.str "v=DKIM1; k=rsa; p=%s"
     (Base64.encode_string ~pad:true (Cstruct.to_string pk))
 
-let verify quiet fields nameserver extra input =
+let verify quiet local fields nameserver extra input =
   let () =
     List.iter
       (fun (selector, v, extra) ->
@@ -138,7 +138,7 @@ let verify quiet fields nameserver extra input =
         let domain_name = Domain_name.to_string domain_name in
         Hashtbl.add extra_servers domain_name (extra_to_string extra))
       extra in
-  match verify quiet fields nameserver input with
+  match verify quiet local fields nameserver input with
   | Ok n -> `Ok n
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
@@ -340,6 +340,31 @@ let setup_logs style_renderer level =
 
 let setup_logs = Term.(const setup_logs $ renderer $ verbosity)
 
+let existing_directory =
+  let parser str =
+    match Fpath.of_string str with
+    | Ok v when Sys.is_directory str -> Ok v
+    | Ok v ->
+        R.error_msgf "%a does not exist or it's not a valid directory" Fpath.pp
+          v
+    | Error _ as err -> err in
+  Arg.conv (parser, Fpath.pp)
+
+let local_dns =
+  let env = Arg.env_var "BLAZE_DNS" in
+  let doc = "Load a local DNS cache." in
+  Arg.(value & opt (some existing_directory) None & info [ "dns" ] ~env ~doc)
+
+let setup_local_dns = function
+  | None -> Domain_name.Map.empty
+  | Some fpath ->
+  match Ldns.of_directory fpath with
+  | Ok local -> local
+  | Error _ -> Domain_name.Map.empty
+(* TODO(dinosaure): say something! *)
+
+let setup_local_dns = Term.(const setup_local_dns $ local_dns)
+
 let existing_file =
   let parser = function
     | "-" -> Ok None
@@ -361,7 +386,15 @@ let verify =
       `S Manpage.s_description;
       `P "$(tname) verifies DKIM fiels from the given $(i,msgs).";
     ] in
-  ( Term.(ret (const verify $ setup_logs $ fields $ nameserver $ extra $ input)),
+  ( Term.(
+      ret
+        (const verify
+        $ setup_logs
+        $ setup_local_dns
+        $ fields
+        $ nameserver
+        $ extra
+        $ input)),
     Term.info "verify" ~doc ~man )
 
 let input =

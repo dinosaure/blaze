@@ -1,0 +1,4 @@
+(library
+ (name ldns)
+ (public_name blaze.ldns)
+ (libraries bos logs rresult dns dns-client.unix fpath astring))

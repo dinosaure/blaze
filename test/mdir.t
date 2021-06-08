@@ -1,4 +1,5 @@
 Tests on mdir executable
+  $ export BLAZE_DNS=cache
   $ NEW=$(blaze.mdir new -h blaze -D mdir | tail -n1)
   $ blaze.mdir get -h blaze -D mdir -o result --new $NEW
   $ diff result mdir/new/$NEW

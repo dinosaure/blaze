@@ -37,6 +37,7 @@
  (modules spf)
  (public_name blaze.spf)
  (libraries
+  blaze.ldns
   cmdliner
   fpath
   rresult
@@ -69,6 +70,7 @@
  (modules dkim)
  (public_name blaze.dkim)
  (libraries
+  blaze.ldns
   cmdliner
   fpath
   rresult

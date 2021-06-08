@@ -17,6 +17,10 @@ depends: [
   "emile"
   "domain-name"
   "maildir"
+  "astring"
+  "base64"
+  "bos"
+  "dns"
   "cmdliner" {>= "1.0.4"}
   "colombe" {>= "0.4.1"}
   "dkim" {>= "0.2.0"}

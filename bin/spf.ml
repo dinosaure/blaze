@@ -1,5 +1,36 @@
 open Rresult
 
+module Caml_scheduler = Spf.Sigs.Make (struct
+  type 'a t = 'a
+end)
+
+let state =
+  let open Spf.Sigs in
+  let open Caml_scheduler in
+  { return = (fun x -> inj x); bind = (fun x f -> f (prj x)) }
+
+module DNS = struct
+  type t = Ldns.t
+
+  and backend = Caml_scheduler.t
+
+  and error =
+    [ `Msg of string
+    | `No_data of [ `raw ] Domain_name.t * Dns.Soa.t
+    | `No_domain of [ `raw ] Domain_name.t * Dns.Soa.t ]
+
+  let getrrecord dns response domain_name =
+    Caml_scheduler.inj @@ Ldns.get_resource_record dns response domain_name
+end
+
+module Flow = struct
+  type flow = in_channel
+
+  and backend = Caml_scheduler.t
+
+  let input ic tmp off len = Caml_scheduler.inj @@ input ic tmp off len
+end
+
 let ctx sender helo ip =
   Spf.empty |> fun ctx ->
   Option.fold ~none:ctx
@@ -37,7 +68,15 @@ let unstrctrd_to_utf_8_string_with_lf l =
   Unstrctrd.iter ~f l ;
   Buffer.contents buf
 
-let stamp quiet nameserver timeout hostname sender helo ip input output =
+let check local ?nameserver ~timeout ctx =
+  let dns = Ldns.create ?nameserver ~timeout ~local () in
+  Spf.get ~ctx state dns (module DNS) |> Caml_scheduler.prj >>| fun record ->
+  Spf.check ~ctx state dns (module DNS) record |> Caml_scheduler.prj
+
+let extract_received_spf ?newline ic =
+  Spf.extract_received_spf ?newline ic state (module Flow) |> Caml_scheduler.prj
+
+let stamp quiet local nameserver timeout hostname sender helo ip input output =
   let ic, close_ic =
     match input with
     | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
@@ -47,7 +86,7 @@ let stamp quiet nameserver timeout hostname sender helo ip input output =
     | Some fpath -> (open_out (Fpath.to_string fpath), close_out)
     | None -> (stdout, ignore) in
   let ctx = ctx sender helo ip in
-  match Spf_unix.check ?nameserver ~timeout ctx with
+  match check ?nameserver ~timeout local ctx with
   | Ok res when quiet -> (
       match res with
       | `Pass _ | `None | `Neutral -> `Ok 0
@@ -113,19 +152,19 @@ let show_results results =
   List.iter f results ;
   `Ok 0
 
-let analyze quiet nameserver timeout input =
+let analyze quiet local nameserver timeout input =
   let ic, close_ic =
     match input with
     | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
     | None -> (stdin, ignore) in
-  let res = Spf_unix.extract_received_spf ~newline:Spf.LF ic in
+  let res = extract_received_spf ~newline:Spf.LF ic in
   close_ic ic ;
   match res with
   | Ok extracted ->
       let results =
         List.fold_left
           (fun acc { Spf.result; ctx; sender; ip; _ } ->
-            match Spf_unix.check ?nameserver ~timeout ctx with
+            match check ?nameserver ~timeout local ctx with
             | Ok v -> (sender, ip, result, v) :: acc
             | _ -> acc)
           [] extracted in
@@ -204,6 +243,31 @@ let setup_logs style_renderer level =
 
 let setup_logs = Term.(const setup_logs $ renderer $ verbosity)
 
+let existing_directory =
+  let parser str =
+    match Fpath.of_string str with
+    | Ok v when Sys.is_directory str -> Ok v
+    | Ok v ->
+        R.error_msgf "%a does not exist or it's not a valid directory" Fpath.pp
+          v
+    | Error _ as err -> err in
+  Arg.conv (parser, Fpath.pp)
+
+let local_dns =
+  let env = Arg.env_var "BLAZE_DNS" in
+  let doc = "Load a local DNS cache." in
+  Arg.(value & opt (some existing_directory) None & info [ "dns" ] ~env ~doc)
+
+let setup_local_dns = function
+  | None -> Domain_name.Map.empty
+  | Some fpath ->
+  match Ldns.of_directory fpath with
+  | Ok local -> local
+  | Error _ -> Domain_name.Map.empty
+(* TODO(dinosaure): say something! *)
+
+let setup_local_dns = Term.(const setup_local_dns $ local_dns)
+
 let existing_file =
   let parser = function
     | "-" -> Ok None
@@ -281,6 +345,7 @@ let stamp =
       ret
         (const stamp
         $ setup_logs
+        $ setup_local_dns
         $ nameserver
         $ timeout
         $ domain
@@ -302,7 +367,14 @@ let analyze =
         "Analyzes the given email and extract Received-SPF fields to reproduce \
          expected results.";
     ] in
-  ( Term.(ret (const analyze $ setup_logs $ nameserver $ timeout $ input)),
+  ( Term.(
+      ret
+        (const analyze
+        $ setup_logs
+        $ setup_local_dns
+        $ nameserver
+        $ timeout
+        $ input)),
     Term.info "analyze" ~doc ~man )
 
 let default =
