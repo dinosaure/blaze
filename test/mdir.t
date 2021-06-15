@@ -10,3 +10,5 @@ Tests on mdir executable
   bounce-mc.us11_46973437.796437-romain.calascibetta=gmail.com@mail148.suw18.rsgsv.net from 198.2.181.148: pass (expected: pass)
   $ export BLAZE_MDIR=mdir
   $ test -f mdir/new/$(blaze.mdir new -h blaze | tail -n1)
+  $ blaze.mdir commit -h blaze -D mdir --new $NEW
+  $ test -f mdir/cur/$NEW
