@@ -1,5 +1,5 @@
 Test on headers
-  $ echo "From: romain.calascibetta@blaze.com,\n root@foo.org\nTo: root@bar.org\n" | blaze.hdr
+  $ echo -n "From: romain.calascibetta@blaze.com,\n root@foo.org\nTo: root@bar.org\n\n" | blaze.hdr
   From: romain.calascibetta@blaze.com,
         root@foo.org
   To: root@bar.org
@@ -18,20 +18,20 @@ Test on headers
   > 
   > EOF
   Subject:$
-  $ echo "Content-Type: text/example\n" | blaze.hdr
+  $ echo -n "Content-Type: text/example\n\n" | blaze.hdr
   Content-Type: text/example
-  $ echo "Content-Type: text/example; charset=utf-8\n" | blaze.hdr
+  $ echo -n "Content-Type: text/example; charset=utf-8\n\n" | blaze.hdr
   Content-Type: text/example; charset=utf-8
-  $ echo "A: foo\nB: bar\n" | blaze.hdr
+  $ echo -n "A: foo\nB: bar\n\n" | blaze.hdr
   A: foo
   B: bar
-  $ echo "A: foo\nB: bar\n" | blaze.hdr -h A
+  $ echo -n "A: foo\nB: bar\n\n" | blaze.hdr -h A
   A: foo
-  $ echo "A: foo\nB: bar\n" | blaze.hdr -h B
+  $ echo -n "A: foo\nB: bar\n\n" | blaze.hdr -h B
   B: bar
-  $ echo "A: foo\nA: bar\n" | blaze.hdr -h A
+  $ echo -n "A: foo\nA: bar\n\n" | blaze.hdr -h A
   A: foo
-  $ echo "A: foo\nA: bar\n" | blaze.hdr -h A:A
+  $ echo -n "A: foo\nA: bar\n\n" | blaze.hdr -h A:A
   A: foo
   A: bar
   $ blaze.hdr -h From:To <<EOF
@@ -55,11 +55,11 @@ Test on headers
   > EOF
   utf-8
   utf-8
-  $ echo "From: =?US-ASCII?Q?Keith_Moore?= <keith.moore@blaze.org>\n" | blaze.hdr
+  $ echo -n "From: =?US-ASCII?Q?Keith_Moore?= <keith.moore@blaze.org>\n\n" | blaze.hdr
   From: =?US-ASCII?Q?Keith_Moore?= <keith.moore@blaze.org>
-  $ echo "From: =?US-ASCII?Q?Keith_Moore?= <keith.moore@blaze.org>\n" | blaze.hdr -d
+  $ echo -n "From: =?US-ASCII?Q?Keith_Moore?= <keith.moore@blaze.org>\n\n" | blaze.hdr -d
   From: Keith Moore <keith.moore@blaze.org>
-  $ echo "From: romain@blaze.org\n" | blaze.hdr -H
+  $ echo -n "From: romain@blaze.org\n\n" | blaze.hdr -H
   >	From: romain@blaze.org
   $ cat >email <<EOF
   > From: romain.calascibetta@blaze.org
