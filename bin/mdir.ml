@@ -45,6 +45,18 @@ let new_messages _ hostname maildir =
   Maildir_unix.scan_only_new fold () Maildir_unix.fs maildir ;
   `Ok 0
 
+let commit _ hostname maildir flags new_message message =
+  let message = if new_message then Maildir.with_new message else message in
+  let host = Domain_name.to_string hostname in
+  if message.Maildir.value.Maildir.host <> host
+  then
+    Logs.warn (fun m ->
+        m "The given host (%s) is different from the host's message (%s)." host
+          message.Maildir.value.Maildir.host) ;
+  let maildir = Maildir.create ~pid:(Unix.getpid ()) ~host ~random maildir in
+  Maildir_unix.commit Maildir_unix.fs maildir ~flags message ;
+  `Ok 0
+
 open Cmdliner
 
 let common_options = "COMMON OPTIONS"
@@ -128,6 +140,22 @@ let seed =
   in
   Arg.(value & opt (some base64) None & info [ "s"; "seed" ] ~doc)
 
+let flags =
+  let flags =
+    let open Arg in
+    [
+      (Maildir.SEEN, info [ "seen" ] ~doc:"The message is tagged as seen.");
+      ( Maildir.REPLIED,
+        info [ "replied" ] ~doc:"The message is tagged as replied." );
+      ( Maildir.FLAGGED,
+        info [ "flagged" ] ~doc:"The message is tagged as flagged." );
+      ( Maildir.TRASHED,
+        info [ "trashed" ] ~doc:"The message is tagged as trashed." );
+      (Maildir.PASSED, info [ "passed" ] ~doc:"The message is tagged as passed.");
+      (Maildir.DRAFT, info [ "draft" ] ~doc:"The message is tagged as a draft.");
+    ] in
+  Arg.(value & vflag_all [] flags)
+
 let get =
   let doc = "Load and store the given message to the $(i,output)." in
   let man = [] in
@@ -152,6 +180,26 @@ let new_messages =
   ( Term.(ret (const new_messages $ setup_logs $ hostname $ maildir)),
     Term.info "new" ~doc ~man )
 
+let commit =
+  let doc =
+    "Commit the specified message with some flags from the given $(i,maildir)."
+  in
+  let man =
+    [
+      `S Manpage.s_description;
+      `P "Tag and move the specified message from the given $(i,maildir).";
+    ] in
+  ( Term.(
+      ret
+        (const commit
+        $ setup_logs
+        $ hostname
+        $ maildir
+        $ flags
+        $ new_message
+        $ message)),
+    Term.info "commit" ~doc ~man )
+
 let default =
   let doc = "A tool to manipulate a $(i,maildir) directory." in
   let man =
@@ -163,4 +211,4 @@ let default =
     ] in
   (Term.(ret (const (`Help (`Pager, None)))), Term.info "mdir" ~doc ~man)
 
-let () = Term.(exit_status @@ eval_choice default [ get; new_messages ])
+let () = Term.(exit_status @@ eval_choice default [ get; new_messages; commit ])
