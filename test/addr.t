@@ -1,5 +1,5 @@
 Tests on addresses
-  $ echo -n "From: romain.calascibetta@blaze.com\n\n" | blaze.addr
+  $ printf "From: romain.calascibetta@blaze.com\n\n" | blaze.addr
   romain.calascibetta@blaze.com
   $ cat >simple <<EOF
   > From: a@foo.com
@@ -28,9 +28,9 @@ Tests on addresses
   anil@blaze.org
   romain@foo.com
   anil@bar.org
-  $ echo -n "From: θσερ@εχαμπλε.ψομ\n\n" | blaze.addr
+  $ printf "From: θσερ@εχαμπλε.ψομ\n\n" | blaze.addr
   θσερ@εχαμπλε.ψομ
-  $ echo -n "From: romain@foo.com\n\n" | blaze.addr -
+  $ printf "From: romain@foo.com\n\n" | blaze.addr -
   romain@foo.com
   $ blaze.addr 001.mail
   Thomas Gazagnaire <notifications@github.com>

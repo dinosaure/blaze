@@ -26,7 +26,7 @@ Tests on received fields
   	with ESMTPS
   by:vkex70 -> for:<romain.calascibetta@gmail.com>
   	with SMTP
-  $ echo -n "To: romain.calascibetta@gmail.com\n\n" > mail
+  $ printf "To: romain.calascibetta@gmail.com\n\n" > mail
   $ cat mail | blaze.recv stamp -f smtp.google.com romain.calascibetta@gmail.com -h omelet - | blaze.recv extract
   from:smtp.google.com -> by:omelet -> for:<romain.calascibetta@gmail.com>
   	with UTF8LMTP
