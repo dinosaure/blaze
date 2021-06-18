@@ -44,7 +44,7 @@ dev-repo: "git+https://github.com/dinosaure/blaze.git"
 pin-depends: [
   [
     "mrmime.dev"
-    "git+https://github.com/mirage/mrmime.git#e098977f0ade8338dcb4504ea105c1e28cf62fcc"
+    "git+https://github.com/mirage/mrmime.git#4798bc06cf435febc0abe4d1a7b6e09b8572216d"
   ]
   [
     "pecu.dev"
