@@ -14,7 +14,7 @@ let stream_of_queue q () =
 let blit src src_off dst dst_off len =
   Bigstringaf.blit_from_string src ~src_off dst ~dst_off ~len
 
-let empty_part = Mrmime.Mt.part (const None)
+let empty_part ~header = Mrmime.Mt.part ~header (const None)
 
 let parser ic =
   let uid = ref (-1) in
@@ -54,20 +54,20 @@ let parser ic =
   let ke = Ke.Rke.create ~capacity:0x1000 Bigarray.char in
   loop ic ke (Angstrom.Unbuffered.parse parser)
 
-let encoder _header mail tbl =
-  let rec go = function
-    | Mrmime.Mail.Leaf { header; body } ->
+let encoder header mail tbl =
+  let rec go header = function
+    | Mrmime.Mail.Leaf body ->
         let queue = Hashtbl.find tbl body in
         let stream = stream_of_queue queue in
         Mrmime.Mt.part ~header stream
-    | Mrmime.Mail.Multipart { header; body } ->
-        let f = function Some v -> go v | None -> empty_part in
-        let parts = List.map f body in
+    | Mrmime.Mail.Multipart parts ->
+        let f = function (header, Some body) -> go header body | (header, None) -> empty_part ~header in
+        let parts = List.map f parts in
         Mrmime.Mt.multipart ~rng:Mrmime.Mt.rng ~header parts
         |> Mrmime.Mt.multipart_as_part
     | _ -> failwith "Not implemented yet!"
     (* TODO *) in
-  Mrmime.Mt.make Mrmime.Header.empty Mrmime.Mt.simple (go mail)
+  Mrmime.Mt.make Mrmime.Header.empty Mrmime.Mt.simple (go header mail)
 
 let crlf = Astring.String.Sub.v "\r\n"
 
