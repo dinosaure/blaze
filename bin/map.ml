@@ -61,7 +61,9 @@ let encoder header mail tbl =
         let stream = stream_of_queue queue in
         Mrmime.Mt.part ~header stream
     | Mrmime.Mail.Multipart parts ->
-        let f = function (header, Some body) -> go header body | (header, None) -> empty_part ~header in
+        let f = function
+          | header, Some body -> go header body
+          | header, None -> empty_part ~header in
         let parts = List.map f parts in
         Mrmime.Mt.multipart ~rng:Mrmime.Mt.rng ~header parts
         |> Mrmime.Mt.multipart_as_part
