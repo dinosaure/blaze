@@ -16,12 +16,12 @@ end
 
 let extra_servers = Hashtbl.create 0x100
 
-module Dns = struct
+module DNS = struct
   include Ldns
 
   type backend = Caml_scheduler.t
 
-  let getaddrinfo t `TXT domain_name =
+  let gettxtrrecord t domain_name =
     match Hashtbl.find extra_servers (Domain_name.to_string domain_name) with
     | str -> Caml_scheduler.inj (Ok [ str ])
     | exception Not_found ->
@@ -84,6 +84,11 @@ end
 
 let epoch () = Int64.of_float (Unix.gettimeofday ())
 
+let stream_of_queue q () =
+  match Queue.pop q with
+  | v -> Caml_scheduler.inj (Some v)
+  | exception Queue.Empty -> Caml_scheduler.inj None
+
 let verify quiet local fields nameserver input =
   let dns = Ldns.create ?nameserver ~local () in
   let ic, close =
@@ -93,27 +98,37 @@ let verify quiet local fields nameserver input =
   let open Caml_scheduler in
   Dkim.extract_dkim ~newline ic caml (module Caml_flow) |> prj
   >>= fun ({ Dkim.prelude; dkim_fields; _ } as extracted) ->
-  Dkim.extract_body ~newline ic caml (module Caml_flow) ~prelude |> prj |> R.ok
-  >>= fun body ->
+  let s = Queue.create () in
+  let r = Queue.create () in
+  let (`Consume th) =
+    Dkim.extract_body ~newline ic caml
+      (module Caml_flow)
+      ~prelude
+      ~simple:(Option.iter (fun v -> Queue.push v s))
+      ~relaxed:(Option.iter (fun v -> Queue.push v r)) in
   let fold (valid, expired, invalid) (dkim_field_name, dkim_field_value, m) =
     let fiber =
       let open Infix in
       Dkim.post_process_dkim m |> return >>? fun dkim ->
-      Dkim.extract_server dns caml (module Dns) dkim >>? fun n ->
+      Dkim.extract_server dns caml (module DNS) dkim >>? fun n ->
       Dkim.post_process_server n |> return >>? fun server ->
       return (Ok (dkim, server)) in
     match Caml_scheduler.prj fiber with
     | Error _ -> (valid, expired, invalid)
     | Ok (dkim, server) ->
     match
-      ( Dkim.verify ~epoch extracted.Dkim.fields
+      ( Dkim.verify caml ~epoch extracted.Dkim.fields
           (dkim_field_name, dkim_field_value)
-          dkim server body,
+          ~simple:(stream_of_queue (Queue.copy s))
+          ~relaxed:(stream_of_queue (Queue.copy r))
+          dkim server
+        |> prj,
         Dkim.expired ~epoch dkim )
     with
     | true, false -> (dkim :: valid, expired, invalid)
     | true, true -> (valid, dkim :: expired, invalid)
     | false, _ -> (valid, expired, dkim :: invalid) in
+  let () = prj th in
   let valid, expired, invalid = List.fold_left fold ([], [], []) dkim_fields in
   if (not quiet) && not fields
   then show_result valid expired invalid
@@ -161,6 +176,26 @@ let priv_of_seed seed =
 
 let pub_of_seed seed = Mirage_crypto_pk.Rsa.pub_of_priv (priv_of_seed seed)
 
+module Caml_stream = struct
+  type 'a t = 'a Queue.t
+
+  type backend = Caml_scheduler.t
+
+  let create () =
+    let q = Queue.create () in
+    let push = Option.iter (fun v -> Queue.push v q) in
+    (q, push)
+
+  let get q =
+    match Queue.pop q with
+    | v -> Caml_scheduler.inj (Some v)
+    | exception _ -> Caml_scheduler.inj None
+end
+
+let both =
+  let open Caml_scheduler in
+  { Dkim.Sigs.f = (fun a b -> inj (prj a, prj b)) }
+
 let sign _verbose input output key selector fields hash canon domain_name =
   let ic, length_ic, close_ic =
     match input with
@@ -177,8 +212,11 @@ let sign _verbose input output key selector fields hash canon domain_name =
   let dkim =
     Dkim.v ~selector ~fields ?hash ?canonicalization:canon domain_name in
   let dkim =
-    Dkim.sign ~key ~newline (ic, buffer) caml (module Keep_flow) dkim |> prj
-  in
+    Dkim.sign ~key ~newline (ic, buffer) caml ~both
+      (module Keep_flow)
+      (module Caml_stream)
+      dkim
+    |> prj in
   let ppf = Format.formatter_of_out_channel oc in
   let dkim = Prettym.to_string ~new_line:"\n" Dkim.Encoder.as_field dkim in
   Fmt.pf ppf "%s%!" dkim ;
