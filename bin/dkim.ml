@@ -16,12 +16,12 @@ end
 
 let extra_servers = Hashtbl.create 0x100
 
-module Dns = struct
+module DNS = struct
   include Ldns
 
   type backend = Caml_scheduler.t
 
-  let getaddrinfo t `TXT domain_name =
+  let gettxtrrecord t domain_name =
     match Hashtbl.find extra_servers (Domain_name.to_string domain_name) with
     | str -> Caml_scheduler.inj (Ok [ str ])
     | exception Not_found ->
@@ -110,7 +110,7 @@ let verify quiet local fields nameserver input =
     let fiber =
       let open Infix in
       Dkim.post_process_dkim m |> return >>? fun dkim ->
-      Dkim.extract_server dns caml (module Dns) dkim >>? fun n ->
+      Dkim.extract_server dns caml (module DNS) dkim >>? fun n ->
       Dkim.post_process_server n |> return >>? fun server ->
       return (Ok (dkim, server)) in
     match Caml_scheduler.prj fiber with

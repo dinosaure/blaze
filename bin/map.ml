@@ -55,21 +55,37 @@ let parser ic =
   loop ic ke (Angstrom.Unbuffered.parse parser)
 
 let encoder header mail tbl =
-  let rec go header = function
-    | Mrmime.Mail.Leaf body ->
-        let queue = Hashtbl.find tbl body in
-        let stream = stream_of_queue queue in
-        Mrmime.Mt.part ~header stream
-    | Mrmime.Mail.Multipart parts ->
-        let f = function
-          | header, Some body -> go header body
-          | header, None -> empty_part ~header in
+  let open Mrmime in
+  let rec to_mail = function
+    | header, Mail.Leaf body ->
+        let body = stream_of_queue (Hashtbl.find tbl body) in
+        Mt.part ~header body |> Mt.make Header.empty Mt.simple
+    | header, Mail.Message (header', body) ->
+        to_mail (header', body)
+        |> Mt.to_stream
+        |> Mt.part ~header
+        |> Mt.make Header.empty Mt.simple
+    | header, Mail.Multipart parts ->
+        let f (header, body) =
+          match body with
+          | Some body -> to_part (header, body)
+          | None -> empty_part ~header in
         let parts = List.map f parts in
-        Mrmime.Mt.multipart ~rng:Mrmime.Mt.rng ~header parts
-        |> Mrmime.Mt.multipart_as_part
-    | _ -> failwith "Not implemented yet!"
-    (* TODO *) in
-  Mrmime.Mt.make Mrmime.Header.empty Mrmime.Mt.simple (go header mail)
+        Mt.multipart ~header ~rng:Mt.rng parts |> Mt.make Header.empty Mt.multi
+  and to_part = function
+    | header, Mail.Leaf body ->
+        let body = stream_of_queue (Hashtbl.find tbl body) in
+        Mt.part ~header body
+    | header, Mail.Message (header', body) ->
+        to_mail (header', body) |> Mt.to_stream |> Mt.part ~header
+    | header, Mail.Multipart parts ->
+        let f (header, body) =
+          match body with
+          | Some body -> to_part (header, body)
+          | None -> empty_part ~header in
+        let parts = List.map f parts in
+        Mt.multipart ~header ~rng:Mt.rng parts |> Mt.multipart_as_part in
+  to_mail (header, mail)
 
 let crlf = Astring.String.Sub.v "\r\n"
 
