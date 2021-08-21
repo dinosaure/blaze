@@ -84,3 +84,28 @@
   fmt.cli
   logs.fmt
   fmt.tty))
+
+(executable
+ (name send)
+ (modules unixiz send)
+ (public_name blaze.send)
+ (libraries
+  cmdliner
+  fpath
+  rresult
+  mrmime
+  bigstringaf
+  fmt
+  tls
+  colombe
+  unix
+  uri
+  ca-certs
+  dns-client.unix
+  sendmail
+  sendmail.starttls
+  colombe.emile
+  logs.cli
+  fmt.cli
+  logs.fmt
+  fmt.tty))

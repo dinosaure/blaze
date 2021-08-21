@@ -274,7 +274,7 @@ let existing_file =
     | str ->
     match Fpath.of_string str with
     | Ok v when Sys.file_exists str -> Ok (Some v)
-    | Ok v -> Rresult.R.error_msgf "%a not found" Fpath.pp v
+    | Ok v -> R.error_msgf "%a not found" Fpath.pp v
     | Error _ as err -> err in
   Arg.conv (parser, Fmt.option ~none:(Fmt.any "-") Fpath.pp)
 
