@@ -109,3 +109,8 @@
   fmt.cli
   logs.fmt
   fmt.tty))
+
+(executable
+ (name make)
+ (modules make)
+ (libraries cmdliner ptime.clock.os mrmime))
