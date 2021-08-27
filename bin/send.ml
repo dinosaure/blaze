@@ -219,6 +219,48 @@ let connect authenticator dns peer_name authentication domain sender recipients 
     ?authentication ~domain sender recipients mail
   | Error _ as err -> err
 
+let make_rdwr_from_strings lst =
+  let lst = ref (List.map (fun str -> str ^ "\r\n") lst) in
+  let rd () buf off len =
+    match !lst with
+    | [] -> Caml_scheduler.inj 0
+    | x :: r ->
+      let len = min (String.length x) len in
+      Bytes.blit_string x 0 buf off len ;
+      if len = String.length x
+      then lst := r else lst := String.sub x len (String.length x - len) :: r ;
+      Caml_scheduler.inj len in
+  let wr () str off len =
+    Caml_scheduler.inj (fully_write Unix.stdout str off len) in
+  { Colombe.Sigs.rd; wr; }
+
+let dry_run authentication domain sender recipients mail =
+  let ctx = Colombe.State.Context.make () in
+  let rdwr = make_rdwr_from_strings begin match authentication with
+    | None ->
+      [ "220 blaze"
+      ; "250-Blaze at your service!"
+      ; "250 AUTH LOGIN PLAIN"
+      ; "250 Sender accepted!" ]
+      @ (List.map (fun _ -> "250 Recipient accepted!") recipients) @
+      [ "354 "
+      ; "250 Sended!"
+      ; "221 Closing connection." ]
+    | Some _ ->
+      [ "220 blaze"
+      ; "250-Blaze at your service!"
+      ; "250 AUTH LOGIN PLAIN"
+      ; "334 "
+      ; "235 Authenticated!"
+      ; "250 Sender accepted!" ]
+      @ (List.map (fun _ -> "250 Recipient accepted!") recipients) @
+      [ "354 "
+      ; "250 Sended!"
+      ; "221 Closing connection." ] end in
+  Sendmail.sendmail caml rdwr () ctx ?authentication ~domain sender recipients mail
+  |> Caml_scheduler.prj
+  |> R.reword_error @@ fun err -> R.msgf "%a" Sendmail.pp_error err
+
 let stream_of_stdin = fun () ->
   match input_line stdin with
   | line -> Caml_scheduler.inj (Some (line ^ "\r\n", 0, String.length line + 2))
@@ -232,6 +274,10 @@ let stream_of_fpath fpath =
     | exception End_of_file ->
       if not !closed then ( close_in ic ; closed := true ) ;
       Caml_scheduler.inj None
+
+let to_exit_status = function
+  | Ok () -> `Ok 0
+  | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
 let run _ authenticator nameserver timeout peer_name authentication domain sender recipients mail =
   let dns = Dns_client_unix.create ?nameserver ~timeout () in
@@ -247,12 +293,17 @@ let run _ authenticator nameserver timeout peer_name authentication domain sende
   let mail = match mail with
     | None -> stream_of_stdin
     | Some fpath -> stream_of_fpath fpath in
-  match
+  match peer_name with
+  | `Dry_run ->
+    to_exit_status begin
+    domain >>= fun domain ->
+    dry_run authentication domain sender recipients mail
+    end
+  | `Submission peer_name ->
+    to_exit_status begin
     authenticator >>= fun authenticator ->
     domain >>= fun domain ->
-    connect authenticator dns peer_name authentication domain sender recipients mail with
-  | Ok () -> `Ok 0
-  | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
+    connect authenticator dns peer_name authentication domain sender recipients mail end
 
 open Cmdliner
 
@@ -330,10 +381,6 @@ let setup_logs style_renderer level =
 
 let setup_logs = Term.(const setup_logs $ renderer $ verbosity)
 
-let hostname =
-  let parser str = R.(Domain_name.of_string str >>= Domain_name.host) in
-  Arg.conv ~docv:"<hostname>" (parser, Domain_name.pp)
-
 let existing_filename =
   let parser str = match Fpath.of_string str with
     | Ok _ as v when Sys.file_exists str -> v
@@ -400,8 +447,20 @@ let sender =
   Arg.(required & opt (some sender) None & info [ "s"; "sender" ] ~docv:"<sender>" ~doc)
 
 let submission =
+  let parser str = match str with
+    | "-" -> Ok `Dry_run
+    | str ->
+      Domain_name.of_string str >>=
+      Domain_name.host >>= fun peer ->
+      Ok (`Submission peer) in
+  let pp ppf = function
+    | `Dry_run -> Fmt.string ppf "-"
+    | `Submission peer -> Domain_name.pp ppf peer in
+  Arg.conv (parser, pp)
+
+let submission =
   let doc = "Domain name of the SMTP submission server." in
-  Arg.(required & pos 0 (some hostname) None & info [] ~docv:"<submission>" ~doc) 
+  Arg.(required & pos 0 (some submission) None & info [] ~docv:"<submission>" ~doc) 
 
 let authentication =
   let doc = "Password (if needed) of the sender." in
