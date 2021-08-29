@@ -6,6 +6,7 @@
   004.mail
   (source_tree mdir)
   (source_tree cache)
+  %{bin:blaze.make}
   %{bin:blaze.send}
   %{bin:blaze.mdir}
   %{bin:blaze.dkim}

@@ -28,6 +28,21 @@ $ blaze.addr --without-name new.eml
 romain@blaze.org
 ```
 
+## How to craft & send an email?
+
+`blaze` wants to be simple to send an email. First, you need to craft
+one with some meta-information. Then, you can attach a document to your
+email and then, pass it to `blaze.send` with your account credentials:
+```sh
+$ blaze.make body > mail0
+$ blaze.wrap --boundary foo < mail0 > mail1
+$ blaze.attach --mime image/png image.png < mail1 > mail2
+$ blaze.send --sender bar@foo --password ****** \
+  smtp.foo - romain@blaze.org < mail2
+```
+
+As you can see, you can craft and send your email along the UNIX pipe.
+
 [mrmime]: https://github.com/mirage/mrmime
 [dkim]: https://github.com/dinosaure/ocaml-dkim
 [spf]: https://github.com/dinosaure/ocaml-spf

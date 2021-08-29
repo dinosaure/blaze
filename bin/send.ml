@@ -26,21 +26,21 @@ let try_465 inet_addr =
   | () -> Some (`TLS socket)
   | exception _exn -> None
 
-let (<|>) f g = fun x -> match f x with
-  | None -> g x | Some _ as v -> v
+let ( <|> ) f g x = match f x with None -> g x | Some _ as v -> v
 
 let rec fully_write socket str off len =
   if len > 0
-  then begin
+  then
     let len' = Unix.write socket (Bytes.unsafe_of_string str) off len in
-    fully_write socket str (off + len') (len - len') end
-;;
+    fully_write socket str (off + len') (len - len')
 
 let rdwr =
   let open Colombe.Sigs in
   let open Caml_scheduler in
-  { rd= (fun flow buf off len -> inj (Unix.read flow buf off len))
-  ; wr= (fun flow str off len -> inj (fully_write flow str off len)) }
+  {
+    rd = (fun flow buf off len -> inj (Unix.read flow buf off len));
+    wr = (fun flow str off len -> inj (fully_write flow str off len));
+  }
 
 module TLS = struct
   type error =
@@ -50,20 +50,25 @@ module TLS = struct
     | Closed
 
   let pp_error ppf = function
-    | Alert alert -> Fmt.pf ppf "TLS alert: %s" (Tls.Packet.alert_type_to_string alert)
-    | Failure failure -> Fmt.pf ppf "TLS failure: %s" (Tls.Engine.string_of_failure failure)
-    | Unix_error (err, f, arg) -> Fmt.pf ppf "%s(%s): %s" f arg (Unix.error_message err)
+    | Alert alert ->
+        Fmt.pf ppf "TLS alert: %s" (Tls.Packet.alert_type_to_string alert)
+    | Failure failure ->
+        Fmt.pf ppf "TLS failure: %s" (Tls.Engine.string_of_failure failure)
+    | Unix_error (err, f, arg) ->
+        Fmt.pf ppf "%s(%s): %s" f arg (Unix.error_message err)
     | Closed -> Fmt.pf ppf "Connection closed by peer"
 
-  type t =
-    { socket : Unix.file_descr
-    ; mutable state : [ `Active of Tls.Engine.state | `Eof | `Error of error ]
-    ; mutable linger : Cstruct.t list }
+  type t = {
+    socket : Unix.file_descr;
+    mutable state : [ `Active of Tls.Engine.state | `Eof | `Error of error ];
+    mutable linger : Cstruct.t list;
+  }
 
   let fully_write socket ({ Cstruct.len; _ } as cs) =
-    try fully_write socket (Cstruct.to_string cs) 0 len ; Ok ()
-    with Unix.Unix_error (err, f, arg) ->
-      Error (Unix_error (err, f, arg))
+    try
+      fully_write socket (Cstruct.to_string cs) 0 len ;
+      Ok ()
+    with Unix.Unix_error (err, f, arg) -> Error (Unix_error (err, f, arg))
 
   let read socket =
     let buf = Bytes.create 0x1000 in
@@ -71,83 +76,88 @@ module TLS = struct
     | 0 -> `Eof
     | len -> `Data (Cstruct.of_bytes ~off:0 ~len buf)
     | exception Unix.Unix_error (err, f, arg) ->
-      `Error (Unix_error (err, f, arg))
+        `Error (Unix_error (err, f, arg))
 
   let check_write flow res =
-    ( match flow.state, res with
-    | `Active _, Error err -> flow.state <- `Error err ; Unix.close flow.socket
-    | _ -> () ) ;
-    match res with
-    | Ok () -> Ok ()
-    | Error err -> Error err
+    (match (flow.state, res) with
+    | `Active _, Error err ->
+        flow.state <- `Error err ;
+        Unix.close flow.socket
+    | _ -> ()) ;
+    match res with Ok () -> Ok () | Error err -> Error err
 
   let read_react flow =
     let handle tls buf =
       match Tls.Engine.handle_tls tls buf with
       | Ok (res, `Response resp, `Data data) ->
-        flow.state <- ( match res with
-                      | `Ok tls ->
-                        `Active tls
-                      | `Eof -> `Eof
-                      | `Alert alert -> `Error (Alert alert) ) ;
-        let _ = match resp with
-          | None -> Ok ()
-          | Some buf -> fully_write flow.socket buf |> check_write flow in
-        let () = match res with
-          | `Ok _ -> ()
-          | _   -> Unix.close flow.socket in
-        `Ok data
+          flow.state <-
+            (match res with
+            | `Ok tls -> `Active tls
+            | `Eof -> `Eof
+            | `Alert alert -> `Error (Alert alert)) ;
+          let _ =
+            match resp with
+            | None -> Ok ()
+            | Some buf -> fully_write flow.socket buf |> check_write flow in
+          let () = match res with `Ok _ -> () | _ -> Unix.close flow.socket in
+          `Ok data
       | Error (fail, `Response resp) ->
-        let reason = `Error (Failure fail) in
-        flow.state <- reason ;
-        fully_write flow.socket resp |> fun _ -> Unix.close flow.socket |> fun () ->
-        reason in
+          let reason = `Error (Failure fail) in
+          flow.state <- reason ;
+          fully_write flow.socket resp |> fun _ ->
+          Unix.close flow.socket |> fun () -> reason in
     match flow.state with
-    | `Eof | `Error _ as v -> v
-    | `Active _ ->
-      read flow.socket |> function
-      | `Eof | `Error _ as v -> flow.state <- v ; v
-      | `Data buf -> match flow.state with
+    | (`Eof | `Error _) as v -> v
+    | `Active _ -> (
+        read flow.socket |> function
+        | (`Eof | `Error _) as v ->
+            flow.state <- v ;
+            v
+        | `Data buf ->
+        match flow.state with
         | `Active tls -> handle tls buf
-        | `Eof | `Error _ as v -> v
+        | (`Eof | `Error _) as v -> v)
 
-  let rec read flow = match flow.linger with
-    | [] ->
-      ( match read_react flow with
-      | `Ok None -> read flow
-      | `Ok (Some buf) -> Ok (`Data buf)
-      | `Eof -> Ok `Eof
-      | `Error err -> Error err )
+  let rec read flow =
+    match flow.linger with
+    | [] -> (
+        match read_react flow with
+        | `Ok None -> read flow
+        | `Ok (Some buf) -> Ok (`Data buf)
+        | `Eof -> Ok `Eof
+        | `Error err -> Error err)
     | bufs ->
-      flow.linger <- [] ;
-      Ok (`Data (Cstruct.concat (List.rev bufs)))
+        flow.linger <- [] ;
+        Ok (`Data (Cstruct.concat (List.rev bufs)))
 
   let writev flow css =
     match flow.state with
     | `Eof -> Error Closed
     | `Error err -> Error err
-    | `Active tls -> match Tls.Engine.send_application_data tls css with
-      | Some (tls, answer) ->
+    | `Active tls ->
+    match Tls.Engine.send_application_data tls css with
+    | Some (tls, answer) ->
         flow.state <- `Active tls ;
         fully_write flow.socket answer |> check_write flow
-      | None -> assert false
+    | None -> assert false
 
   let write flow cs = writev flow [ cs ]
 
   let rec drain_handshake flow =
     match flow.state with
-    | `Active tls when not (Tls.Engine.handshake_in_progress tls) ->
-      Ok flow
-    | _ -> match read_react flow with
-      | `Ok (Some mbuf) -> flow.linger <- mbuf :: flow.linger ; drain_handshake flow
-      | `Ok None -> drain_handshake flow
-      | `Error err -> Error err
-      | `Eof -> Error Closed
+    | `Active tls when not (Tls.Engine.handshake_in_progress tls) -> Ok flow
+    | _ ->
+    match read_react flow with
+    | `Ok (Some mbuf) ->
+        flow.linger <- mbuf :: flow.linger ;
+        drain_handshake flow
+    | `Ok None -> drain_handshake flow
+    | `Error err -> Error err
+    | `Eof -> Error Closed
 
   let init cfg socket =
-    let (tls, init) = Tls.Engine.client cfg in
-    let flow =
-      { socket; state= `Active tls; linger= []; } in
+    let tls, init = Tls.Engine.client cfg in
+    let flow = { socket; state = `Active tls; linger = [] } in
     fully_write socket init |> fun _ -> drain_handshake flow
 end
 
@@ -157,66 +167,78 @@ let make_rdwr_with_tls, rdwr_with_tls =
     let cs = Cstruct.create len in
     match TLS.recv flow cs with
     | Ok (`Input len') ->
-      Cstruct.blit_to_bytes cs 0 buf off len' ;
-      len'
+        Cstruct.blit_to_bytes cs 0 buf off len' ;
+        len'
     | Ok `End_of_flow -> 0
     | Error _ -> 0 in
   let wr flow buf off len =
     let cs = Cstruct.of_bytes buf ~off ~len in
-    let _ = TLS.send flow cs in () in
+    let _ = TLS.send flow cs in
+    () in
   let open Colombe.Sigs in
   let open Caml_scheduler in
-  TLS.make,
-  { rd= (fun flow buf off len -> inj (rd flow buf off len))
-  ; wr= (fun flow str off len -> inj (wr flow (Bytes.unsafe_of_string str) off len)) }
+  ( TLS.make,
+    {
+      rd = (fun flow buf off len -> inj (rd flow buf off len));
+      wr =
+        (fun flow str off len ->
+          inj (wr flow (Bytes.unsafe_of_string str) off len));
+    } )
 
 let setup_authenticator trust_anchor key_fingerprint certificate_fingerprint =
   let time () = Some (Ptime_clock.now ()) in
-  match trust_anchor, key_fingerprint, certificate_fingerprint with
+  match (trust_anchor, key_fingerprint, certificate_fingerprint) with
   | None, None, None -> Ca_certs.authenticator ()
   | Some trust_anchor, None, None ->
-    Bos.OS.File.read trust_anchor >>= fun data ->
-    X509.Certificate.decode_pem_multiple (Cstruct.of_string data) >>| fun cas ->
-    X509.Authenticator.chain_of_trust ~time cas
+      Bos.OS.File.read trust_anchor >>= fun data ->
+      X509.Certificate.decode_pem_multiple (Cstruct.of_string data)
+      >>| fun cas -> X509.Authenticator.chain_of_trust ~time cas
   | None, Some (host, hash, data), None ->
-    let fingerprints = [ host, Cstruct.of_string data ] in
-    Ok (X509.Authenticator.server_key_fingerprint ~time ~hash ~fingerprints)
+      let fingerprints = [ (host, Cstruct.of_string data) ] in
+      Ok (X509.Authenticator.server_key_fingerprint ~time ~hash ~fingerprints)
   | None, None, Some (host, hash, data) ->
-    let fingerprints = [ host, Cstruct.of_string data ] in
-    Ok (X509.Authenticator.server_cert_fingerprint ~time ~hash ~fingerprints)
+      let fingerprints = [ (host, Cstruct.of_string data) ] in
+      Ok (X509.Authenticator.server_cert_fingerprint ~time ~hash ~fingerprints)
   | _ -> R.error_msg "Multiple authenticators provided, expected one"
 
-let connect authenticator (inet_addr, peer_name) ?authentication ~domain sender recipients mail =
+let connect authenticator (inet_addr, peer_name) ?authentication ~domain sender
+    recipients mail =
   match (try_465 <|> try_587) inet_addr with
   | Some (`STARTTLS socket) ->
-    ( Logs.debug (fun m -> m "%a:587 with STARTTLS." Domain_name.pp peer_name) ;
+      Logs.debug (fun m -> m "%a:587 with STARTTLS." Domain_name.pp peer_name) ;
       let ctx = Sendmail_with_starttls.Context_with_tls.make () in
       let cfg = Tls.Config.client ~authenticator ~peer_name () in
-      Sendmail_with_starttls.sendmail caml rdwr socket ctx cfg
-        ?authentication ~domain sender recipients mail
+      Sendmail_with_starttls.sendmail caml rdwr socket ctx cfg ?authentication
+        ~domain sender recipients mail
       |> Caml_scheduler.prj
-      |> R.reword_error @@ fun err -> R.msgf "%a" Sendmail_with_starttls.pp_error err )
-  | Some (`TLS socket) ->
-    ( Logs.debug (fun m -> m "%a:465 with TLS." Domain_name.pp peer_name) ;
+      |> R.reword_error @@ fun err ->
+         R.msgf "%a" Sendmail_with_starttls.pp_error err
+  | Some (`TLS socket) -> (
+      Logs.debug (fun m -> m "%a:465 with TLS." Domain_name.pp peer_name) ;
       let cfg = Tls.Config.client ~authenticator ~peer_name () in
       match TLS.init cfg socket with
       | Error err ->
-        Logs.err (fun m -> m "Got an error when we initiate a TLS connection to %a:587: %a."
-          Domain_name.pp peer_name TLS.pp_error err) ;
-        assert false
+          Logs.err (fun m ->
+              m "Got an error when we initiate a TLS connection to %a:587: %a."
+                Domain_name.pp peer_name TLS.pp_error err) ;
+          assert false
       | Ok flow ->
-        let ctx = Colombe.State.Context.make () in
-        let flow = make_rdwr_with_tls flow in
-        Sendmail.sendmail caml rdwr_with_tls flow ctx
-          ?authentication ~domain sender recipients mail
-        |> Caml_scheduler.prj
-        |> R.reword_error @@ fun err -> R.msgf "%a" Sendmail.pp_error err )
-  | None -> R.error_msgf "Impossible to communicate with %a" Domain_name.pp peer_name
+          let ctx = Colombe.State.Context.make () in
+          let flow = make_rdwr_with_tls flow in
+          Sendmail.sendmail caml rdwr_with_tls flow ctx ?authentication ~domain
+            sender recipients mail
+          |> Caml_scheduler.prj
+          |> R.reword_error @@ fun err -> R.msgf "%a" Sendmail.pp_error err)
+  | None ->
+      R.error_msgf "Impossible to communicate with %a" Domain_name.pp peer_name
 
-let connect authenticator dns peer_name authentication domain sender recipients mail =
+let connect authenticator dns peer_name authentication domain sender recipients
+    mail =
   match Dns_client_unix.gethostbyname dns peer_name with
-  | Ok ipv4 -> connect authenticator (Ipaddr_unix.to_inet_addr (Ipaddr.V4 ipv4), peer_name)
-    ?authentication ~domain sender recipients mail
+  | Ok ipv4 ->
+      connect authenticator
+        (Ipaddr_unix.to_inet_addr (Ipaddr.V4 ipv4), peer_name)
+        ?authentication ~domain sender recipients mail
   | Error _ as err -> err
 
 let make_rdwr_from_strings lst =
@@ -225,43 +247,47 @@ let make_rdwr_from_strings lst =
     match !lst with
     | [] -> Caml_scheduler.inj 0
     | x :: r ->
-      let len = min (String.length x) len in
-      Bytes.blit_string x 0 buf off len ;
-      if len = String.length x
-      then lst := r else lst := String.sub x len (String.length x - len) :: r ;
-      Caml_scheduler.inj len in
+        let len = min (String.length x) len in
+        Bytes.blit_string x 0 buf off len ;
+        if len = String.length x
+        then lst := r
+        else lst := String.sub x len (String.length x - len) :: r ;
+        Caml_scheduler.inj len in
   let wr () str off len =
     Caml_scheduler.inj (fully_write Unix.stdout str off len) in
-  { Colombe.Sigs.rd; wr; }
+  { Colombe.Sigs.rd; wr }
 
 let dry_run authentication domain sender recipients mail =
   let ctx = Colombe.State.Context.make () in
-  let rdwr = make_rdwr_from_strings begin match authentication with
-    | None ->
-      [ "220 blaze"
-      ; "250-Blaze at your service!"
-      ; "250 AUTH LOGIN PLAIN"
-      ; "250 Sender accepted!" ]
-      @ (List.map (fun _ -> "250 Recipient accepted!") recipients) @
-      [ "354 "
-      ; "250 Sended!"
-      ; "221 Closing connection." ]
-    | Some _ ->
-      [ "220 blaze"
-      ; "250-Blaze at your service!"
-      ; "250 AUTH LOGIN PLAIN"
-      ; "334 "
-      ; "235 Authenticated!"
-      ; "250 Sender accepted!" ]
-      @ (List.map (fun _ -> "250 Recipient accepted!") recipients) @
-      [ "354 "
-      ; "250 Sended!"
-      ; "221 Closing connection." ] end in
-  Sendmail.sendmail caml rdwr () ctx ?authentication ~domain sender recipients mail
+  let rdwr =
+    make_rdwr_from_strings
+      (match authentication with
+      | None ->
+          [
+            "220 blaze";
+            "250-Blaze at your service!";
+            "250 AUTH LOGIN PLAIN";
+            "250 Sender accepted!";
+          ]
+          @ List.map (fun _ -> "250 Recipient accepted!") recipients
+          @ [ "354 "; "250 Sended!"; "221 Closing connection." ]
+      | Some _ ->
+          [
+            "220 blaze";
+            "250-Blaze at your service!";
+            "250 AUTH LOGIN PLAIN";
+            "334 ";
+            "235 Authenticated!";
+            "250 Sender accepted!";
+          ]
+          @ List.map (fun _ -> "250 Recipient accepted!") recipients
+          @ [ "354 "; "250 Sended!"; "221 Closing connection." ]) in
+  Sendmail.sendmail caml rdwr () ctx ?authentication ~domain sender recipients
+    mail
   |> Caml_scheduler.prj
   |> R.reword_error @@ fun err -> R.msgf "%a" Sendmail.pp_error err
 
-let stream_of_stdin = fun () ->
+let stream_of_stdin () =
   match input_line stdin with
   | line -> Caml_scheduler.inj (Some (line ^ "\r\n", 0, String.length line + 2))
   | exception End_of_file -> Caml_scheduler.inj None
@@ -269,41 +295,50 @@ let stream_of_stdin = fun () ->
 let stream_of_fpath fpath =
   let ic = open_in (Fpath.to_string fpath) in
   let closed = ref false in
-  fun () -> match input_line ic with
-    | line -> Caml_scheduler.inj (Some (line ^ "\r\n", 0, String.length line + 2))
+  fun () ->
+    match input_line ic with
+    | line ->
+        Caml_scheduler.inj (Some (line ^ "\r\n", 0, String.length line + 2))
     | exception End_of_file ->
-      if not !closed then ( close_in ic ; closed := true ) ;
-      Caml_scheduler.inj None
+        if not !closed
+        then (
+          close_in ic ;
+          closed := true) ;
+        Caml_scheduler.inj None
 
 let to_exit_status = function
   | Ok () -> `Ok 0
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
-let run _ authenticator nameserver timeout peer_name authentication domain sender recipients mail =
+let run _ authenticator nameserver timeout peer_name authentication domain
+    sender recipients mail =
   let dns = Dns_client_unix.create ?nameserver ~timeout () in
-  let authentication = match authentication with
+  let authentication =
+    match authentication with
     | Some password ->
-      let { Colombe.Path.local; _ } = sender in
-      let username = match local with
-        | `Dot_string vs -> String.concat "." vs
-        | `String v -> v in
-      Some { Sendmail.username; password; mechanism= Sendmail.PLAIN }
+        let { Colombe.Path.local; _ } = sender in
+        let username =
+          match local with
+          | `Dot_string vs -> String.concat "." vs
+          | `String v -> v in
+        Some { Sendmail.username; password; mechanism = Sendmail.PLAIN }
     | None -> None in
   let sender = Some sender in
-  let mail = match mail with
+  let mail =
+    match mail with
     | None -> stream_of_stdin
     | Some fpath -> stream_of_fpath fpath in
   match peer_name with
   | `Dry_run ->
-    to_exit_status begin
-    domain >>= fun domain ->
-    dry_run authentication domain sender recipients mail
-    end
+      to_exit_status
+        ( domain >>= fun domain ->
+          dry_run authentication domain sender recipients mail )
   | `Submission peer_name ->
-    to_exit_status begin
-    authenticator >>= fun authenticator ->
-    domain >>= fun domain ->
-    connect authenticator dns peer_name authentication domain sender recipients mail end
+      to_exit_status
+        ( authenticator >>= fun authenticator ->
+          domain >>= fun domain ->
+          connect authenticator dns peer_name authentication domain sender
+            recipients mail )
 
 open Cmdliner
 
@@ -382,7 +417,8 @@ let setup_logs style_renderer level =
 let setup_logs = Term.(const setup_logs $ renderer $ verbosity)
 
 let existing_filename =
-  let parser str = match Fpath.of_string str with
+  let parser str =
+    match Fpath.of_string str with
     | Ok _ as v when Sys.file_exists str -> v
     | Ok v -> R.error_msgf "%a does not exist" Fpath.pp v
     | Error _ as err -> err in
@@ -393,12 +429,14 @@ let trust_anchor =
   Arg.(value & opt (some existing_filename) None & info [ "trust-anchor" ] ~doc)
 
 let hashes =
-  [ "md5", `MD5
-  ; "sha1", `SHA1
-  ; "sha224", `SHA224
-  ; "sha256", `SHA256
-  ; "sha384", `SHA384
-  ; "sha512", `SHA512 ]
+  [
+    ("md5", `MD5);
+    ("sha1", `SHA1);
+    ("sha224", `SHA224);
+    ("sha256", `SHA256);
+    ("sha384", `SHA384);
+    ("sha512", `SHA512);
+  ]
 
 let parse_hash str =
   match List.assoc_opt (String.lowercase_ascii str) hashes with
@@ -412,15 +450,15 @@ let pp_hash ppf hash =
 let fingerprint =
   let parser str =
     match String.split_on_char ':' str with
-    | [ host; alg; data; ] ->
-      Domain_name.of_string host >>= fun domain_name ->
-      Domain_name.host domain_name >>= fun hostname ->
-      parse_hash alg >>= fun hash ->
-      Base64.decode ~pad:false data >>= fun data ->
-      R.ok (hostname, hash, data)
+    | [ host; alg; data ] ->
+        Domain_name.of_string host >>= fun domain_name ->
+        Domain_name.host domain_name >>= fun hostname ->
+        parse_hash alg >>= fun hash ->
+        Base64.decode ~pad:false data >>= fun data -> R.ok (hostname, hash, data)
     | _ -> R.error_msgf "Invalid fingerprint format %S" str in
   let pp ppf (host, alg, data) =
-    Fmt.pf ppf "%a:%a:%s" Domain_name.pp host pp_hash alg (Base64.encode_string data) in
+    Fmt.pf ppf "%a:%a:%s" Domain_name.pp host pp_hash alg
+      (Base64.encode_string data) in
   Arg.conv (parser, pp)
 
 let key_fingerprint =
@@ -432,7 +470,11 @@ let cert_fingerprint =
   Arg.(value & opt (some fingerprint) None & info [ "cert-fingerprint" ] ~doc)
 
 let setup_authenticator =
-  Term.(const setup_authenticator $ trust_anchor $ key_fingerprint $ cert_fingerprint)
+  Term.(
+    const setup_authenticator
+    $ trust_anchor
+    $ key_fingerprint
+    $ cert_fingerprint)
 
 let sender =
   let parser str =
@@ -444,15 +486,18 @@ let sender =
 
 let sender =
   let doc = "The sender of the given email." in
-  Arg.(required & opt (some sender) None & info [ "s"; "sender" ] ~docv:"<sender>" ~doc)
+  Arg.(
+    required
+    & opt (some sender) None
+    & info [ "s"; "sender" ] ~docv:"<sender>" ~doc)
 
 let submission =
-  let parser str = match str with
+  let parser str =
+    match str with
     | "-" -> Ok `Dry_run
     | str ->
-      Domain_name.of_string str >>=
-      Domain_name.host >>= fun peer ->
-      Ok (`Submission peer) in
+        Domain_name.of_string str >>= Domain_name.host >>= fun peer ->
+        Ok (`Submission peer) in
   let pp ppf = function
     | `Dry_run -> Fmt.string ppf "-"
     | `Submission peer -> Domain_name.pp ppf peer in
@@ -460,7 +505,8 @@ let submission =
 
 let submission =
   let doc = "Domain name of the SMTP submission server." in
-  Arg.(required & pos 0 (some submission) None & info [] ~docv:"<submission>" ~doc) 
+  Arg.(
+    required & pos 0 (some submission) None & info [] ~docv:"<submission>" ~doc)
 
 let authentication =
   let doc = "Password (if needed) of the sender." in
@@ -479,8 +525,7 @@ let hostname =
   let doc = "Domain name of the machine." in
   Arg.(value & opt (some hostname) None & info [ "h"; "hostname" ] ~doc)
 
-let setup_hostname =
-  Term.(const setup_hostname $ hostname)
+let setup_hostname = Term.(const setup_hostname $ hostname)
 
 let recipient =
   let parser str =
@@ -496,10 +541,11 @@ let recipients =
 let mail =
   let parser = function
     | "-" -> Ok None
-    | str -> match Fpath.of_string str with
-      | Ok v when Sys.file_exists str -> Ok (Some v)
-      | Ok v -> R.error_msgf "%a not found" Fpath.pp v
-      | Error _ as err -> err in
+    | str ->
+    match Fpath.of_string str with
+    | Ok v when Sys.file_exists str -> Ok (Some v)
+    | Ok v -> R.error_msgf "%a not found" Fpath.pp v
+    | Error _ as err -> err in
   Arg.conv (parser, Fmt.option ~none:(Fmt.any "-") Fpath.pp)
 
 let mail =
@@ -509,19 +555,25 @@ let mail =
 let cmd =
   let doc = "Send an email to a SMTP submission server." in
   let man =
-    [ `S Manpage.s_description
-    ; `P "$(tname) sends the given email to the specified SMTP submission server." ] in
-  Term.(ret (const run
-    $ setup_logs
-    $ setup_authenticator
-    $ nameserver
-    $ timeout
-    $ submission
-    $ authentication
-    $ setup_hostname
-    $ sender
-    $ recipients
-    $ mail)),
-  Term.info "send" ~doc ~man
+    [
+      `S Manpage.s_description;
+      `P
+        "$(tname) sends the given email to the specified SMTP submission \
+         server.";
+    ] in
+  ( Term.(
+      ret
+        (const run
+        $ setup_logs
+        $ setup_authenticator
+        $ nameserver
+        $ timeout
+        $ submission
+        $ authentication
+        $ setup_hostname
+        $ sender
+        $ recipients
+        $ mail)),
+    Term.info "send" ~doc ~man )
 
 let () = Term.(exit_status @@ eval cmd)

@@ -113,4 +113,14 @@
 (executable
  (name make)
  (modules make)
- (libraries cmdliner ptime.clock.os mrmime))
+ (public_name blaze.make)
+ (libraries
+  unix
+  logs.fmt
+  fmt.tty
+  logs.cli
+  fmt.cli
+  cmdliner
+  fpath
+  ptime.clock.os
+  mrmime))
