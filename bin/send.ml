@@ -38,10 +38,11 @@ let rdwr =
   let open Colombe.Sigs in
   let open Caml_scheduler in
   {
-    rd = (fun flow buf off len ->
-     match Unix.read flow buf off len with
-     | 0 -> inj `End
-     | len -> inj (`Len len));
+    rd =
+      (fun flow buf off len ->
+        match Unix.read flow buf off len with
+        | 0 -> inj `End
+        | len -> inj (`Len len));
     wr = (fun flow str off len -> inj (fully_write flow str off len));
   }
 

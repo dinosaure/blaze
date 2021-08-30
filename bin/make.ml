@@ -105,9 +105,8 @@ let make _ headers content_encoding mime_type content_parameters from _to cc bcc
 
 let rec list_hd_map_or ~f ~default = function
   | [] -> default
-  | x :: r -> match f x with
-    | Some x -> x
-    | None -> list_hd_map_or ~f ~default r
+  | x :: r ->
+  match f x with Some x -> x | None -> list_hd_map_or ~f ~default r
 
 let mime_version = R.failwith_error_msg (Unstructured.of_string " 1.0\r\n")
 
@@ -132,93 +131,110 @@ let concat_stream s0 s1 =
     match !c () with
     | Some x -> Some x
     | None ->
-      if !c == s0
-      then ( c := s1 ; go () )
-      else None in
+        if !c == s0
+        then (
+          c := s1 ;
+          go ())
+        else None in
   go
 
 let stream_of_string str =
   let c = ref false in
-  fun () -> match !c with
-  | true -> None
-  | false -> c := true ; Some (str, 0, String.length str)
+  fun () ->
+    match !c with
+    | true -> None
+    | false ->
+        c := true ;
+        Some (str, 0, String.length str)
 
-let stream_of_in_channel ic =
-  fun () -> match input_line ic with
+let stream_of_in_channel ic () =
+  match input_line ic with
   | line when String.length line > 0 && line.[String.length line - 1] = '\r' ->
-    Some (line ^ "\n", 0, String.length line + 1)
-  | line ->
-    Some (line ^ "\r\n", 0, String.length line + 2)
+      Some (line ^ "\n", 0, String.length line + 1)
+  | line -> Some (line ^ "\r\n", 0, String.length line + 2)
   | exception End_of_file -> None
 
 let wrap g boundary input output =
-  let ic, ic_close = match input with
-    | `Stdin -> stdin, ignore
-    | `Filename fpath -> open_in (Fpath.to_string fpath), close_in in
+  let ic, ic_close =
+    match input with
+    | `Stdin -> (stdin, ignore)
+    | `Filename fpath -> (open_in (Fpath.to_string fpath), close_in) in
   let decoder = Hd.decoder Field_name.Map.empty in
-  let rec go hdr = match Hd.decode decoder with
+  let rec go hdr =
+    match Hd.decode decoder with
     | `End prelude -> Ok (prelude, Header.of_list (List.rev hdr))
     | `Field field ->
-      let field = Location.prj field in
-      go (field :: hdr)
+        let field = Location.prj field in
+        go (field :: hdr)
     | `Malformed err -> Error (`Msg err)
     | `Await ->
-      match input_line ic with
-      | line ->
+    match input_line ic with
+    | line ->
         let line =
           if String.length line > 0 && line.[String.length line - 1] = '\r'
-          then line ^ "\n" else line ^ "\r\n" in
+          then line ^ "\n"
+          else line ^ "\r\n" in
         Hd.src decoder line 0 (String.length line) ;
         go hdr
-      | exception End_of_file ->
+    | exception End_of_file ->
         Hd.src decoder "" 0 0 ;
         go hdr in
   go [] >>= fun (prelude, hdr) ->
   let content_type =
     list_hd_map_or
       ~f:(function
-         | Field.Field (_, Field.Content, content_type) ->
-           Some (content_type : Content_type.t)
-         | _ -> None)
+        | Field.Field (_, Field.Content, content_type) ->
+            Some (content_type : Content_type.t)
+        | _ -> None)
       ~default:Content_type.default
       (Header.assoc Field_name.content_type hdr) in
-  let content_encoding = list_hd_map_or
-    ~f:(function
+  let content_encoding =
+    list_hd_map_or
+      ~f:(function
         | Field.Field (_, Field.Encoding, content_encoding) ->
-          Some (content_encoding : Content_encoding.t)
+            Some (content_encoding : Content_encoding.t)
         | _ -> None)
-    ~default:Content_encoding.default
-    (Header.assoc Field_name.content_encoding hdr) in
+      ~default:Content_encoding.default
+      (Header.assoc Field_name.content_encoding hdr) in
   let hdr =
     hdr
     |> Header.remove_assoc Field_name.content_type
     |> Header.remove_assoc Field_name.content_encoding
     |> Header.add_unless_exists Field_name.mime_version
-       (Field.Unstructured, (mime_version :> Unstructured.t)) in
+         (Field.Unstructured, (mime_version :> Unstructured.t)) in
   let stream =
     (* XXX(dinosaure): it's possible to safely concat [prelude]
      * and the rest of [ic] because we only used [input_line] to decode
      * the header, so [prelude] is definitely a line. *)
     concat_stream (stream_of_string prelude) (stream_of_in_channel ic) in
   let part =
-    let header = Header.of_list
-      [ Field.Field (Field_name.content_type, Field.Content, content_type)
-      ; Field.Field (Field_name.content_encoding, Field.Encoding, content_encoding) ] in
+    let header =
+      Header.of_list
+        [
+          Field.Field (Field_name.content_type, Field.Content, content_type);
+          Field.Field
+            (Field_name.content_encoding, Field.Encoding, content_encoding);
+        ] in
     Mt.part ~encoding:false ~header stream in
   let mail =
-    let boundary = match boundary with
-      | Some (`String v) -> Some v | Some (`Token v) -> Some v
+    let boundary =
+      match boundary with
+      | Some (`String v) -> Some v
+      | Some (`Token v) -> Some v
       | None -> None in
     Mt.multipart ?g ~rng:Mt.rng ?boundary [ part ] in
   let stream = Mt.to_stream (Mt.make hdr Mt.multi mail) in
   (match output with
   | Some filename -> stream_to_filename stream filename
   | None -> stream_to_stdout stream) ;
-  ic_close ic ; Ok ()
+  ic_close ic ;
+  Ok ()
 
 let wrap _ seed boundary input output =
-  let g = match seed with 
-    | Some seed -> Some (Array.init (String.length seed) (fun idx -> Char.code seed.[idx]))
+  let g =
+    match seed with
+    | Some seed ->
+        Some (Array.init (String.length seed) (fun idx -> Char.code seed.[idx]))
     | None -> None in
   match wrap g boundary input output with
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
@@ -452,7 +468,7 @@ let make =
     ] in
   ( Term.(
       ret
-        (const make 
+        (const make
         $ setup_logs
         $ headers
         $ content_encoding
@@ -482,18 +498,24 @@ let seed =
 
 let boundary =
   let doc = "Boundary used to delimit parts." in
-  let content_type_value = Arg.conv (Content_type.Parameters.value, Content_type.Parameters.pp_value) in
+  let content_type_value =
+    Arg.conv (Content_type.Parameters.value, Content_type.Parameters.pp_value)
+  in
   Arg.(value & opt (some content_type_value) None & info [ "boundary" ] ~doc)
 
 let wrap =
   let doc = "Wrap the given email into a multipart one." in
   let man =
-    [ `S Manpage.s_description
-    ; `P "Wrap the given email into a multipart one. The header of the given \
-          email does not change, only $(i,Content-Type) and $(i,Content-Transfer-Encoding) \
-          are updated. The new part will keep the same old $(i,Content-Type) and \
-          $(i,Content-Transfer-Encoding) value." ] in
-  Term.(ret (const wrap $ setup_logs $ seed $ boundary $ input $ output)),
-  Term.info "wrap" ~doc ~man
+    [
+      `S Manpage.s_description;
+      `P
+        "Wrap the given email into a multipart one. The header of the given \
+         email does not change, only $(i,Content-Type) and \
+         $(i,Content-Transfer-Encoding) are updated. The new part will keep \
+         the same old $(i,Content-Type) and $(i,Content-Transfer-Encoding) \
+         value.";
+    ] in
+  ( Term.(ret (const wrap $ setup_logs $ seed $ boundary $ input $ output)),
+    Term.info "wrap" ~doc ~man )
 
 let () = Term.(exit_status @@ eval_choice make [ wrap ])
