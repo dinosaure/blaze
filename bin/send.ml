@@ -38,7 +38,10 @@ let rdwr =
   let open Colombe.Sigs in
   let open Caml_scheduler in
   {
-    rd = (fun flow buf off len -> inj (Unix.read flow buf off len));
+    rd = (fun flow buf off len ->
+     match Unix.read flow buf off len with
+     | 0 -> inj `End
+     | len -> inj (`Len len));
     wr = (fun flow str off len -> inj (fully_write flow str off len));
   }
 
@@ -168,9 +171,9 @@ let make_rdwr_with_tls, rdwr_with_tls =
     match TLS.recv flow cs with
     | Ok (`Input len') ->
         Cstruct.blit_to_bytes cs 0 buf off len' ;
-        len'
-    | Ok `End_of_flow -> 0
-    | Error _ -> 0 in
+        `Len len'
+    | Ok `End_of_flow -> `End
+    | Error _ -> `End in
   let wr flow buf off len =
     let cs = Cstruct.of_bytes buf ~off ~len in
     let _ = TLS.send flow cs in
@@ -245,14 +248,14 @@ let make_rdwr_from_strings lst =
   let lst = ref (List.map (fun str -> str ^ "\r\n") lst) in
   let rd () buf off len =
     match !lst with
-    | [] -> Caml_scheduler.inj 0
+    | [] -> Caml_scheduler.inj `End
     | x :: r ->
         let len = min (String.length x) len in
         Bytes.blit_string x 0 buf off len ;
         if len = String.length x
         then lst := r
         else lst := String.sub x len (String.length x - len) :: r ;
-        Caml_scheduler.inj len in
+        Caml_scheduler.inj (`Len len) in
   let wr () str off len =
     Caml_scheduler.inj (fully_write Unix.stdout str off len) in
   { Colombe.Sigs.rd; wr }
