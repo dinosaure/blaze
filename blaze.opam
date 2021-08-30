@@ -23,6 +23,9 @@ depends: [
   "dns"
   "cmdliner" {>= "1.0.4"}
   "colombe" {>= "0.4.1"}
+  "sendmail"
+  "ca-certs"
+  "tls" {>= "0.14.0"}
   "dkim" {>= "0.2.0"}
   "dns-client" {>= "5.0.1"}
   "dune" {>= "2.8.5"}
@@ -45,6 +48,7 @@ pin-depends: [
   [ "mrmime.dev" "git+https://github.com/mirage/mrmime.git#aaaf3876eaddee1a91173723d9abeae8b8767afe" ]
   [ "pecu.dev" "git+https://github.com/mirage/pecu.git#b33965ed8ade1102ae1f18ba6c95aa5d696ec9c3" ]
   [ "colombe.dev" "git+https://github.com/mirage/colombe.git#a2c706f14e5b890d9b6e7b812163fd030bd4936d" ]
+  [ "sendmail.dev" "git+https://github.com/mirage/colombe.git#a2c706f14e5b890d9b6e7b812163fd030bd4936d" ]
   [ "received.dev" "git+https://github.com/mirage/colombe.git#a2c706f14e5b890d9b6e7b812163fd030bd4936d" ]
   [ "dkim.dev" "git+https://github.com/dinosaure/ocaml-dkim.git#e9da83d7e6fb2c4c9da7ed36570493dd29d1b949" ]
   [ "spf.dev" "git+https://github.com/dinosaure/ocaml-spf.git#2d156ab937f484744a23bb2fbee0637b3a25d130" ]
