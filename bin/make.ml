@@ -159,7 +159,7 @@ let wrap g boundary input output =
     match input with
     | `Stdin -> (stdin, ignore)
     | `Filename fpath -> (open_in (Fpath.to_string fpath), close_in) in
-  let decoder = Hd.decoder Field_name.Map.empty in
+  let decoder = Hd.decoder default in
   let rec go hdr =
     match Hd.decode decoder with
     | `End prelude -> Ok (prelude, Header.of_list (List.rev hdr))
@@ -239,6 +239,109 @@ let wrap _ seed boundary input output =
   match wrap g boundary input output with
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
   | Ok () -> `Ok 0
+
+let ok_if test ~error = match test with true -> Ok () | false -> error ()
+
+let default =
+  let open Field_name in
+  Map.empty |> Map.add content_type Field.(Witness Content)
+
+let stream_of_queue queue () =
+  match Queue.pop queue with
+  | line -> Some (line, 0, String.length line)
+  | exception Queue.Empty -> None
+
+let stream_of_in_channel_without_close_delimiter ~boundary ic () =
+  match input_line ic with
+  | line ->
+      let close_delimiter = "--" ^ boundary ^ "--" in
+      if line = close_delimiter || line = close_delimiter ^ "\r"
+      then None
+      else if String.length line > 0 && line.[String.length line - 1] = '\r'
+      then Some (line ^ "\n", 0, String.length line + 1)
+      else Some (line ^ "\r\n", 0, String.length line + 2)
+  | exception End_of_file -> None
+
+let put headers content_encoding mime_type content_parameters body input output
+    =
+  let ic, ic_close =
+    match input with
+    | `Stdin -> (stdin, ignore)
+    | `Filename fpath -> (open_in (Fpath.to_string fpath), close_in) in
+  let decoder = Hd.decoder Field_name.Map.empty in
+  let queue = Queue.create () in
+  let rec go () =
+    match Hd.decode decoder with
+    | `End _ ->
+        R.error_msgf "The given email does not have a Content-Type field"
+    | `Malformed err -> Error (`Msg err)
+    | `Field field -> (
+        match Location.prj field with
+        | Field.Field (field_name, Field.Content, content_type)
+          when Field_name.equal field_name Field_name.content_type ->
+            Ok (content_type : Content_type.t)
+        | _ -> go ())
+    | `Await ->
+    match input_line ic with
+    | line ->
+        let line =
+          if String.length line > 0 && line.[String.length line - 1] = '\r'
+          then line ^ "\n"
+          else line ^ "\r\n" in
+        Queue.push line queue ;
+        Hd.src decoder line 0 (String.length line) ;
+        go ()
+    | exception End_of_file ->
+        Hd.src decoder "" 0 0 ;
+        go () in
+  go () >>= fun content_type ->
+  ok_if (Content_type.is_multipart content_type) ~error:(fun () ->
+      R.error_msgf "The given email does not contain multiple parts")
+  >>= fun () ->
+  let parameters =
+    Content_type.Parameters.of_list content_type.Content_type.parameters in
+  Content_type.Parameters.(find (k "boundary") parameters)
+  |> R.of_option ~none:(fun () ->
+         R.error_msgf "Content-Type does not contain a boundary parameter")
+  >>= fun boundary ->
+  let boundary = match boundary with `Token v -> v | `String v -> v in
+  let hdrs = Header.of_list headers in
+  let content_type =
+    let ty, subty = mime_type in
+    let parameters = Content_type.Parameters.of_list content_parameters in
+    Content_type.make ty subty parameters in
+  let hdrs =
+    hdrs
+    |> Header.add_unless_exists Field_name.content_type
+         Field.(Content, content_type)
+    |> Header.add_unless_exists Field_name.content_encoding
+         Field.(Encoding, content_encoding) in
+  let body = stream_of_filename body in
+  let part = Mt.part ~header:hdrs body in
+  let mail = Mt.make Header.empty Mt.simple part in
+  let stream0 =
+    concat_stream (stream_of_queue queue)
+      (stream_of_in_channel_without_close_delimiter ~boundary ic) in
+  let stream1 =
+    concat_stream
+      (stream_of_string ("--" ^ boundary ^ "\r\n"))
+      (Mt.to_stream mail) in
+  let stream2 = concat_stream stream0 stream1 in
+  let stream =
+    concat_stream stream2 (stream_of_string ("--" ^ boundary ^ "--\r\n")) in
+  (match output with
+  | Some filename -> stream_to_filename stream filename
+  | None -> stream_to_stdout stream) ;
+  ic_close ic ;
+  Ok ()
+
+let put _ headers content_encoding mime_type content_parameters body input
+    output =
+  match
+    put headers content_encoding mime_type content_parameters body input output
+  with
+  | Ok () -> `Ok 0
+  | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
 open Cmdliner
 
@@ -518,4 +621,40 @@ let wrap =
   ( Term.(ret (const wrap $ setup_logs $ seed $ boundary $ input $ output)),
     Term.info "wrap" ~doc ~man )
 
-let () = Term.(exit_status @@ eval_choice make [ wrap ])
+let input =
+  let doc = "The email to wrap into a multipart one." in
+  Arg.(value & pos 1 existing_filename `Stdin & info [] ~doc)
+
+let existing_filename =
+  let parser str =
+    match Fpath.of_string str with
+    | Ok v when Sys.file_exists str -> Ok v
+    | Ok v -> R.error_msgf "%a does not exist" Fpath.pp v
+    | Error _ as err -> err in
+  Arg.conv (parser, Fpath.pp)
+
+let body =
+  let doc = "Body of the email." in
+  Arg.(required & pos 0 (some existing_filename) None & info [] ~doc)
+
+let put =
+  let doc = "Put a new part into the given multipart email." in
+  let man =
+    [
+      `S Manpage.s_description;
+      `P "Put a new part into the given multipart email.";
+    ] in
+  ( Term.(
+      ret
+        (const put
+        $ setup_logs
+        $ headers
+        $ content_encoding
+        $ mime_type
+        $ content_parameters
+        $ body
+        $ input
+        $ output)),
+    Term.info "put" ~doc ~man )
+
+let () = Term.(exit_status @@ eval_choice make [ wrap; put ])
