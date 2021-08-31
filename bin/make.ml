@@ -1,7 +1,7 @@
 open Mrmime
 open Rresult
 
-let stream_of_filename filename =
+let stream_of_filename_with_crlf filename =
   let ic = open_in (Fpath.to_string filename) in
   fun () ->
     match input_line ic with
@@ -10,10 +10,44 @@ let stream_of_filename filename =
         close_in ic ;
         None
 
-let stream_of_stdin () =
+let stream_of_stdin_with_crlf () =
   match input_line stdin with
   | line -> Some (line ^ "\r\n", 0, String.length line + 2)
   | exception End_of_file -> None
+
+let stream_of_ic ic =
+  let tmp = Bytes.create 0x1000 in
+  fun () ->
+    match input ic tmp 0 (Bytes.length tmp) with
+    | 0 -> None
+    | len -> Some (Bytes.unsafe_to_string tmp, 0, len)
+    | exception End_of_file -> None
+
+let stream_of_stdin = stream_of_ic stdin
+
+let stream_of_filename filename =
+  let ic = open_in (Fpath.to_string filename) in
+  let stream = stream_of_ic ic in
+  fun () ->
+    match stream () with
+    | Some _ as v -> v
+    | None ->
+        close_in ic ;
+        None
+
+let stream_of_stdin_as_lines () =
+  match input_line stdin with
+  | line -> Some (line, 0, String.length line)
+  | exception End_of_file -> None
+
+let stream_of_filename_as_lines filename =
+  let ic = open_in (Fpath.to_string filename) in
+  fun () ->
+    match input_line ic with
+    | line -> Some (line, 0, String.length line)
+    | exception End_of_file ->
+        close_in ic ;
+        None
 
 let rec stream_to_filename stream filename =
   let oc = open_out (Fpath.to_string filename) in
@@ -92,9 +126,17 @@ let make _ headers content_encoding mime_type content_parameters from _to cc bcc
         Header.add Field_name.date Field.(Date, date) hdrs
     | `None -> hdrs in
   let body =
-    match body with
-    | `Stdin -> stream_of_stdin
-    | `Filename filename -> stream_of_filename filename in
+    match (body, content_encoding) with
+    | `Stdin, (`Bit7 | `Bit8 | `Binary | `Ietf_token _ | `X_token _) ->
+        stream_of_stdin_with_crlf
+    | `Filename filename, (`Bit7 | `Bit8 | `Binary | `Ietf_token _ | `X_token _)
+      ->
+        stream_of_filename_with_crlf filename
+    | `Stdin, `Base64 -> stream_of_stdin
+    | `Filename filename, `Base64 -> stream_of_filename filename
+    | `Stdin, `Quoted_printable -> stream_of_stdin_as_lines
+    | `Filename filename, `Quoted_printable ->
+        stream_of_filename_as_lines filename in
   let part = Mt.part ~header:hdrs body in
   let mail = Mt.make Header.empty Mt.simple part in
   let stream = Mt.to_stream mail in
@@ -154,7 +196,7 @@ let stream_of_in_channel ic () =
   | line -> Some (line ^ "\r\n", 0, String.length line + 2)
   | exception End_of_file -> None
 
-let wrap g boundary input output =
+let wrap g boundary subty input output =
   let ic, ic_close =
     match input with
     | `Stdin -> (stdin, ignore)
@@ -196,12 +238,21 @@ let wrap g boundary input output =
         | _ -> None)
       ~default:Content_encoding.default
       (Header.assoc Field_name.content_encoding hdr) in
+  let boundary =
+    match (g, boundary) with
+    | None, None -> Mt.rng ?g:None 8
+    | _, Some (`String boundary | `Token boundary) -> boundary
+    | Some g, None -> Mt.rng ~g 8 in
   let hdr =
+    let content_type =
+      Content_type.make `Multipart subty
+        Content_type.Parameters.(of_list [ (k "boundary", v boundary) ]) in
     hdr
     |> Header.remove_assoc Field_name.content_type
     |> Header.remove_assoc Field_name.content_encoding
     |> Header.add_unless_exists Field_name.mime_version
-         (Field.Unstructured, (mime_version :> Unstructured.t)) in
+         (Field.Unstructured, (mime_version :> Unstructured.t))
+    |> Header.add Field_name.content_type (Field.Content, content_type) in
   let stream =
     (* XXX(dinosaure): it's possible to safely concat [prelude]
      * and the rest of [ic] because we only used [input_line] to decode
@@ -216,27 +267,21 @@ let wrap g boundary input output =
             (Field_name.content_encoding, Field.Encoding, content_encoding);
         ] in
     Mt.part ~encoding:false ~header stream in
-  let mail =
-    let boundary =
-      match boundary with
-      | Some (`String v) -> Some v
-      | Some (`Token v) -> Some v
-      | None -> None in
-    Mt.multipart ?g ~rng:Mt.rng ?boundary [ part ] in
-  let stream = Mt.to_stream (Mt.make hdr Mt.multi mail) in
+  let mail = Mt.multipart ~header:hdr ~rng:Mt.rng ~boundary [ part ] in
+  let stream = Mt.to_stream (Mt.make Header.empty Mt.multi mail) in
   (match output with
   | Some filename -> stream_to_filename stream filename
   | None -> stream_to_stdout stream) ;
   ic_close ic ;
   Ok ()
 
-let wrap _ seed boundary input output =
+let wrap _ seed boundary subty input output =
   let g =
     match seed with
     | Some seed ->
         Some (Array.init (String.length seed) (fun idx -> Char.code seed.[idx]))
     | None -> None in
-  match wrap g boundary input output with
+  match wrap g boundary subty input output with
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
   | Ok () -> `Ok 0
 
@@ -316,7 +361,12 @@ let put headers content_encoding mime_type content_parameters body input output
          Field.(Content, content_type)
     |> Header.add_unless_exists Field_name.content_encoding
          Field.(Encoding, content_encoding) in
-  let body = stream_of_filename body in
+  let body =
+    match content_encoding with
+    | `Base64 -> stream_of_filename body
+    | `Quoted_printable -> stream_of_filename_as_lines body
+    | `Bit7 | `Bit8 | `Binary | `Ietf_token _ | `X_token _ ->
+        stream_of_filename_with_crlf body in
   let part = Mt.part ~header:hdrs body in
   let mail = Mt.make Header.empty Mt.simple part in
   let stream0 =
@@ -606,6 +656,19 @@ let boundary =
   in
   Arg.(value & opt (some content_type_value) None & info [ "boundary" ] ~doc)
 
+let subty =
+  let mixed = Content_type.Subtype.v `Multipart "mixed" in
+  let flags =
+    [
+      (mixed, Arg.info [ "mixed" ]);
+      (Content_type.Subtype.v `Multipart "form-data", Arg.info [ "form-data" ]);
+      (Content_type.Subtype.v `Multipart "parallel", Arg.info [ "parallel" ]);
+      (Content_type.Subtype.v `Multipart "related", Arg.info [ "related" ]);
+      (Content_type.Subtype.v `Multipart "report", Arg.info [ "report" ]);
+      (Content_type.Subtype.v `Multipart "signed", Arg.info [ "signed" ]);
+    ] in
+  Arg.(value & vflag mixed flags)
+
 let wrap =
   let doc = "Wrap the given email into a multipart one." in
   let man =
@@ -618,7 +681,8 @@ let wrap =
          the same old $(i,Content-Type) and $(i,Content-Transfer-Encoding) \
          value.";
     ] in
-  ( Term.(ret (const wrap $ setup_logs $ seed $ boundary $ input $ output)),
+  ( Term.(
+      ret (const wrap $ setup_logs $ seed $ boundary $ subty $ input $ output)),
     Term.info "wrap" ~doc ~man )
 
 let input =

@@ -45,7 +45,8 @@ build: [
 ]
 dev-repo: "git+https://github.com/dinosaure/blaze.git"
 pin-depends: [
-  [ "mrmime.dev" "git+https://github.com/mirage/mrmime.git#aaaf3876eaddee1a91173723d9abeae8b8767afe" ]
+  [ "unstrctrd.dev" "git+https://github.com/dinosaure/unstrctrd.git#d6ff84d281f68060273844e8a3d17c865848366e" ]
+  [ "mrmime.dev" "git+https://github.com/mirage/mrmime.git#5d15189a8ee09b85ab4c425becca096d8acfac80" ]
   [ "pecu.dev" "git+https://github.com/mirage/pecu.git#b33965ed8ade1102ae1f18ba6c95aa5d696ec9c3" ]
   [ "colombe.dev" "git+https://github.com/mirage/colombe.git#a2c706f14e5b890d9b6e7b812163fd030bd4936d" ]
   [ "sendmail.dev" "git+https://github.com/mirage/colombe.git#a2c706f14e5b890d9b6e7b812163fd030bd4936d" ]

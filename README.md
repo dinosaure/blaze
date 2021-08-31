@@ -34,11 +34,12 @@ romain@blaze.org
 one with some meta-information. Then, you can attach a document to your
 email and then, pass it to `blaze.send` with your account credentials:
 ```sh
-$ blaze.make body > mail0
-$ blaze.wrap --boundary foo < mail0 > mail1
-$ blaze.attach --mime image/png image.png < mail1 > mail2
-$ blaze.send --sender bar@foo --password ****** \
-  smtp.foo - romain@blaze.org < mail2
+$ blaze.make <<EOF \
+  | blaze.make wrap --mixed
+  | blaze.make put --encoding base64 image.png
+  | blaze.send --sender foo@bar --password ****** smtp.bar
+> Hello World!
+> EOF
 ```
 
 As you can see, you can craft and send your email along the UNIX pipe.
