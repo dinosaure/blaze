@@ -192,7 +192,7 @@ let make_rdwr_with_tls, rdwr_with_tls =
 let setup_authenticator trust_anchor key_fingerprint certificate_fingerprint =
   let time () = Some (Ptime_clock.now ()) in
   match (trust_anchor, key_fingerprint, certificate_fingerprint) with
-  | None, None, None -> Ca_certs.authenticator ()
+  | None, None, None -> Ok (fun ~host:_ _ -> Ok None)
   | Some trust_anchor, None, None ->
       Bos.OS.File.read trust_anchor >>= fun data ->
       X509.Certificate.decode_pem_multiple (Cstruct.of_string data)
@@ -211,7 +211,7 @@ let connect authenticator (inet_addr, peer_name) ?authentication ~domain sender
   | Some (`STARTTLS socket) ->
       Logs.debug (fun m -> m "%a:587 with STARTTLS." Domain_name.pp peer_name) ;
       let ctx = Sendmail_with_starttls.Context_with_tls.make () in
-      let cfg = Tls.Config.client ~authenticator ~peer_name () in
+      let cfg = Tls.Config.client ~authenticator () in
       Sendmail_with_starttls.sendmail caml rdwr socket ctx cfg ?authentication
         ~domain sender recipients mail
       |> Caml_scheduler.prj
@@ -219,13 +219,13 @@ let connect authenticator (inet_addr, peer_name) ?authentication ~domain sender
          R.msgf "%a" Sendmail_with_starttls.pp_error err
   | Some (`TLS socket) -> (
       Logs.debug (fun m -> m "%a:465 with TLS." Domain_name.pp peer_name) ;
-      let cfg = Tls.Config.client ~authenticator ~peer_name () in
+      let cfg = Tls.Config.client ~authenticator () in
       match TLS.init cfg socket with
       | Error err ->
           Logs.err (fun m ->
               m "Got an error when we initiate a TLS connection to %a:587: %a."
                 Domain_name.pp peer_name TLS.pp_error err) ;
-          assert false
+          R.error_msgf "Got a TLS error: %a" TLS.pp_error err
       | Ok flow ->
           let ctx = Colombe.State.Context.make () in
           let flow = make_rdwr_with_tls flow in
@@ -238,6 +238,13 @@ let connect authenticator (inet_addr, peer_name) ?authentication ~domain sender
 
 let connect authenticator dns peer_name authentication domain sender recipients
     mail =
+  match peer_name with
+  | `Inet_addr ipv4 ->
+      connect authenticator
+        ( Ipaddr_unix.to_inet_addr (Ipaddr.V4 ipv4),
+          Domain_name.of_string_exn (Ipaddr.V4.to_string ipv4) )
+        ?authentication ~domain sender recipients mail
+  | `Host peer_name ->
   match Dns_client_unix.gethostbyname dns peer_name with
   | Ok ipv4 ->
       connect authenticator
@@ -500,11 +507,16 @@ let submission =
     match str with
     | "-" -> Ok `Dry_run
     | str ->
-        Domain_name.of_string str >>= Domain_name.host >>= fun peer ->
-        Ok (`Submission peer) in
+    match
+      (Domain_name.of_string str >>= Domain_name.host, Ipaddr.V4.of_string str)
+    with
+    | Ok v, _ -> Ok (`Submission (`Host v))
+    | _, Ok v -> Ok (`Submission (`Inet_addr v))
+    | _ -> R.error_msgf "Invalid submission server: %S" str in
   let pp ppf = function
     | `Dry_run -> Fmt.string ppf "-"
-    | `Submission peer -> Domain_name.pp ppf peer in
+    | `Submission (`Host peer) -> Domain_name.pp ppf peer
+    | `Submission (`Inet_addr v) -> Ipaddr.V4.pp ppf v in
   Arg.conv (parser, pp)
 
 let submission =
