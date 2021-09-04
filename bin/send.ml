@@ -205,27 +205,32 @@ let setup_authenticator trust_anchor key_fingerprint certificate_fingerprint =
       Ok (X509.Authenticator.server_cert_fingerprint ~time ~hash ~fingerprints)
   | _ -> R.error_msg "Multiple authenticators provided, expected one"
 
-let connect authenticator (inet_addr, peer_name) ?authentication ~domain sender
+let pp_peer ppf = function
+  | `Inet_addr v -> Ipaddr.V4.pp ppf v
+  | `Host v -> Domain_name.pp ppf v
+
+let connect authenticator (inet_addr, peer) ?authentication ~domain sender
     recipients mail =
+  let peer_name = match peer with `Host v -> Some v | `Inet_addr _ -> None in
   match (try_465 <|> try_587) inet_addr with
   | Some (`STARTTLS socket) ->
-      Logs.debug (fun m -> m "%a:587 with STARTTLS." Domain_name.pp peer_name) ;
+      Logs.debug (fun m -> m "%a:587 with STARTTLS." pp_peer peer) ;
       let ctx = Sendmail_with_starttls.Context_with_tls.make () in
-      let cfg = Tls.Config.client ~authenticator ~peer_name () in
+      let cfg = Tls.Config.client ~authenticator ?peer_name () in
       Sendmail_with_starttls.sendmail caml rdwr socket ctx cfg ?authentication
         ~domain sender recipients mail
       |> Caml_scheduler.prj
       |> R.reword_error @@ fun err ->
          R.msgf "%a" Sendmail_with_starttls.pp_error err
   | Some (`TLS socket) -> (
-      Logs.debug (fun m -> m "%a:465 with TLS." Domain_name.pp peer_name) ;
-      let cfg = Tls.Config.client ~authenticator ~peer_name () in
+      Logs.debug (fun m -> m "%a:465 with TLS." pp_peer peer) ;
+      let cfg = Tls.Config.client ~authenticator ?peer_name () in
       match TLS.init cfg socket with
       | Error err ->
           Logs.err (fun m ->
               m "Got an error when we initiate a TLS connection to %a:587: %a."
-                Domain_name.pp peer_name TLS.pp_error err) ;
-          assert false
+                pp_peer peer TLS.pp_error err) ;
+          R.error_msgf "Got a TLS error: %a" TLS.pp_error err
       | Ok flow ->
           let ctx = Colombe.State.Context.make () in
           let flow = make_rdwr_with_tls flow in
@@ -233,15 +238,21 @@ let connect authenticator (inet_addr, peer_name) ?authentication ~domain sender
             sender recipients mail
           |> Caml_scheduler.prj
           |> R.reword_error @@ fun err -> R.msgf "%a" Sendmail.pp_error err)
-  | None ->
-      R.error_msgf "Impossible to communicate with %a" Domain_name.pp peer_name
+  | None -> R.error_msgf "Impossible to communicate with %a" pp_peer peer
 
-let connect authenticator dns peer_name authentication domain sender recipients
-    mail =
-  match Dns_client_unix.gethostbyname dns peer_name with
+let connect authenticator dns
+    (peer : [ `Host of 'a Domain_name.t | `Inet_addr of Ipaddr.V4.t ])
+    authentication domain sender recipients mail =
+  match peer with
+  | `Inet_addr ipv4 ->
+      connect authenticator
+        (Ipaddr_unix.to_inet_addr (Ipaddr.V4 ipv4), peer)
+        ?authentication ~domain sender recipients mail
+  | `Host host ->
+  match Dns_client_unix.gethostbyname dns host with
   | Ok ipv4 ->
       connect authenticator
-        (Ipaddr_unix.to_inet_addr (Ipaddr.V4 ipv4), peer_name)
+        (Ipaddr_unix.to_inet_addr (Ipaddr.V4 ipv4), peer)
         ?authentication ~domain sender recipients mail
   | Error _ as err -> err
 
@@ -500,11 +511,16 @@ let submission =
     match str with
     | "-" -> Ok `Dry_run
     | str ->
-        Domain_name.of_string str >>= Domain_name.host >>= fun peer ->
-        Ok (`Submission peer) in
+    match
+      (Domain_name.of_string str >>= Domain_name.host, Ipaddr.V4.of_string str)
+    with
+    | Ok v, _ -> Ok (`Submission (`Host v))
+    | _, Ok v -> Ok (`Submission (`Inet_addr v))
+    | _ -> R.error_msgf "Invalid submission server: %S" str in
   let pp ppf = function
     | `Dry_run -> Fmt.string ppf "-"
-    | `Submission peer -> Domain_name.pp ppf peer in
+    | `Submission (`Host peer) -> Domain_name.pp ppf peer
+    | `Submission (`Inet_addr v) -> Ipaddr.V4.pp ppf v in
   Arg.conv (parser, pp)
 
 let submission =
