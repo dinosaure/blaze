@@ -304,7 +304,10 @@ let dry_run authentication domain sender recipients mail =
 
 let stream_of_stdin () =
   match input_line stdin with
-  | line -> Caml_scheduler.inj (Some (line ^ "\r\n", 0, String.length line + 2))
+  | line ->
+      if String.length line > 0 && line.[String.length line - 1] = '\r'
+      then Caml_scheduler.inj (Some (line ^ "\n", 0, String.length line + 1))
+      else Caml_scheduler.inj (Some (line ^ "\r\n", 0, String.length line + 2))
   | exception End_of_file -> Caml_scheduler.inj None
 
 let stream_of_fpath fpath =
@@ -313,7 +316,10 @@ let stream_of_fpath fpath =
   fun () ->
     match input_line ic with
     | line ->
-        Caml_scheduler.inj (Some (line ^ "\r\n", 0, String.length line + 2))
+        if String.length line > 0 && line.[String.length line - 1] = '\r'
+        then Caml_scheduler.inj (Some (line ^ "\n", 0, String.length line + 1))
+        else
+          Caml_scheduler.inj (Some (line ^ "\r\n", 0, String.length line + 2))
     | exception End_of_file ->
         if not !closed
         then (
