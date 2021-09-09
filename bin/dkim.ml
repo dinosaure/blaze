@@ -270,11 +270,11 @@ let inet_addr_of_string str =
   match Unix.inet_addr_of_string str with v -> Some v | exception _ -> None
 
 let pp_nameserver ppf = function
-  | `TCP, (inet_addr, 53) -> Fmt.pf ppf "tcp://%a/" Ipaddr.pp inet_addr
-  | `UDP, (inet_addr, 53) -> Fmt.pf ppf "udp://%a/" Ipaddr.pp inet_addr
-  | `TCP, (inet_addr, port) ->
+  | `Tcp, (inet_addr, 53) -> Fmt.pf ppf "tcp://%a/" Ipaddr.pp inet_addr
+  | `Udp, (inet_addr, 53) -> Fmt.pf ppf "udp://%a/" Ipaddr.pp inet_addr
+  | `Tcp, (inet_addr, port) ->
       Fmt.pf ppf "tcp://%a:%d/" Ipaddr.pp inet_addr port
-  | `UDP, (inet_addr, port) ->
+  | `Udp, (inet_addr, port) ->
       Fmt.pf ppf "udp://%a:%d/" Ipaddr.pp inet_addr port
 
 let nameserver =
@@ -282,8 +282,8 @@ let nameserver =
     let uri = Uri.of_string str in
     let via =
       match Uri.scheme uri with
-      | None | Some "udp" -> `UDP
-      | Some "tcp" -> `TCP
+      | None | Some "udp" -> `Udp
+      | Some "tcp" -> `Tcp
       | Some scheme -> Fmt.invalid_arg "Invalid scheme: %S" scheme in
     match (Option.bind (Uri.host uri) inet_addr_of_string, Uri.port uri) with
     | None, None -> None
