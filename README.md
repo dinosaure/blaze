@@ -44,6 +44,9 @@ $ blaze.make <<EOF \
 
 As you can see, you can craft and send your email along the UNIX pipe.
 
+`blaze` has received funding from the Next Generation Internet Initiative
+(NGI) within the framework of the DAPSI Project.
+
 [mrmime]: https://github.com/mirage/mrmime
 [dkim]: https://github.com/dinosaure/ocaml-dkim
 [spf]: https://github.com/dinosaure/ocaml-spf
