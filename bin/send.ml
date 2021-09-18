@@ -189,18 +189,20 @@ let make_rdwr_with_tls, rdwr_with_tls =
           inj (wr flow (Bytes.unsafe_of_string str) off len));
     } )
 
-let setup_authenticator trust_anchor key_fingerprint certificate_fingerprint =
+let setup_authenticator insecure trust_anchor key_fingerprint
+    certificate_fingerprint =
   let time () = Some (Ptime_clock.now ()) in
-  match (trust_anchor, key_fingerprint, certificate_fingerprint) with
-  | None, None, None -> Ca_certs.authenticator ()
-  | Some trust_anchor, None, None ->
+  match (insecure, trust_anchor, key_fingerprint, certificate_fingerprint) with
+  | true, _, _, _ -> Ok (fun ~host:_ _ -> Ok None)
+  | _, None, None, None -> Ca_certs.authenticator ()
+  | _, Some trust_anchor, None, None ->
       Bos.OS.File.read trust_anchor >>= fun data ->
       X509.Certificate.decode_pem_multiple (Cstruct.of_string data)
       >>| fun cas -> X509.Authenticator.chain_of_trust ~time cas
-  | None, Some (host, hash, data), None ->
+  | _, None, Some (host, hash, data), None ->
       let fingerprints = [ (host, Cstruct.of_string data) ] in
       Ok (X509.Authenticator.server_key_fingerprint ~time ~hash ~fingerprints)
-  | None, None, Some (host, hash, data) ->
+  | _, None, None, Some (host, hash, data) ->
       let fingerprints = [ (host, Cstruct.of_string data) ] in
       Ok (X509.Authenticator.server_cert_fingerprint ~time ~hash ~fingerprints)
   | _ -> R.error_msg "Multiple authenticators provided, expected one"
@@ -482,6 +484,10 @@ let fingerprint =
       (Base64.encode_string data) in
   Arg.conv (parser, pp)
 
+let insecure =
+  let doc = "Don't validate the server certificate." in
+  Arg.(value & flag & info [ "insecure" ] ~doc)
+
 let key_fingerprint =
   let doc = "Authenticate TLS using public key fingerprint." in
   Arg.(value & opt (some fingerprint) None & info [ "key-fingerprint" ] ~doc)
@@ -493,6 +499,7 @@ let cert_fingerprint =
 let setup_authenticator =
   Term.(
     const setup_authenticator
+    $ insecure
     $ trust_anchor
     $ key_fingerprint
     $ cert_fingerprint)

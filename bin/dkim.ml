@@ -98,6 +98,8 @@ let verify quiet local fields nameserver input =
   let open Caml_scheduler in
   Dkim.extract_dkim ~newline ic caml (module Caml_flow) |> prj
   >>= fun ({ Dkim.prelude; dkim_fields; _ } as extracted) ->
+  Logs.debug (fun m ->
+      m "Verify %d DKIM-Signature field(s)." (List.length dkim_fields)) ;
   let s = Queue.create () in
   let r = Queue.create () in
   let (`Consume th) =
@@ -114,7 +116,9 @@ let verify quiet local fields nameserver input =
       Dkim.post_process_server n |> return >>? fun server ->
       return (Ok (dkim, server)) in
     match Caml_scheduler.prj fiber with
-    | Error _ -> (valid, expired, invalid)
+    | Error (`Msg err) ->
+        Logs.err (fun m -> m "Got an error for a DKIM-Signature field: %s" err) ;
+        (valid, expired, invalid)
     | Ok (dkim, server) ->
     match
       ( Dkim.verify caml ~epoch extracted.Dkim.fields
