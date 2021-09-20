@@ -38,6 +38,7 @@ depends: [
   "rresult" {>= "0.6.0"}
   "spf" {>= "2.0.2"}
   "uri" {>= "4.2.0"}
+  "ipaddr" {>= "5.2.0"}
 ]
 build: [
   ["dune" "build" "-p" name "-j" jobs]
