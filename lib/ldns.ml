@@ -35,12 +35,12 @@ let parse_line line =
   | Some ("a", ipv4s) ->
       let lst = Astring.String.cuts ~sep:" " ipv4s in
       let lst = List.map Ipaddr.V4.of_string_exn lst in
-      let set = Dns.Rr_map.Ipv4_set.of_list lst in
+      let set = Ipaddr.V4.Set.of_list lst in
       Record (Dns.Rr_map.A, (0l, set))
   | Some ("aaaa", ipv6s) ->
       let lst = Astring.String.cuts ~sep:" " ipv6s in
       let lst = List.map Ipaddr.V6.of_string_exn lst in
-      let set = Dns.Rr_map.Ipv6_set.of_list lst in
+      let set = Ipaddr.V6.Set.of_list lst in
       Record (Dns.Rr_map.Aaaa, (0l, set))
   | Some ("mx", mxs) ->
       let lst = Astring.String.cuts ~sep:" " mxs in
