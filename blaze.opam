@@ -53,7 +53,7 @@ pin-depends: [
   [ "sendmail.dev" "git+https://github.com/mirage/colombe.git#6f48ae9d189476b551d766aaabeb1c072976cf7c" ]
   [ "received.dev" "git+https://github.com/mirage/colombe.git#6f48ae9d189476b551d766aaabeb1c072976cf7c" ]
   [ "dkim.dev" "git+https://github.com/dinosaure/ocaml-dkim.git#71c8a7ec7b332266200d49bed2a15c6f7d590b07" ]
-  [ "spf.dev" "git+https://github.com/dinosaure/ocaml-spf.git#bb55cd6492ad3545566bd2df7e1c12001a664e0b" ]
+  [ "spf.dev" "git+https://github.com/dinosaure/ocaml-spf.git#2ba31df91f620174073c6baf1d09edb3170c8b42" ]
   [ "maildir.dev" "git+https://github.com/dinosaure/ocaml-maildir.git#4274fcfcd7d8be617a492b21bd1598bba2901a74" ]
   [ "dns.dev" "git+https://github.com/mirage/ocaml-dns.git#d99eff3429f60a5a9eef262f45b4e7d12ab251e5" ]
   [ "dns-client.dev" "git+https://github.com/mirage/ocaml-dns.git#d99eff3429f60a5a9eef262f45b4e7d12ab251e5" ]
