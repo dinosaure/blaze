@@ -385,6 +385,92 @@ let put headers content_encoding mime_type content_parameters body input output
   ic_close ic ;
   Ok ()
 
+let add_field _ headers content_encoding mime_type content_parameters from _to
+    cc bcc zone with_date input output =
+  let hdrs = Header.of_list headers in
+  let content_type =
+    match (mime_type, content_parameters) with
+    | Some (ty, subty), parameters ->
+        let parameters = Content_type.Parameters.of_list parameters in
+        R.ok (Some (Content_type.make ty subty parameters))
+    | None, _ :: _ ->
+        R.error_msgf "Impossible to add a Content-Type field without MIME type"
+    | None, [] -> R.ok None in
+  let hdrs =
+    match content_encoding with
+    | Some encoding ->
+        Header.add_unless_exists Field_name.content_encoding
+          Field.(Encoding, encoding)
+          hdrs
+    | None -> hdrs in
+  let hdrs =
+    match from with
+    | Some (sender :: mailboxes) ->
+        hdrs
+        |> Header.add_unless_exists Field_name.from
+             Field.(Mailboxes, sender :: mailboxes)
+        |> Header.add_unless_exists Field_name.sender Field.(Mailbox, sender)
+    | Some [] | None -> hdrs in
+  let hdrs =
+    match _to with
+    | Some addresses ->
+        Header.add_unless_exists
+          Field_name.(v "To")
+          Field.(Addresses, addresses)
+          hdrs
+    | None -> hdrs in
+  let hdrs =
+    match cc with
+    | Some addresses ->
+        Header.add Field_name.cc Field.(Addresses, addresses) hdrs
+    | None -> hdrs in
+  let hdrs =
+    match bcc with
+    | Some addresses ->
+        Header.add Field_name.bcc Field.(Addresses, addresses) hdrs
+    | None -> hdrs in
+  let hdrs =
+    match with_date with
+    | `Specific (ptime, None) ->
+        let date = Date.of_ptime ~zone ptime in
+        Header.add Field_name.date Field.(Date, date) hdrs
+    | `Specific (ptime, Some tz_offset_s) ->
+        let zone = zone_of_tz_offset_s tz_offset_s in
+        let date = Date.of_ptime ~zone ptime in
+        Header.add Field_name.date Field.(Date, date) hdrs
+    | `Now ->
+        let date = Date.of_ptime ~zone (Ptime_clock.now ()) in
+        Header.add Field_name.date Field.(Date, date) hdrs
+    | `None -> hdrs in
+  match content_type with
+  | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
+  | Ok content_type ->
+      let hdrs =
+        match content_type with
+        | Some content_type ->
+            Header.add Field_name.content_type
+              Field.(Content, content_type)
+              hdrs
+        | None -> hdrs in
+      let w ppf v =
+        let noop = ((fun ppf () -> ppf), ()) in
+        (Prettym.list ~sep:noop Field.Encoder.field) ppf (Header.to_list v)
+      in
+      let stream = Prettym.to_stream w hdrs in
+      let stream () =
+        match stream () with
+        | Some str -> Some (str, 0, String.length str)
+        | None -> None in
+      let stream =
+        match input with
+        | `Stdin -> concat_stream stream stream_of_stdin
+        | `Filename filename ->
+            concat_stream stream (stream_of_filename filename) in
+      (match output with
+      | Some filename -> stream_to_filename stream filename
+      | None -> stream_to_stdout stream) ;
+      `Ok 0
+
 let put _ headers content_encoding mime_type content_parameters body input
     output =
   match
@@ -565,13 +651,6 @@ let headers =
   let doc = "Field name and its value." in
   Arg.(value & opt_all field [] & info [ "f"; "field" ] ~doc)
 
-let mime_type =
-  let doc = "MIME type of the body." in
-  Arg.(
-    value
-    & opt content_type (`Text, Content_type.Subtype.v `Text "plain")
-    & info [ "type" ] ~doc)
-
 let content_parameters =
   let doc = "Parameter for the Content-Type value." in
   Arg.(
@@ -579,10 +658,6 @@ let content_parameters =
     & opt_all content_parameter
         Content_type.Parameters.[ (key_exn "charset", value_exn "utf-8") ]
     & info [ "p"; "parameter" ] ~doc)
-
-let content_encoding =
-  let doc = "Encoding of the body." in
-  Arg.(value & opt content_encoding `Bit7 & info [ "encoding" ] ~doc)
 
 let from =
   let doc = "The sender of the email." in
@@ -613,6 +688,15 @@ let output =
   Arg.(value & opt filename None & info [ "o"; "output" ] ~doc)
 
 let make =
+  let content_encoding =
+    let doc = "Encoding of the body." in
+    Arg.(value & opt content_encoding `Bit7 & info [ "encoding" ] ~doc) in
+  let mime_type =
+    let doc = "MIME type of the body." in
+    Arg.(
+      value
+      & opt content_type (`Text, Content_type.Subtype.v `Text "plain")
+      & info [ "type" ] ~doc) in
   let doc = "Craft an email with an header." in
   let man =
     [
@@ -636,6 +720,44 @@ let make =
         $ body
         $ output)),
     Term.info "make" ~doc ~man )
+
+let input =
+  let doc = "The email to be modified." in
+  Arg.(value & pos ~rev:true 0 existing_filename `Stdin & info [] ~doc)
+
+let add_field =
+  let content_encoding =
+    let doc = "Encoding of the body." in
+    Arg.(value & opt (some content_encoding) None & info [ "encoding" ] ~doc)
+  in
+  let mime_type =
+    let doc = "MIME type of the body." in
+    Arg.(value & opt (some content_type) None & info [ "type" ] ~doc) in
+  let content_parameters =
+    let doc = "Parameter for the Content-Type value." in
+    Arg.(value & opt_all content_parameter [] & info [ "p"; "parameter" ] ~doc)
+  in
+  let doc = "Prepend the given email with some fields." in
+  let man =
+    [ `S Manpage.s_description; `P "Prepend the given email with some fields." ]
+  in
+  ( Term.(
+      ret
+        (const add_field
+        $ setup_logs
+        $ headers
+        $ content_encoding
+        $ mime_type
+        $ content_parameters
+        $ from
+        $ _to
+        $ cc
+        $ bcc
+        $ setup_zone
+        $ date
+        $ input
+        $ output)),
+    Term.info "add-field" ~doc ~man )
 
 let input =
   let doc = "The email to wrap into a multipart one." in
@@ -702,6 +824,15 @@ let body =
   Arg.(required & pos 0 (some existing_filename) None & info [] ~doc)
 
 let put =
+  let content_encoding =
+    let doc = "Encoding of the body." in
+    Arg.(value & opt content_encoding `Bit7 & info [ "encoding" ] ~doc) in
+  let mime_type =
+    let doc = "MIME type of the body." in
+    Arg.(
+      value
+      & opt content_type (`Text, Content_type.Subtype.v `Text "plain")
+      & info [ "type" ] ~doc) in
   let doc = "Put a new part into the given multipart email." in
   let man =
     [
@@ -721,4 +852,4 @@ let put =
         $ output)),
     Term.info "put" ~doc ~man )
 
-let () = Term.(exit_status @@ eval_choice make [ wrap; put ])
+let () = Term.(exit_status @@ eval_choice make [ add_field; wrap; put ])

@@ -44,3 +44,12 @@ Tests on make
   Content-Type: text/plain; charset=utf-8
   
   Hello World!
+  $ blaze.make --date none <<EOF | blaze.make add-field --date none --from din@osau.re
+  > Hello World!
+  > EOF
+  Sender: din@osau.re
+  From: din@osau.re
+  Content-Transfer-Encoding: 7bit
+  Content-Type: text/plain; charset=utf-8
+  
+  Hello World!
