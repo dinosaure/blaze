@@ -38,7 +38,7 @@ let pp_phrase ppf phrase =
         Fmt.string ppf v
     | `Encoded (_, Emile.Base64 (Ok v)) when !decode_rfc2047 -> Fmt.string ppf v
     | `Encoded (charset, v) -> pp_encoded ~charset ppf v in
-  Fmt.(list ~sep:(always "@ ") pp_elem) ppf phrase
+  Fmt.(list ~sep:(any "@ ") pp_elem) ppf phrase
 
 let pp_mailbox ppf = function
   | { Emile.name = None; _ } as v -> Emile.pp_mailbox ppf v
