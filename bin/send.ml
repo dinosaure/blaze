@@ -1,5 +1,3 @@
-let () = Printexc.record_backtrace true
-
 open Rresult
 
 module Caml_scheduler = Colombe.Sigs.Make (struct
@@ -193,18 +191,18 @@ let setup_authenticator insecure trust_anchor key_fingerprint
     certificate_fingerprint =
   let time () = Some (Ptime_clock.now ()) in
   match (insecure, trust_anchor, key_fingerprint, certificate_fingerprint) with
-  | true, _, _, _ -> Ok (fun ~host:_ _ -> Ok None)
+  | true, _, _, _ -> Ok (fun ?ip:_ ~host:_ _ -> Ok None)
   | _, None, None, None -> Ca_certs.authenticator ()
   | _, Some trust_anchor, None, None ->
       Bos.OS.File.read trust_anchor >>= fun data ->
       X509.Certificate.decode_pem_multiple (Cstruct.of_string data)
       >>| fun cas -> X509.Authenticator.chain_of_trust ~time cas
-  | _, None, Some (host, hash, data), None ->
-      let fingerprints = [ (host, Cstruct.of_string data) ] in
-      Ok (X509.Authenticator.server_key_fingerprint ~time ~hash ~fingerprints)
-  | _, None, None, Some (host, hash, data) ->
-      let fingerprints = [ (host, Cstruct.of_string data) ] in
-      Ok (X509.Authenticator.server_cert_fingerprint ~time ~hash ~fingerprints)
+  | _, None, Some (_host, hash, data), None ->
+      let fingerprint = Cstruct.of_string data in
+      Ok (X509.Authenticator.server_key_fingerprint ~time ~hash ~fingerprint)
+  | _, None, None, Some (_host, hash, data) ->
+      let fingerprint = Cstruct.of_string data in
+      Ok (X509.Authenticator.server_cert_fingerprint ~time ~hash ~fingerprint)
   | _ -> R.error_msg "Multiple authenticators provided, expected one"
 
 let pp_peer ppf = function

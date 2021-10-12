@@ -25,7 +25,7 @@ depends: [
   "colombe" {>= "0.4.1"}
   "sendmail"
   "ca-certs"
-  "tls" {>= "0.14.0"}
+  "tls" {>= "0.15.0"}
   "dkim" {>= "0.2.0"}
   "dns-client" {>= "5.0.1"}
   "dune" {>= "2.8.5"}
