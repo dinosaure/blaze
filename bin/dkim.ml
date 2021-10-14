@@ -89,8 +89,8 @@ let stream_of_queue q () =
   | v -> Caml_scheduler.inj (Some v)
   | exception Queue.Empty -> Caml_scheduler.inj None
 
-let verify quiet local fields nameserver input =
-  let dns = Ldns.create ?nameserver ~local () in
+let verify quiet local fields nameservers input =
+  let dns = Ldns.create ?nameservers ~local () in
   let ic, close =
     match input with
     | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
@@ -146,7 +146,7 @@ let extra_to_string pk =
   Fmt.str "v=DKIM1; k=rsa; p=%s"
     (Base64.encode_string ~pad:true (Cstruct.to_string pk))
 
-let verify quiet local fields nameserver extra input =
+let verify quiet local fields nameservers extra input =
   let () =
     List.iter
       (fun (selector, v, extra) ->
@@ -157,7 +157,7 @@ let verify quiet local fields nameserver extra input =
         let domain_name = Domain_name.to_string domain_name in
         Hashtbl.add extra_servers domain_name (extra_to_string extra))
       extra in
-  match verify quiet local fields nameserver input with
+  match verify quiet local fields nameservers input with
   | Ok n -> `Ok n
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
@@ -274,12 +274,14 @@ let inet_addr_of_string str =
   match Unix.inet_addr_of_string str with v -> Some v | exception _ -> None
 
 let pp_nameserver ppf = function
-  | `Tcp, (inet_addr, 53) -> Fmt.pf ppf "tcp://%a/" Ipaddr.pp inet_addr
-  | `Udp, (inet_addr, 53) -> Fmt.pf ppf "udp://%a/" Ipaddr.pp inet_addr
-  | `Tcp, (inet_addr, port) ->
+  | `Tcp, (inet_addr, 53) :: _ -> Fmt.pf ppf "tcp://%a/" Ipaddr.pp inet_addr
+  | `Udp, (inet_addr, 53) :: _ -> Fmt.pf ppf "udp://%a/" Ipaddr.pp inet_addr
+  | `Tcp, (inet_addr, port) :: _ ->
       Fmt.pf ppf "tcp://%a:%d/" Ipaddr.pp inet_addr port
-  | `Udp, (inet_addr, port) ->
+  | `Udp, (inet_addr, port) :: _ ->
       Fmt.pf ppf "udp://%a:%d/" Ipaddr.pp inet_addr port
+  | `Tcp, [] -> Fmt.pf ppf "tcp:///"
+  | `Udp, [] -> Fmt.pf ppf "udp:///"
 
 let nameserver =
   let parser str =
@@ -292,11 +294,11 @@ let nameserver =
     match (Option.bind (Uri.host uri) inet_addr_of_string, Uri.port uri) with
     | None, None -> None
     | None, Some port ->
-        Some (via, (Ipaddr_unix.of_inet_addr Unix.inet_addr_loopback, port))
+        Some (via, [ (Ipaddr_unix.of_inet_addr Unix.inet_addr_loopback, port) ])
     | Some inet_addr, None ->
-        Some (via, (Ipaddr_unix.of_inet_addr inet_addr, 53))
+        Some (via, [ (Ipaddr_unix.of_inet_addr inet_addr, 53) ])
     | Some inet_addr, Some port ->
-        Some (via, (Ipaddr_unix.of_inet_addr inet_addr, port)) in
+        Some (via, [ (Ipaddr_unix.of_inet_addr inet_addr, port) ]) in
   let parser str =
     match parser str with
     | Some v -> Ok v
