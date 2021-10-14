@@ -68,15 +68,15 @@ let unstrctrd_to_utf_8_string_with_lf l =
   Unstrctrd.iter ~f l ;
   Buffer.contents buf
 
-let check local ?nameserver ~timeout ctx =
-  let dns = Ldns.create ?nameserver ~timeout ~local () in
+let check local ?nameservers ~timeout ctx =
+  let dns = Ldns.create ?nameservers ~timeout ~local () in
   Spf.get ~ctx state dns (module DNS) |> Caml_scheduler.prj >>| fun record ->
   Spf.check ~ctx state dns (module DNS) record |> Caml_scheduler.prj
 
 let extract_received_spf ?newline ic =
   Spf.extract_received_spf ?newline ic state (module Flow) |> Caml_scheduler.prj
 
-let stamp quiet local nameserver timeout hostname sender helo ip input output =
+let stamp quiet local nameservers timeout hostname sender helo ip input output =
   let ic, close_ic =
     match input with
     | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
@@ -86,7 +86,7 @@ let stamp quiet local nameserver timeout hostname sender helo ip input output =
     | Some fpath -> (open_out (Fpath.to_string fpath), close_out)
     | None -> (stdout, ignore) in
   let ctx = ctx sender helo ip in
-  match check ?nameserver ~timeout local ctx with
+  match check ?nameservers ~timeout local ctx with
   | Ok res when quiet -> (
       match res with
       | `Pass _ | `None | `Neutral -> `Ok 0
@@ -152,7 +152,7 @@ let show_results results =
   List.iter f results ;
   `Ok 0
 
-let analyze quiet local nameserver timeout input =
+let analyze quiet local nameservers timeout input =
   let ic, close_ic =
     match input with
     | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
@@ -164,7 +164,7 @@ let analyze quiet local nameserver timeout input =
       let results =
         List.fold_left
           (fun acc { Spf.result; ctx; sender; ip; _ } ->
-            match check ?nameserver ~timeout local ctx with
+            match check ?nameservers ~timeout local ctx with
             | Ok v -> (sender, ip, result, v) :: acc
             | _ -> acc)
           [] extracted in
@@ -177,12 +177,14 @@ let inet_addr_of_string str =
   match Unix.inet_addr_of_string str with v -> Some v | exception _ -> None
 
 let pp_nameserver ppf = function
-  | `Tcp, (inet_addr, 53) -> Fmt.pf ppf "tcp://%a/" Ipaddr.pp inet_addr
-  | `Udp, (inet_addr, 53) -> Fmt.pf ppf "udp://%a/" Ipaddr.pp inet_addr
-  | `Tcp, (inet_addr, port) ->
+  | `Tcp, (inet_addr, 53) :: _ -> Fmt.pf ppf "tcp://%a/" Ipaddr.pp inet_addr
+  | `Udp, (inet_addr, 53) :: _ -> Fmt.pf ppf "udp://%a/" Ipaddr.pp inet_addr
+  | `Tcp, (inet_addr, port) :: _ ->
       Fmt.pf ppf "tcp://%a:%d/" Ipaddr.pp inet_addr port
-  | `Udp, (inet_addr, port) ->
+  | `Udp, (inet_addr, port) :: _ ->
       Fmt.pf ppf "udp://%a:%d/" Ipaddr.pp inet_addr port
+  | `Tcp, [] -> Fmt.pf ppf "tcp:///"
+  | `Udp, [] -> Fmt.pf ppf "udp:///"
 
 let nameserver =
   let parser str =
@@ -195,11 +197,11 @@ let nameserver =
     match (Option.bind (Uri.host uri) inet_addr_of_string, Uri.port uri) with
     | None, None -> None
     | None, Some port ->
-        Some (via, (Ipaddr_unix.of_inet_addr Unix.inet_addr_loopback, port))
+        Some (via, [ (Ipaddr_unix.of_inet_addr Unix.inet_addr_loopback, port) ])
     | Some inet_addr, None ->
-        Some (via, (Ipaddr_unix.of_inet_addr inet_addr, 53))
+        Some (via, [ (Ipaddr_unix.of_inet_addr inet_addr, 53) ])
     | Some inet_addr, Some port ->
-        Some (via, (Ipaddr_unix.of_inet_addr inet_addr, port)) in
+        Some (via, [ (Ipaddr_unix.of_inet_addr inet_addr, port) ]) in
   let parser str =
     match parser str with
     | Some v -> Ok v
