@@ -24,6 +24,17 @@ let try_465 inet_addr =
   | () -> Some (`TLS socket)
   | exception _exn -> None
 
+let try_specific_port port inet_addr =
+  match port with
+  | None -> None
+  | Some port -> (
+      let sockaddr = Unix.ADDR_INET (inet_addr, port) in
+      let domain = Unix.domain_of_sockaddr sockaddr in
+      let socket = Unix.socket domain Unix.SOCK_STREAM 0 in
+      match Unix.connect socket sockaddr with
+      | () -> Some (`TLS socket)
+      | exception _exn -> None)
+
 let ( <|> ) f g x = match f x with None -> g x | Some _ as v -> v
 
 let rec fully_write socket str off len =
@@ -209,10 +220,10 @@ let pp_peer ppf = function
   | `Inet_addr v -> Ipaddr.V4.pp ppf v
   | `Host v -> Domain_name.pp ppf v
 
-let connect authenticator (inet_addr, peer) ?authentication ~domain sender
+let connect authenticator (inet_addr, peer) ?port ?authentication ~domain sender
     recipients mail =
   let peer_name = match peer with `Host v -> Some v | `Inet_addr _ -> None in
-  match (try_465 <|> try_587) inet_addr with
+  match (try_specific_port port <|> try_465 <|> try_587) inet_addr with
   | Some (`STARTTLS socket) ->
       Logs.debug (fun m -> m "%a:587 with STARTTLS." pp_peer peer) ;
       let ctx = Sendmail_with_starttls.Context_with_tls.make () in
@@ -241,19 +252,20 @@ let connect authenticator (inet_addr, peer) ?authentication ~domain sender
   | None -> R.error_msgf "Impossible to communicate with %a" pp_peer peer
 
 let connect authenticator dns
-    (peer : [ `Host of 'a Domain_name.t | `Inet_addr of Ipaddr.V4.t ])
+    (peer :
+      [ `Host of 'a Domain_name.t | `Inet_addr of Ipaddr.V4.t ] * int option)
     authentication domain sender recipients mail =
   match peer with
-  | `Inet_addr ipv4 ->
+  | (`Inet_addr ipv4 as peer), port ->
       connect authenticator
         (Ipaddr_unix.to_inet_addr (Ipaddr.V4 ipv4), peer)
-        ?authentication ~domain sender recipients mail
-  | `Host host ->
+        ?port ?authentication ~domain sender recipients mail
+  | (`Host host as peer), port ->
   match Dns_client_unix.gethostbyname dns host with
   | Ok ipv4 ->
       connect authenticator
         (Ipaddr_unix.to_inet_addr (Ipaddr.V4 ipv4), peer)
-        ?authentication ~domain sender recipients mail
+        ?port ?authentication ~domain sender recipients mail
   | Error _ as err -> err
 
 let make_rdwr_from_strings lst =
@@ -523,17 +535,30 @@ let submission =
   let parser str =
     match str with
     | "-" -> Ok `Dry_run
-    | str ->
-    match
-      (Domain_name.of_string str >>= Domain_name.host, Ipaddr.V4.of_string str)
-    with
-    | Ok v, _ -> Ok (`Submission (`Host v))
-    | _, Ok v -> Ok (`Submission (`Inet_addr v))
-    | _ -> R.error_msgf "Invalid submission server: %S" str in
+    | str -> (
+        let str, port =
+          match String.split_on_char ':' str with
+          | [ str'; port ] -> (
+              try
+                let port = int_of_string port in
+                (str', Some port)
+              with _ -> (str, None))
+          | _ -> (str, None) in
+        match
+          ( Domain_name.of_string str >>= Domain_name.host,
+            Ipaddr.V4.of_string str )
+        with
+        | Ok v, _ -> Ok (`Submission (`Host v, port))
+        | _, Ok v -> Ok (`Submission (`Inet_addr v, port))
+        | _ -> R.error_msgf "Invalid submission server: %S" str) in
   let pp ppf = function
     | `Dry_run -> Fmt.string ppf "-"
-    | `Submission (`Host peer) -> Domain_name.pp ppf peer
-    | `Submission (`Inet_addr v) -> Ipaddr.V4.pp ppf v in
+    | `Submission (`Host peer, Some port) ->
+        Fmt.pf ppf "%a:%d" Domain_name.pp peer port
+    | `Submission (`Inet_addr v, Some port) ->
+        Fmt.pf ppf "%a:%d" Ipaddr.V4.pp v port
+    | `Submission (`Host peer, None) -> Fmt.pf ppf "%a" Domain_name.pp peer
+    | `Submission (`Inet_addr v, None) -> Fmt.pf ppf "%a" Ipaddr.V4.pp v in
   Arg.conv (parser, pp)
 
 let submission =
