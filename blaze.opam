@@ -36,7 +36,7 @@ depends: [
   "ptime" {>= "0.8.5"}
   "received" {>= "0.5.0"}
   "rresult" {>= "0.6.0"}
-  "spf" {>= "2.0.2"}
+  "uspf" {>= "0.0.1"}
   "uri" {>= "4.2.0"}
   "ipaddr" {>= "5.2.0"}
 ]
@@ -50,6 +50,5 @@ pin-depends: [
   [ "sendmail.dev" "git+https://github.com/mirage/colombe.git#abe295437b42eed055092079a63d56d4a8f005c4" ]
   [ "received.dev" "git+https://github.com/mirage/colombe.git#abe295437b42eed055092079a63d56d4a8f005c4" ]
   [ "dkim.dev" "git+https://github.com/dinosaure/ocaml-dkim.git#a9e6041b64614100052bfb93435696f3bb289cb0" ]
-  [ "spf.dev" "git+https://github.com/dinosaure/ocaml-spf.git#9a946210a0d0d8f6de8366bcbc119bd85ec45f9d" ]
   [ "maildir.dev" "git+https://github.com/dinosaure/ocaml-maildir.git#597823c7d2d4fd2aef26a581f6828f2b458371ea" ]
 ]

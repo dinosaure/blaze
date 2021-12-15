@@ -5,7 +5,6 @@ let src = Logs.Src.create "local-dns"
 module Log = (val Logs.src_log src : Logs.LOG)
 
 type record = Record : ('a Dns.Rr_map.rr * 'a) -> record
-
 type local = record list Domain_name.Map.t
 
 let rec assoc : type a. a Dns.Rr_map.rr -> record list -> a =
