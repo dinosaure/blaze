@@ -8,13 +8,10 @@ let blit1 src src_off dst dst_off len =
 
 module type FLOW = sig
   type t
-
   type error
 
   val read : t -> ([ `Data of Cstruct.t | `Eof ], error) result
-
   val write : t -> Cstruct.t -> (unit, error) result
-
   val writev : t -> Cstruct.t list -> (unit, error) result
 end
 

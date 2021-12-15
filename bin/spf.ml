@@ -1,17 +1,16 @@
 open Rresult
 
-module Caml_scheduler = Spf.Sigs.Make (struct
+module Caml_scheduler = Uspf.Sigs.Make (struct
   type 'a t = 'a
 end)
 
 let state =
-  let open Spf.Sigs in
+  let open Uspf.Sigs in
   let open Caml_scheduler in
   { return = (fun x -> inj x); bind = (fun x f -> f (prj x)) }
 
 module DNS = struct
   type t = Ldns.t
-
   and backend = Caml_scheduler.t
 
   and error =
@@ -25,22 +24,21 @@ end
 
 module Flow = struct
   type flow = in_channel
-
   and backend = Caml_scheduler.t
 
   let input ic tmp off len = Caml_scheduler.inj @@ input ic tmp off len
 end
 
 let ctx sender helo ip =
-  Spf.empty |> fun ctx ->
+  Uspf.empty |> fun ctx ->
   Option.fold ~none:ctx
-    ~some:(fun helo -> Spf.with_sender (`HELO helo) ctx)
+    ~some:(fun helo -> Uspf.with_sender (`HELO helo) ctx)
     helo
   |> fun ctx ->
   Option.fold ~none:ctx
-    ~some:(fun sender -> Spf.with_sender (`MAILFROM sender) ctx)
+    ~some:(fun sender -> Uspf.with_sender (`MAILFROM sender) ctx)
     sender
-  |> fun ctx -> Option.fold ~none:ctx ~some:(fun ip -> Spf.with_ip ip ctx) ip
+  |> fun ctx -> Option.fold ~none:ctx ~some:(fun ip -> Uspf.with_ip ip ctx) ip
 
 let rec transmit ic oc =
   let tmp = Bytes.create 0x1000 in
@@ -70,11 +68,12 @@ let unstrctrd_to_utf_8_string_with_lf l =
 
 let check local ?nameservers ~timeout ctx =
   let dns = Ldns.create ?nameservers ~timeout ~local () in
-  Spf.get ~ctx state dns (module DNS) |> Caml_scheduler.prj >>| fun record ->
-  Spf.check ~ctx state dns (module DNS) record |> Caml_scheduler.prj
+  Uspf.get ~ctx state dns (module DNS) |> Caml_scheduler.prj >>| fun record ->
+  Uspf.check ~ctx state dns (module DNS) record |> Caml_scheduler.prj
 
 let extract_received_spf ?newline ic =
-  Spf.extract_received_spf ?newline ic state (module Flow) |> Caml_scheduler.prj
+  Uspf.extract_received_spf ?newline ic state (module Flow)
+  |> Caml_scheduler.prj
 
 let stamp quiet local nameservers timeout hostname sender helo ip input output =
   let ic, close_ic =
@@ -92,7 +91,7 @@ let stamp quiet local nameservers timeout hostname sender helo ip input output =
       | `Pass _ | `None | `Neutral -> `Ok 0
       | `Fail | `Softfail | `Permerror | `Temperror -> `Ok 1)
   | Ok res ->
-      let field_name, unstrctrd = Spf.to_field ~ctx ~receiver:hostname res in
+      let field_name, unstrctrd = Uspf.to_field ~ctx ~receiver:hostname res in
       Fmt.pr "%a: %s\n%!" Mrmime.Field_name.pp field_name
         (unstrctrd_to_utf_8_string_with_lf unstrctrd) ;
       transmit ic oc ;
@@ -157,13 +156,13 @@ let analyze quiet local nameservers timeout input =
     match input with
     | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
     | None -> (stdin, ignore) in
-  let res = extract_received_spf ~newline:Spf.LF ic in
+  let res = extract_received_spf ~newline:Uspf.LF ic in
   close_ic ic ;
   match res with
   | Ok extracted ->
       let results =
         List.fold_left
-          (fun acc { Spf.result; ctx; sender; ip; _ } ->
+          (fun acc { Uspf.result; ctx; sender; ip; _ } ->
             match check ?nameservers ~timeout local ctx with
             | Ok v -> (sender, ip, result, v) :: acc
             | _ -> acc)

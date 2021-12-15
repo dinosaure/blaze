@@ -1,9 +1,7 @@
 open Rresult
 
 let const x _ = x
-
 let ( <.> ) f g x = f (g x)
-
 let emitter_of_queue q = function Some str -> Queue.push str q | None -> ()
 
 let stream_of_queue q () =

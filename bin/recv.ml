@@ -58,18 +58,14 @@ module Dot = Graph.Graphviz.Dot (struct
   include Gr
 
   let vertex_name v = Fmt.str "%a" Fmt.(quote Colombe.Domain.pp) v
-
   let edge_attributes _ = [ `Color 0xffffff ]
-
   let default_edge_attributes _ = []
 
   let vertex_attributes _ =
     [ `Color 0xffffff; `Fontcolor 0xffffff; `Shape `Box ]
 
   let default_vertex_attributes _ = []
-
   let graph_attributes _ = [ `BgcolorWithTransparency 0x0l; `Ratio `Compress ]
-
   let get_subgraph _ = None
 end)
 
@@ -161,7 +157,6 @@ let hostname =
   Arg.conv (parser, Fmt.string)
 
 let zone = Arg.conv (Mrmime.Date.Zone.of_string, Mrmime.Date.Zone.pp)
-
 let domain = Arg.conv (Colombe.Domain.of_string, Colombe.Domain.pp)
 
 let path =

@@ -46,7 +46,7 @@
   logs.fmt
   fmt.tty
   logs.cli
-  spf.unix))
+  uspf.unix))
 
 (executable
  (name recv)

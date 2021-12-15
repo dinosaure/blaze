@@ -6,7 +6,6 @@ end)
 
 module Caml_flow = struct
   type backend = Caml_scheduler.t
-
   type flow = in_channel
 
   let input flow buf off len =
@@ -75,7 +74,6 @@ let show_result valid expired invalid =
 
 module Infix = struct
   let ( >>= ) = caml.bind
-
   let return = caml.return
 
   let ( >>? ) x f =
@@ -163,7 +161,6 @@ let verify quiet local fields nameservers extra input =
 
 module Keep_flow = struct
   type backend = Caml_scheduler.t
-
   type flow = in_channel * Buffer.t
 
   let input (ic, bf) buf off len =
@@ -182,7 +179,6 @@ let pub_of_seed seed = Mirage_crypto_pk.Rsa.pub_of_priv (priv_of_seed seed)
 
 module Caml_stream = struct
   type 'a t = 'a Queue.t
-
   type backend = Caml_scheduler.t
 
   let create () =
