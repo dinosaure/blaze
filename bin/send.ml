@@ -172,6 +172,14 @@ module TLS = struct
     let tls, init = Tls.Engine.client cfg in
     let flow = { socket; state = `Active tls; linger = [] } in
     fully_write socket init |> fun _ -> drain_handshake flow
+
+  let close flow =
+    match flow.state with
+    | `Active tls ->
+        flow.state <- `Eof ;
+        let _, buf = Tls.Engine.send_close_notify tls in
+        fully_write flow.socket buf |> fun _ -> Unix.close flow.socket
+    | _ -> ()
 end
 
 let make_rdwr_with_tls, rdwr_with_tls =
@@ -231,6 +239,9 @@ let connect authenticator (inet_addr, peer) ?port ?authentication ~domain sender
       Sendmail_with_starttls.sendmail caml rdwr socket ctx cfg ?authentication
         ~domain sender recipients mail
       |> Caml_scheduler.prj
+      |> fun res ->
+      Unix.close socket ;
+      res
       |> R.reword_error @@ fun err ->
          R.msgf "%a" Sendmail_with_starttls.pp_error err
   | Some (`TLS socket) -> (
@@ -244,11 +255,13 @@ let connect authenticator (inet_addr, peer) ?port ?authentication ~domain sender
           R.error_msgf "Got a TLS error: %a" TLS.pp_error err
       | Ok flow ->
           let ctx = Colombe.State.Context.make () in
-          let flow = make_rdwr_with_tls flow in
-          Sendmail.sendmail caml rdwr_with_tls flow ctx ?authentication ~domain
+          let flow' = make_rdwr_with_tls flow in
+          Sendmail.sendmail caml rdwr_with_tls flow' ctx ?authentication ~domain
             sender recipients mail
           |> Caml_scheduler.prj
-          |> R.reword_error @@ fun err -> R.msgf "%a" Sendmail.pp_error err)
+          |> fun res ->
+          TLS.close flow ;
+          res |> R.reword_error @@ fun err -> R.msgf "%a" Sendmail.pp_error err)
   | None -> R.error_msgf "Impossible to communicate with %a" pp_peer peer
 
 let connect authenticator dns
