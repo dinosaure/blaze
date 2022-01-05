@@ -21,6 +21,7 @@ Tests on put
   
   --foobar--
   $ blaze.make --date none <<EOF | blaze.make wrap --boundary foobar | blaze.make put --encoding base64 text
+  > EOF
   Content-Type: multipart/mixed; boundary=foobar
   MIME-Version: 1.0
   
