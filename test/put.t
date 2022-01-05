@@ -18,4 +18,20 @@ Tests on put
   Content-Type: text/plain; charset=utf-8
   
   J'adore=20le=20concombre=20sal=C3=A9.
+  
+  --foobar--
+  $ blaze.make --date none <<EOF | blaze.make wrap --boundary foobar | blaze.make put --encoding base64 text
+  Content-Type: multipart/mixed; boundary=foobar
+  MIME-Version: 1.0
+  
+  --foobar
+  Content-Type: text/plain; charset=utf-8
+  Content-Transfer-Encoding: 7bit
+  
+  
+  --foobar
+  Content-Transfer-Encoding: base64
+  Content-Type: text/plain; charset=utf-8
+  
+  SidhZG9yZSBsZSBjb25jb21icmUgc2Fsw6kuCg==
   --foobar--

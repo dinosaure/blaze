@@ -1,3 +1,9 @@
+(library
+ (name args)
+ (modules args)
+ (public_name blaze.args)
+ (libraries cmdliner logs.fmt logs.cli fmt.tty fmt.cli))
+
 (executable
  (name addr)
  (modules addr)
@@ -14,7 +20,7 @@
  (name map)
  (modules map)
  (public_name blaze.map)
- (libraries cmdliner logs.cli fmt.tty logs.fmt fmt.cli fpath mrmime))
+ (libraries cmdliner blaze.args fpath mrmime))
 
 (executable
  (name mdir)
@@ -22,10 +28,7 @@
  (public_name blaze.mdir)
  (libraries
   base64
-  logs.cli
-  fmt.tty
-  fmt.cli
-  logs.fmt
+  blaze.args
   domain-name
   cmdliner
   fpath
@@ -36,17 +39,7 @@
  (name spf)
  (modules spf)
  (public_name blaze.spf)
- (libraries
-  blaze.ldns
-  cmdliner
-  fpath
-  rresult
-  uri
-  fmt.cli
-  logs.fmt
-  fmt.tty
-  logs.cli
-  uspf.unix))
+ (libraries blaze.ldns cmdliner fpath rresult uri blaze.args uspf.unix))
 
 (executable
  (name recv)
@@ -80,16 +73,14 @@
   uri
   dkim
   dns-client.unix
-  logs.cli
-  fmt.cli
-  logs.fmt
-  fmt.tty))
+  blaze.args))
 
 (executable
  (name send)
  (modules unixiz send)
  (public_name blaze.send)
  (libraries
+  blaze.args
   cmdliner
   fpath
   rresult
@@ -114,13 +105,4 @@
  (name make)
  (modules make)
  (public_name blaze.make)
- (libraries
-  unix
-  logs.fmt
-  fmt.tty
-  logs.cli
-  fmt.cli
-  cmdliner
-  fpath
-  ptime.clock.os
-  mrmime))
+ (libraries unix blaze.args cmdliner fpath ptime.clock.os mrmime))

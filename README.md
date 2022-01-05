@@ -32,11 +32,14 @@ romain@blaze.org
 
 `blaze` wants to be simple to send an email. First, you need to craft
 one with some meta-information. Then, you can attach a document to your
-email and then, pass it to `blaze.send` with your account credentials:
+email and then, pass it to `blaze.send` with your account credentials. You
+may be need another tool, [conan][conan], to be able to recognize the MIME
+type of the attachment.
 ```sh
 $ blaze.make <<EOF \
   | blaze.make wrap --mixed
-  | blaze.make put --encoding base64 image.png
+  | blaze.make put --type $(conan.file --mime image.png) \
+    --encoding base64 image.png
   | blaze.send --sender foo@bar --password ****** smtp.bar
 > Hello World!
 > EOF
@@ -49,4 +52,5 @@ As you can see, you can craft and send your email along the UNIX pipe.
 
 [mrmime]: https://github.com/mirage/mrmime
 [dkim]: https://github.com/dinosaure/ocaml-dkim
-[spf]: https://github.com/dinosaure/ocaml-spf
+[spf]: https://github.com/dinosaure/uspf
+[conan]: https://github.com/mirage/conan

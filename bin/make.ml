@@ -378,7 +378,8 @@ let put headers content_encoding mime_type content_parameters body input output
       (Mt.to_stream mail) in
   let stream2 = concat_stream stream0 stream1 in
   let stream =
-    concat_stream stream2 (stream_of_string ("--" ^ boundary ^ "--\r\n")) in
+    concat_stream stream2 (stream_of_string ("\r\n--" ^ boundary ^ "--\r\n"))
+  in
   (match output with
   | Some filename -> stream_to_filename stream filename
   | None -> stream_to_stdout stream) ;
@@ -480,6 +481,7 @@ let put _ headers content_encoding mime_type content_parameters body input
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
 open Cmdliner
+open Args
 
 let field =
   let parser str =
@@ -596,38 +598,6 @@ let content_parameter =
     Fmt.pf ppf "%a=%a" Content_type.Parameters.pp_key k
       Content_type.Parameters.pp_value v in
   Arg.conv (parser, pp)
-
-let common_options = "COMMON OPTIONS"
-
-let verbosity =
-  let env = Arg.env_var "BLAZE_LOGS" in
-  Logs_cli.level ~docs:common_options ~env ()
-
-let renderer =
-  let env = Arg.env_var "BLAZE_FMT" in
-  Fmt_cli.style_renderer ~docs:common_options ~env ()
-
-let reporter ppf =
-  let report src level ~over k msgf =
-    let k _ =
-      over () ;
-      k () in
-    let with_metadata header _tags k ppf fmt =
-      Fmt.kpf k ppf
-        ("%a[%a]: " ^^ fmt ^^ "\n%!")
-        Logs_fmt.pp_header (level, header)
-        Fmt.(styled `Magenta string)
-        (Logs.Src.name src) in
-    msgf @@ fun ?header ?tags fmt -> with_metadata header tags k ppf fmt in
-  { Logs.report }
-
-let setup_logs style_renderer level =
-  Fmt_tty.setup_std_outputs ?style_renderer () ;
-  Logs.set_level level ;
-  Logs.set_reporter (reporter Fmt.stderr) ;
-  Option.is_none level
-
-let setup_logs = Term.(const setup_logs $ renderer $ verbosity)
 
 let setup_zone = function
   | Some zone -> zone
