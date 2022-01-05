@@ -12,7 +12,7 @@ doc: "https://dinosaure.github.io/blaze/"
 bug-reports: "https://github.com/dinosaure/blaze/issues"
 depends: [
   "ocaml" {>= "4.08.0"}
-  "mrmime"
+  "mrmime" {>= "0.5.0"}
   "bigstringaf"
   "emile"
   "domain-name"
@@ -22,11 +22,11 @@ depends: [
   "bos"
   "dns"
   "cmdliner" {>= "1.0.4"}
-  "colombe" {>= "0.4.1"}
+  "colombe" {>= "0.6.0"}
   "sendmail"
   "ca-certs"
   "tls" {>= "0.15.0"}
-  "dkim" {>= "0.2.0"}
+  "dkim" {>= "0.3.1"}
   "dns-client" {>= "5.0.1"}
   "dune" {>= "2.8.5"}
   "fmt" {>= "0.8.9"}
@@ -36,7 +36,7 @@ depends: [
   "ptime" {>= "0.8.5"}
   "received" {>= "0.5.0"}
   "rresult" {>= "0.6.0"}
-  "uspf" {>= "0.0.1"}
+  "uspf" {>= "0.0.2"}
   "uri" {>= "4.2.0"}
   "ipaddr" {>= "5.2.0"}
 ]
@@ -46,9 +46,5 @@ build: [
 ]
 dev-repo: "git+https://github.com/dinosaure/blaze.git"
 pin-depends: [
-  [ "colombe.dev" "git+https://github.com/mirage/colombe.git#abe295437b42eed055092079a63d56d4a8f005c4" ]
-  [ "sendmail.dev" "git+https://github.com/mirage/colombe.git#abe295437b42eed055092079a63d56d4a8f005c4" ]
-  [ "received.dev" "git+https://github.com/mirage/colombe.git#abe295437b42eed055092079a63d56d4a8f005c4" ]
-  [ "dkim.dev" "git+https://github.com/dinosaure/ocaml-dkim.git#a9e6041b64614100052bfb93435696f3bb289cb0" ]
   [ "maildir.dev" "git+https://github.com/dinosaure/ocaml-maildir.git#597823c7d2d4fd2aef26a581f6828f2b458371ea" ]
 ]
