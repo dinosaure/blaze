@@ -18,6 +18,7 @@ Test on send command
   .
   QUIT
   $ blaze.send --verbosity=error -h omelet --sender foo@bar -r a@foo -r b@foo - - <<EOF
+  > EOF
   EHLO omelet
   MAIL FROM:<foo@bar>
   RCPT TO:<a@foo>
