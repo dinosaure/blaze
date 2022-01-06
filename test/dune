@@ -7,11 +7,12 @@
   (source_tree mdir)
   (source_tree cache)
   %{bin:blaze.make}
-  %{bin:blaze.send}
+  %{bin:blaze.submit}
   %{bin:blaze.mdir}
   %{bin:blaze.dkim}
   %{bin:blaze.recv}
   %{bin:blaze.addr}
   %{bin:blaze.hdr}
   %{bin:blaze.map}
+  %{bin:blaze.srv}
   %{bin:blaze.spf}))

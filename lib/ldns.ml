@@ -115,6 +115,24 @@ let getaddrinfo :
   | Ok _ as v -> v
   | Error _ -> Dns_client_unix.getaddrinfo t.dns record domain_name
 
+let gethostbyname { local; dns } domain_name =
+  match
+    Domain_name.Map.find (Domain_name.raw domain_name) local
+    |> Option.get
+    |> assoc Dns.Rr_map.A
+  with
+  | _, vs -> Ok (Ipaddr.V4.Set.choose vs)
+  | exception _ -> Dns_client_unix.gethostbyname dns domain_name
+
+let gethostbyname6 { local; dns } domain_name =
+  match
+    Domain_name.Map.find (Domain_name.raw domain_name) local
+    |> Option.get
+    |> assoc Dns.Rr_map.Aaaa
+  with
+  | _, vs -> Ok (Ipaddr.V6.Set.choose vs)
+  | exception _ -> Dns_client_unix.gethostbyname6 dns domain_name
+
 let get_resource_record :
     type a.
     local ->
