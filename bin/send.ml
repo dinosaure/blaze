@@ -258,50 +258,6 @@ let run _ authenticator nameservers timeout peer_name domain sender recipients
 open Cmdliner
 open Args
 
-let inet_addr_of_string str =
-  match Unix.inet_addr_of_string str with v -> Some v | exception _ -> None
-
-let pp_nameserver ppf = function
-  | `Tcp, (inet_addr, 53) :: _ -> Fmt.pf ppf "tcp://%a/" Ipaddr.pp inet_addr
-  | `Udp, (inet_addr, 53) :: _ -> Fmt.pf ppf "udp://%a/" Ipaddr.pp inet_addr
-  | `Tcp, (inet_addr, port) :: _ ->
-      Fmt.pf ppf "tcp://%a:%d/" Ipaddr.pp inet_addr port
-  | `Udp, (inet_addr, port) :: _ ->
-      Fmt.pf ppf "udp://%a:%d/" Ipaddr.pp inet_addr port
-  | `Tcp, [] -> Fmt.pf ppf "tcp:///"
-  | `Udp, [] -> Fmt.pf ppf "udp:///"
-
-let nameserver =
-  let parser str =
-    let uri = Uri.of_string str in
-    let via =
-      match Uri.scheme uri with
-      | None | Some "udp" -> `Udp
-      | Some "tcp" -> `Tcp
-      | Some scheme -> Fmt.invalid_arg "Invalid scheme: %S" scheme in
-    match (Option.bind (Uri.host uri) inet_addr_of_string, Uri.port uri) with
-    | None, None -> None
-    | None, Some port ->
-        Some (via, [ (Ipaddr_unix.of_inet_addr Unix.inet_addr_loopback, port) ])
-    | Some inet_addr, None ->
-        Some (via, [ (Ipaddr_unix.of_inet_addr inet_addr, 53) ])
-    | Some inet_addr, Some port ->
-        Some (via, [ (Ipaddr_unix.of_inet_addr inet_addr, port) ]) in
-  let parser str =
-    match parser str with
-    | Some v -> Ok v
-    | None -> R.error_msgf "Invalid nameserver: %a" Uri.pp (Uri.of_string str)
-    | exception _ -> R.error_msgf "Invalid nameserver: %S" str in
-  Arg.conv (parser, pp_nameserver)
-
-let nameserver =
-  let doc = "DNS nameserver." in
-  Arg.(value & opt (some nameserver) None & info [ "n"; "nameserver" ] ~doc)
-
-let timeout =
-  let doc = "The DNS timeout allowed (in nano-second)." in
-  Arg.(value & opt int64 5_000_000_000L & info [ "t"; "timeout" ] ~doc)
-
 let existing_filename =
   let parser str =
     match Fpath.of_string str with
