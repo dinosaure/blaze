@@ -39,6 +39,8 @@ depends: [
   "uspf" {>= "0.0.2"}
   "uri" {>= "4.2.0"}
   "ipaddr" {>= "5.2.0"}
+  "cstruct"
+  "ke" {>= "0.4"}
 ]
 build: [
   ["dune" "build" "-p" name "-j" jobs]

@@ -2,7 +2,24 @@
  (name args)
  (modules args)
  (public_name blaze.args)
- (libraries cmdliner logs.fmt logs.cli fmt.tty fmt.cli))
+ (libraries
+  blaze.ldns
+  rresult
+  fpath
+  ipaddr
+  ipaddr.unix
+  uri
+  cmdliner
+  logs.fmt
+  logs.cli
+  fmt.tty
+  fmt.cli))
+
+(library
+ (name unixiz)
+ (modules unixiz)
+ (public_name blaze.unixiz)
+ (libraries ke rresult cstruct unix))
 
 (executable
  (name addr)
@@ -39,7 +56,7 @@
  (name spf)
  (modules spf)
  (public_name blaze.spf)
- (libraries blaze.ldns cmdliner fpath rresult uri blaze.args uspf.unix))
+ (libraries cmdliner fpath rresult uri blaze.args uspf.unix))
 
 (executable
  (name recv)
@@ -76,11 +93,12 @@
   blaze.args))
 
 (executable
- (name send)
- (modules unixiz send)
- (public_name blaze.send)
+ (name submit)
+ (modules submit)
+ (public_name blaze.submit)
  (libraries
   blaze.args
+  blaze.unixiz
   cmdliner
   fpath
   rresult
@@ -95,11 +113,36 @@
   dns-client.unix
   sendmail
   sendmail.starttls
-  colombe.emile
-  logs.cli
-  fmt.cli
-  logs.fmt
-  fmt.tty))
+  colombe.emile))
+
+(executable
+ (name send)
+ (modules send)
+ (public_name blaze.send)
+ (libraries
+  blaze.args
+  blaze.unixiz
+  cmdliner
+  fpath
+  rresult
+  mrmime
+  bigstringaf
+  fmt
+  tls
+  colombe
+  unix
+  uri
+  ca-certs
+  dns-client.unix
+  sendmail
+  sendmail.starttls
+  colombe.emile))
+
+(executable
+ (name srv)
+ (modules srv)
+ (public_name blaze.srv)
+ (libraries fpath sendmail.starttls rresult blaze.args colombe))
 
 (executable
  (name make)
