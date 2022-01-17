@@ -23,7 +23,7 @@ let parser ic =
     let contents = Queue.create () in
     Hashtbl.add tbl v contents ;
     (emitter_of_queue contents, v) in
-  let parser = Mrmime.Mail.stream ~emitters in
+  let parser = Mrmime.Mail.stream emitters in
   let rec loop ic ke = function
     | Angstrom.Unbuffered.Done (_, (header, mail)) -> R.ok (header, mail, tbl)
     | Fail _ -> R.error_msgf "Invalid incoming email"

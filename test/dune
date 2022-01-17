@@ -16,4 +16,5 @@
   %{bin:blaze.hdr}
   %{bin:blaze.map}
   %{bin:blaze.srv}
-  %{bin:blaze.spf}))
+  %{bin:blaze.spf}
+  %{bin:blaze.descr}))

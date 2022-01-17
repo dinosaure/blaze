@@ -196,7 +196,7 @@ let stream_of_in_channel ic () =
   | line -> Some (line ^ "\r\n", 0, String.length line + 2)
   | exception End_of_file -> None
 
-let wrap g boundary subty input output =
+let wrap fields g boundary subty input output =
   let ic, ic_close =
     match input with
     | `Stdin -> (stdin, ignore)
@@ -261,11 +261,12 @@ let wrap g boundary subty input output =
   let part =
     let header =
       Header.of_list
-        [
-          Field.Field (Field_name.content_type, Field.Content, content_type);
-          Field.Field
-            (Field_name.content_encoding, Field.Encoding, content_encoding);
-        ] in
+        ([
+           Field.Field (Field_name.content_type, Field.Content, content_type);
+           Field.Field
+             (Field_name.content_encoding, Field.Encoding, content_encoding);
+         ]
+        @ fields) in
     Mt.part ~encoding:false ~header stream in
   let mail = Mt.multipart ~header:hdr ~rng:Mt.rng ~boundary [ part ] in
   let stream = Mt.to_stream (Mt.make Header.empty Mt.multi mail) in
@@ -275,13 +276,13 @@ let wrap g boundary subty input output =
   ic_close ic ;
   Ok ()
 
-let wrap _ seed boundary subty input output =
+let wrap _ fields seed boundary subty input output =
   let g =
     match seed with
     | Some seed ->
         Some (Array.init (String.length seed) (fun idx -> Char.code seed.[idx]))
     | None -> None in
-  match wrap g boundary subty input output with
+  match wrap fields g boundary subty input output with
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
   | Ok () -> `Ok 0
 
@@ -774,7 +775,15 @@ let wrap =
          value.";
     ] in
   ( Term.(
-      ret (const wrap $ setup_logs $ seed $ boundary $ subty $ input $ output)),
+      ret
+        (const wrap
+        $ setup_logs
+        $ headers
+        $ seed
+        $ boundary
+        $ subty
+        $ input
+        $ output)),
     Term.info "wrap" ~doc ~man )
 
 let input =

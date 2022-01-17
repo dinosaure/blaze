@@ -25,6 +25,7 @@ let reporter ppf =
     msgf @@ fun ?header ?tags fmt -> with_metadata header tags k ppf fmt in
   { Logs.report }
 
+(* TODO(dinosaure): UTF-8 support? *)
 let setup_logs style_renderer level =
   Fmt_tty.setup_std_outputs ?style_renderer () ;
   Logs.set_level level ;
