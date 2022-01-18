@@ -11,6 +11,11 @@ let renderer =
   let env = Arg.env_var "BLAZE_FMT" in
   Fmt_cli.style_renderer ~docs:common_options ~env ()
 
+let utf_8 =
+  let doc = "Allow binaries to emit UTF-8 characters." in
+  let env = Arg.env_var "BLAZE_UTF_8" in
+  Arg.(value & opt bool true & info [ "with-utf-8" ] ~doc ~env)
+
 let reporter ppf =
   let report src level ~over k msgf =
     let k _ =
@@ -26,13 +31,13 @@ let reporter ppf =
   { Logs.report }
 
 (* TODO(dinosaure): UTF-8 support? *)
-let setup_logs style_renderer level =
-  Fmt_tty.setup_std_outputs ?style_renderer () ;
+let setup_logs utf_8 style_renderer level =
+  Fmt_tty.setup_std_outputs ~utf_8 ?style_renderer () ;
   Logs.set_level level ;
   Logs.set_reporter (reporter Fmt.stderr) ;
   Option.is_none level
 
-let setup_logs = Term.(const setup_logs $ renderer $ verbosity)
+let setup_logs = Term.(const setup_logs $ utf_8 $ renderer $ verbosity)
 
 let inet_addr_of_string str =
   match Unix.inet_addr_of_string str with v -> Some v | exception _ -> None
