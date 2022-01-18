@@ -149,3 +149,9 @@
  (modules make)
  (public_name blaze.make)
  (libraries unix blaze.args cmdliner fpath ptime.clock.os mrmime))
+
+(executable
+ (name descr)
+ (modules descr)
+ (public_name blaze.descr)
+ (libraries blaze.args cmdliner mrmime fpath))
