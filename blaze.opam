@@ -40,6 +40,7 @@ depends: [
   "uri" {>= "4.2.0"}
   "ipaddr" {>= "5.2.0"}
   "cstruct"
+  "dmarc"
   "ke" {>= "0.4"}
 ]
 build: [
@@ -50,4 +51,6 @@ dev-repo: "git+https://github.com/dinosaure/blaze.git"
 pin-depends: [
   [ "maildir.dev" "git+https://github.com/dinosaure/ocaml-maildir.git#597823c7d2d4fd2aef26a581f6828f2b458371ea" ]
   [ "mrmime.dev" "git+https://github.com/mirage/mrmime.git#322b15506e127417f8a68c91727e5758b6353d57" ]
+  [ "dmarc.dev" "git+https://github.com/dinosaure/ocaml-dmarc.git#22420443e3ae1a4ee2343e4992fb5c22f15f4598" ]
+  [ "public-suffix.dev" "git+https://github.com/dinosaure/ocaml-dmarc.git#22420443e3ae1a4ee2343e4992fb5c22f15f4598" ]
 ]
