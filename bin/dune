@@ -151,6 +151,12 @@
  (libraries unix blaze.args cmdliner fpath ptime.clock.os mrmime))
 
 (executable
+ (name dmarc)
+ (modules dmarc)
+ (public_name blaze.dmarc)
+ (libraries blaze.args dmarc cmdliner lwt.unix))
+
+(executable
  (name descr)
  (modules descr)
  (public_name blaze.descr)

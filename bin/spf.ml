@@ -150,6 +150,7 @@ let show_results results =
           pp_expected expected in
   List.iter f results ;
   `Ok 0
+(* XXX(dinosaure): [to_exit_codes results]? *)
 
 let analyze quiet local nameservers timeout input =
   let ic, close_ic =
