@@ -25,6 +25,7 @@ depends: [
   "colombe" {>= "0.6.0"}
   "sendmail"
   "ca-certs"
+  "lwt" {>= "5.5.0"}
   "tls" {>= "0.15.0"}
   "dkim" {>= "0.3.1"}
   "dns-client" {>= "5.0.1"}
