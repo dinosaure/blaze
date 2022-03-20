@@ -35,7 +35,7 @@ let get _ hostname maildir new_message message output =
     transmit ic oc ;
     close_in ic ;
     close_oc oc ;
-    `Ok 0)
+    `Ok ())
   else `Error (false, Fmt.str "%a does not exist." Fpath.pp fpath)
 
 let new_messages _ hostname maildir =
@@ -43,7 +43,7 @@ let new_messages _ hostname maildir =
   let maildir = Maildir.create ~pid:(Unix.getpid ()) ~host ~random maildir in
   let fold () { Maildir.value; _ } = Fmt.pr "%a\n%!" Maildir.pp_message value in
   Maildir_unix.scan_only_new fold () Maildir_unix.fs maildir ;
-  `Ok 0
+  `Ok ()
 
 let commit _ hostname maildir flags new_message message =
   let message = if new_message then Maildir.with_new message else message in
@@ -55,7 +55,7 @@ let commit _ hostname maildir flags new_message message =
           message.Maildir.value.Maildir.host) ;
   let maildir = Maildir.create ~pid:(Unix.getpid ()) ~host ~random maildir in
   Maildir_unix.commit Maildir_unix.fs maildir ~flags message ;
-  `Ok 0
+  `Ok ()
 
 open Cmdliner
 open Args
@@ -70,7 +70,7 @@ let maildir =
 
 let maildir =
   let doc = "The $(i,maildir) path." in
-  let env = Arg.env_var ~doc "BLAZE_MDIR" in
+  let env = Cmd.Env.info ~doc "BLAZE_MDIR" in
   Arg.(required & opt (some maildir) None & info [ "D"; "maildir" ] ~env ~doc)
 
 let message =
@@ -128,7 +128,8 @@ let flags =
 let get =
   let doc = "Load and store the given message to the $(i,output)." in
   let man = [] in
-  ( Term.(
+  Cmd.v (Cmd.info "get" ~doc ~man)
+    Term.(
       ret
         (const get
         $ setup_logs
@@ -136,8 +137,7 @@ let get =
         $ maildir
         $ new_message
         $ message
-        $ output)),
-    Term.info "get" ~doc ~man )
+        $ output))
 
 let new_messages =
   let doc = "Scan and show new messages from the given $(i,maildir)." in
@@ -146,8 +146,8 @@ let new_messages =
       `S Manpage.s_description;
       `P "From the given $(i,maildir), $(b,new) shows new messages.";
     ] in
-  ( Term.(ret (const new_messages $ setup_logs $ hostname $ maildir)),
-    Term.info "new" ~doc ~man )
+  Cmd.v (Cmd.info "new" ~doc ~man)
+    Term.(ret (const new_messages $ setup_logs $ hostname $ maildir))
 
 let commit =
   let doc =
@@ -158,7 +158,9 @@ let commit =
       `S Manpage.s_description;
       `P "Tag and move the specified message from the given $(i,maildir).";
     ] in
-  ( Term.(
+  Cmd.v
+    (Cmd.info "commit" ~doc ~man)
+    Term.(
       ret
         (const commit
         $ setup_logs
@@ -166,10 +168,11 @@ let commit =
         $ maildir
         $ flags
         $ new_message
-        $ message)),
-    Term.info "commit" ~doc ~man )
+        $ message))
 
-let default =
+let default = Term.(ret (const (`Help (`Pager, None))))
+
+let () =
   let doc = "A tool to manipulate a $(i,maildir) directory." in
   let man =
     [
@@ -178,6 +181,7 @@ let default =
         "From the given $(i,maildir) and the message $(i,id), $(b,get) loads \
          and shows the entire message.";
     ] in
-  (Term.(ret (const (`Help (`Pager, None)))), Term.info "mdir" ~doc ~man)
-
-let () = Term.(exit_status @@ eval_choice default [ get; new_messages; commit ])
+  let cmd =
+    Cmd.group ~default (Cmd.info "mdir" ~doc ~man) [ get; new_messages; commit ]
+  in
+  Cmd.(exit @@ eval cmd)

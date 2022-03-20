@@ -21,7 +21,7 @@ depends: [
   "base64"
   "bos"
   "dns"
-  "cmdliner" {>= "1.0.4"}
+  "cmdliner" {>= "1.1.0"}
   "colombe" {>= "0.6.0"}
   "sendmail"
   "ca-certs"

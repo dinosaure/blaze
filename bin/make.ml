@@ -143,7 +143,7 @@ let make _ headers content_encoding mime_type content_parameters from _to cc bcc
   (match output with
   | Some filename -> stream_to_filename stream filename
   | None -> stream_to_stdout stream) ;
-  `Ok 0
+  `Ok ()
 
 let rec list_hd_map_or ~f ~default = function
   | [] -> default
@@ -284,7 +284,7 @@ let wrap _ fields seed boundary subty input output =
     | None -> None in
   match wrap fields g boundary subty input output with
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
-  | Ok () -> `Ok 0
+  | Ok () -> `Ok ()
 
 let ok_if test ~error = match test with true -> Ok () | false -> error ()
 
@@ -471,14 +471,14 @@ let add_field _ headers content_encoding mime_type content_parameters from _to
       (match output with
       | Some filename -> stream_to_filename stream filename
       | None -> stream_to_stdout stream) ;
-      `Ok 0
+      `Ok ()
 
 let put _ headers content_encoding mime_type content_parameters body input
     output =
   match
     put headers content_encoding mime_type content_parameters body input output
   with
-  | Ok () -> `Ok 0
+  | Ok () -> `Ok ()
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
 open Cmdliner
@@ -612,7 +612,7 @@ let setup_zone = function
 let zone = Arg.conv (Date.Zone.of_string, Date.Zone.pp)
 
 let zone =
-  let env = Arg.env_var "BLAZE_ZONE" in
+  let env = Cmd.Env.info "BLAZE_ZONE" in
   let doc = "Time-zone." in
   Arg.(value & opt (some zone) None & info [ "zone" ] ~env ~doc)
 
@@ -658,7 +658,7 @@ let output =
   let doc = "The filename where you want to save the email." in
   Arg.(value & opt filename None & info [ "o"; "output" ] ~doc)
 
-let make =
+let make_term, make_info =
   let content_encoding =
     let doc = "Encoding of the body." in
     Arg.(value & opt content_encoding `Bit7 & info [ "encoding" ] ~doc) in
@@ -690,7 +690,7 @@ let make =
         $ date
         $ body
         $ output)),
-    Term.info "make" ~doc ~man )
+    Cmd.info "make" ~doc ~man )
 
 let input =
   let doc = "The email to be modified." in
@@ -712,7 +712,9 @@ let add_field =
   let man =
     [ `S Manpage.s_description; `P "Prepend the given email with some fields." ]
   in
-  ( Term.(
+  Cmd.v
+    (Cmd.info "add-field" ~doc ~man)
+    Term.(
       ret
         (const add_field
         $ setup_logs
@@ -727,8 +729,7 @@ let add_field =
         $ setup_zone
         $ date
         $ input
-        $ output)),
-    Term.info "add-field" ~doc ~man )
+        $ output))
 
 let input =
   let doc = "The email to wrap into a multipart one." in
@@ -774,7 +775,9 @@ let wrap =
          the same old $(i,Content-Type) and $(i,Content-Transfer-Encoding) \
          value.";
     ] in
-  ( Term.(
+  Cmd.v
+    (Cmd.info "wrap" ~doc ~man)
+    Term.(
       ret
         (const wrap
         $ setup_logs
@@ -783,8 +786,7 @@ let wrap =
         $ boundary
         $ subty
         $ input
-        $ output)),
-    Term.info "wrap" ~doc ~man )
+        $ output))
 
 let input =
   let doc = "The email to wrap into a multipart one." in
@@ -818,7 +820,8 @@ let put =
       `S Manpage.s_description;
       `P "Put a new part into the given multipart email.";
     ] in
-  ( Term.(
+  Cmd.v (Cmd.info "put" ~doc ~man)
+    Term.(
       ret
         (const put
         $ setup_logs
@@ -828,7 +831,8 @@ let put =
         $ content_parameters
         $ body
         $ input
-        $ output)),
-    Term.info "put" ~doc ~man )
+        $ output))
 
-let () = Term.(exit_status @@ eval_choice make [ add_field; wrap; put ])
+let () =
+  let cmd = Cmd.group ~default:make_term make_info [ add_field; wrap; put ] in
+  Cmd.(exit @@ eval cmd)

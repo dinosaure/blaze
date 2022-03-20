@@ -156,7 +156,8 @@ let verify quiet local fields nameservers extra input =
         Hashtbl.add extra_servers domain_name (extra_to_string extra))
       extra in
   match verify quiet local fields nameservers input with
-  | Ok n -> `Ok n
+  | Ok 0 -> `Ok ()
+  | Ok _ -> `Ok () (* TODO *)
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
 module Keep_flow = struct
@@ -223,7 +224,7 @@ let sign _verbose input output key selector fields hash canon domain_name =
   Fmt.pf ppf "%s%!" (Buffer.contents buffer) ;
   close_ic ic ;
   close_oc oc ;
-  `Ok 0
+  `Ok ()
 
 let sign _verbose input output private_key seed selector fields hash canon
     domain_name =
@@ -256,13 +257,13 @@ let gen seed output =
       Base64.encode_string ~pad:true (Cstruct.to_string cs) in
     Fmt.pr "seed is %s\n%!" (Base64.encode_string ~pad:true seed) ;
     Fmt.pr "public key is %s\n%!" pk ;
-    `Ok 0)
+    `Ok ())
   else
     let pk = X509.Public_key.encode_pem (`RSA pub) in
     Fmt.pr "seed is %s\n%!" (Base64.encode_string ~pad:true seed) ;
     output_string oc (Cstruct.to_string pk) ;
     close oc ;
-    `Ok 0
+    `Ok ()
 
 open Cmdliner
 open Args
@@ -330,7 +331,9 @@ let verify =
       `S Manpage.s_description;
       `P "$(tname) verifies DKIM fiels from the given $(i,msgs).";
     ] in
-  ( Term.(
+  Cmd.v
+    (Cmd.info "verify" ~doc ~man)
+    Term.(
       ret
         (const verify
         $ setup_logs
@@ -338,8 +341,7 @@ let verify =
         $ fields
         $ nameserver
         $ extra
-        $ input)),
-    Term.info "verify" ~doc ~man )
+        $ input))
 
 let input =
   let doc = "The email to sign." in
@@ -473,7 +475,9 @@ let sign =
       `S Manpage.s_description;
       `P "$(tname) signs the given $(i,msgs) and put a new DKIM field.";
     ] in
-  ( Term.(
+  Cmd.v
+    (Cmd.info "sign" ~doc ~man)
+    Term.(
       ret
         (const sign
         $ setup_logs
@@ -485,8 +489,7 @@ let sign =
         $ fields
         $ hash
         $ canon
-        $ hostname)),
-    Term.info "sign" ~doc ~man )
+        $ hostname))
 
 let output =
   let doc = "The path of the produced PEM-encoded public key." in
@@ -512,9 +515,11 @@ let gen =
       `S Manpage.s_description;
       `P "$(tname) generates a new RSA key from a seed (optional).";
     ] in
-  (Term.(ret (const gen $ seed $ output)), Term.info "gen" ~doc ~man)
+  Cmd.v (Cmd.info "gen" ~doc ~man) Term.(ret (const gen $ seed $ output))
 
-let default =
+let default = Term.(ret (const (`Help (`Pager, None))))
+
+let () =
   let doc = "A tool to manipulate DKIM fields." in
   let man =
     [
@@ -526,6 +531,7 @@ let default =
         "Use $(tname) $(i,sign) to sign the given $(i,msgs) with a new DKIM \
          field.";
     ] in
-  (Term.(ret (const (`Help (`Pager, None)))), Term.info "dkim" ~doc ~man)
 
-let () = Term.(exit_status @@ eval_choice default [ verify; sign; gen ])
+  let cmd =
+    Cmd.group ~default (Cmd.info "dkim" ~doc ~man) [ verify; sign; gen ] in
+  Cmd.(exit @@ eval cmd)

@@ -109,7 +109,7 @@ let run want_to_decode_rfc2047 without_name fields input =
       List.iter
         (print_endline <.> Fmt.str "%a" (pp_mailbox ~without_name))
         addresses ;
-      `Ok 0
+      `Ok ()
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
 open Cmdliner
@@ -148,7 +148,8 @@ let cmd =
     [
       `S Manpage.s_description; `P "$(tname) extracts addresses from an email.";
     ] in
-  ( Term.(ret (const run $ decode_rfc2047 $ without_name $ fields $ input)),
-    Term.info "addr" ~doc ~man )
+  Cmd.v
+    (Cmd.info "addr" ~doc ~man)
+    Term.(ret (const run $ decode_rfc2047 $ without_name $ fields $ input))
 
-let () = Term.(exit_status @@ eval cmd)
+let () = Cmd.(exit @@ eval cmd)

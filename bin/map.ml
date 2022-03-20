@@ -139,7 +139,7 @@ let map _ diff input output =
         | None -> (stdout, ignore) in
       transmit `None oc (Mrmime.Mt.to_stream mail') ;
       close_oc oc ;
-      `Ok 0
+      `Ok ()
   | Ok _, _ -> assert false
   | Error (`Msg err), _ -> `Error (false, Fmt.str "%s." err)
 
@@ -178,7 +178,7 @@ let map =
       `S Manpage.s_description;
       `P "From the given email, we try to decode and encode it.";
     ] in
-  ( Term.(ret (const map $ setup_logs $ diff $ input $ output)),
-    Term.info "map" ~doc ~man )
+  Cmd.v (Cmd.info "map" ~doc ~man)
+    Term.(ret (const map $ setup_logs $ diff $ input $ output))
 
-let () = Term.(exit_status @@ eval map)
+let () = Cmd.(exit @@ eval map)

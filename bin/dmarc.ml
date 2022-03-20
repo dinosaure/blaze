@@ -99,8 +99,8 @@ let show_result = function
       Fmt.pr "%a: %a\n%!" Fmt.(styled `Red string) "error" Dmarc.pp_error err
 
 let to_exit_code = function
-  | Ok (`Pass _) -> `Ok 0
-  | Ok (`Fail _) -> `Ok 1
+  | Ok (`Pass _) -> `Ok ()
+  | Ok (`Fail _) -> `Ok () (* TODO *)
   | Error err -> `Error (false, Fmt.str "%a." Dmarc.pp_error err)
 
 let verify quiet local nameservers timeout sender helo ip input =
@@ -109,7 +109,7 @@ let verify quiet local nameservers timeout sender helo ip input =
   match quiet with
   | false ->
       show_result res ;
-      `Ok 0
+      `Ok ()
   | true -> to_exit_code res
 
 open Cmdliner
@@ -158,7 +158,9 @@ let cmd =
     [
       `S Manpage.s_description; `P "Verify SPF & DKIM and report DMARC result.";
     ] in
-  ( Term.(
+  Cmd.v
+    (Cmd.info "dmarc" ~doc ~man)
+    Term.(
       ret
         (const verify
         $ setup_logs
@@ -168,7 +170,6 @@ let cmd =
         $ sender
         $ helo
         $ ip
-        $ input)),
-    Term.info "dmarc" ~doc ~man )
+        $ input))
 
-let () = Term.(exit_status @@ eval cmd)
+let () = Cmd.(exit @@ eval cmd)

@@ -185,7 +185,7 @@ let stream_of_fpath fpath =
         Caml_scheduler.inj None
 
 let to_exit_status = function
-  | Ok () -> `Ok 0
+  | Ok () -> `Ok ()
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
 let has_at_least_one_domain =
@@ -430,7 +430,9 @@ let cmd =
         "$(tname) sends the given email to the specified SMTP submission \
          server.";
     ] in
-  ( Term.(
+  Cmd.v
+    (Cmd.info "send" ~doc ~man)
+    Term.(
       ret
         (const run
         $ setup_logs
@@ -441,7 +443,6 @@ let cmd =
         $ setup_hostname
         $ sender
         $ recipients
-        $ mail)),
-    Term.info "send" ~doc ~man )
+        $ mail))
 
-let () = Term.(exit_status @@ eval cmd)
+let () = Cmd.(exit @@ eval cmd)

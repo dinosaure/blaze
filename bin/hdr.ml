@@ -195,10 +195,10 @@ let run fields want_to_decode_rfc2047 prefix parameter input =
   with
   | Ok hdr, None ->
       show ~prefix hdr fields ;
-      `Ok 0
+      `Ok ()
   | Ok hdr, Some parameter ->
       show_parameter ~prefix hdr parameter ;
-      `Ok 0
+      `Ok ()
   | Error (`Msg err), _ -> `Error (false, Fmt.str "%s." err)
 
 open Cmdliner
@@ -251,7 +251,8 @@ let cmd =
       `S Manpage.s_description;
       `P "$(tname) prints the headers of the specified $(i,msgs).";
     ] in
-  ( Term.(ret (const run $ fields $ decode_rfc2047 $ prefix $ parameter $ input)),
-    Term.info "hdr" ~doc ~man )
+  Cmd.v (Cmd.info "hdr" ~doc ~man)
+    Term.(
+      ret (const run $ fields $ decode_rfc2047 $ prefix $ parameter $ input))
 
-let () = Term.(exit_status @@ eval cmd)
+let () = Cmd.(exit @@ eval cmd)
