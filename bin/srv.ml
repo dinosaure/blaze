@@ -426,7 +426,7 @@ let serve with_metadata kind sockaddr domain output =
         show ~with_metadata ~domain_from ~from ~recipients mail output ;
         Unix.close flow ;
         Unix.close socket ;
-        `Ok 0
+        `Ok ()
     | Error err ->
         Fmt.epr "[%a][%a]: %a.\n%!"
           Fmt.(styled `Red string)
@@ -574,7 +574,8 @@ let cmd =
       `S Manpage.s_description;
       `P "$(tname) launches a SMTP server to receive an email.";
     ] in
-  ( Term.(
+  Cmd.v (Cmd.info "srv" ~doc ~man)
+    Term.(
       ret
         (const run
         $ setup_logs
@@ -586,7 +587,6 @@ let cmd =
         $ certificate
         $ bind_name
         $ domain
-        $ output)),
-    Term.info "srv" ~doc ~man )
+        $ output))
 
-let () = Term.(exit_status @@ eval cmd)
+let () = Cmd.(exit @@ eval cmd)

@@ -4,16 +4,16 @@ open Cmdliner
 let common_options = "COMMON OPTIONS"
 
 let verbosity =
-  let env = Arg.env_var "BLAZE_LOGS" in
+  let env = Cmd.Env.info "BLAZE_LOGS" in
   Logs_cli.level ~docs:common_options ~env ()
 
 let renderer =
-  let env = Arg.env_var "BLAZE_FMT" in
+  let env = Cmd.Env.info "BLAZE_FMT" in
   Fmt_cli.style_renderer ~docs:common_options ~env ()
 
 let utf_8 =
   let doc = "Allow binaries to emit UTF-8 characters." in
-  let env = Arg.env_var "BLAZE_UTF_8" in
+  let env = Cmd.Env.info "BLAZE_UTF_8" in
   Arg.(value & opt bool true & info [ "with-utf-8" ] ~doc ~env)
 
 let reporter ppf =
@@ -90,7 +90,7 @@ let existing_directory =
   Arg.conv (parser, Fpath.pp)
 
 let local_dns =
-  let env = Arg.env_var "BLAZE_DNS" in
+  let env = Cmd.Env.info "BLAZE_DNS" in
   let doc = "Load a local DNS cache." in
   Arg.(value & opt (some existing_directory) None & info [ "dns" ] ~env ~doc)
 

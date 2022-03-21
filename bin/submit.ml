@@ -359,7 +359,7 @@ let stream_of_fpath fpath =
         Caml_scheduler.inj None
 
 let to_exit_status = function
-  | Ok () -> `Ok 0
+  | Ok () -> `Ok ()
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
 let run _ authenticator nameservers timeout peer_name authentication domain
@@ -576,7 +576,9 @@ let cmd =
          use $(tname). Otherwise, if the user wants to send an email to a \
          recipient directly, he/she should use $(b,blaze.send).";
     ] in
-  ( Term.(
+  Cmd.v
+    (Cmd.info "submit" ~doc ~man)
+    Term.(
       ret
         (const run
         $ setup_logs
@@ -588,7 +590,6 @@ let cmd =
         $ setup_hostname
         $ sender
         $ recipients
-        $ mail)),
-    Term.info "submit" ~doc ~man )
+        $ mail))
 
-let () = Term.(exit_status @@ eval cmd)
+let () = Cmd.(exit @@ eval cmd)

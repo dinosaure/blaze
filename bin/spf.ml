@@ -88,8 +88,8 @@ let stamp quiet local nameservers timeout hostname sender helo ip input output =
   match check ?nameservers ~timeout local ctx with
   | Ok res when quiet -> (
       match res with
-      | `Pass _ | `None | `Neutral -> `Ok 0
-      | `Fail | `Softfail | `Permerror | `Temperror -> `Ok 1)
+      | `Pass _ | `None | `Neutral -> `Ok ()
+      | `Fail | `Softfail | `Permerror | `Temperror -> `Ok () (* TODO *))
   | Ok res ->
       let field_name, unstrctrd = Uspf.to_field ~ctx ~receiver:hostname res in
       Fmt.pr "%a: %s\n%!" Mrmime.Field_name.pp field_name
@@ -97,7 +97,7 @@ let stamp quiet local nameservers timeout hostname sender helo ip input output =
       transmit ic oc ;
       close_ic ic ;
       close_oc oc ;
-      `Ok 0
+      `Ok ()
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
 let to_exit_code results =
@@ -114,7 +114,8 @@ let to_exit_code results =
         ()
     | _ -> res := false in
   List.iter f results ;
-  if !res then `Ok 0 else `Ok 1
+  if !res then `Ok () else `Ok ()
+(* TODO *)
 
 let pp_expected ppf = function
   | `Pass -> Fmt.(styled `Green string) ppf "pass"
@@ -149,7 +150,7 @@ let show_results results =
         Fmt.pr "unidentified sender: %a (expected %a)\n%!" pp_result result
           pp_expected expected in
   List.iter f results ;
-  `Ok 0
+  `Ok ()
 (* XXX(dinosaure): [to_exit_codes results]? *)
 
 let analyze quiet local nameservers timeout input =
@@ -243,7 +244,9 @@ let stamp =
          from given arguments (such as the $(i,ip) address and the \
          $(i,sender)).";
     ] in
-  ( Term.(
+  Cmd.v
+    (Cmd.info "stamp" ~doc ~man)
+    Term.(
       ret
         (const stamp
         $ setup_logs
@@ -255,8 +258,7 @@ let stamp =
         $ helo
         $ ip
         $ input
-        $ output)),
-    Term.info "stamp" ~doc ~man )
+        $ output))
 
 let analyze =
   let doc =
@@ -269,17 +271,20 @@ let analyze =
         "Analyzes the given email and extract Received-SPF fields to reproduce \
          expected results.";
     ] in
-  ( Term.(
+  Cmd.v
+    (Cmd.info "analyze" ~doc ~man)
+    Term.(
       ret
         (const analyze
         $ setup_logs
         $ setup_local_dns
         $ nameserver
         $ timeout
-        $ input)),
-    Term.info "analyze" ~doc ~man )
+        $ input))
 
-let default =
+let default = Term.(ret (const (`Help (`Pager, None))))
+
+let () =
   let doc = "A tool to manipulate Received-SPF fields." in
   let man =
     [
@@ -291,6 +296,5 @@ let default =
         "Use $(tname) $(i,analyze) to check Received-SPF fields from the \
          incoming email.";
     ] in
-  (Term.(ret (const (`Help (`Pager, None)))), Term.info "spf" ~doc ~man)
-
-let () = Term.(exit_status @@ eval_choice default [ stamp; analyze ])
+  let cmd = Cmd.group ~default (Cmd.info "spf" ~doc ~man) [ stamp; analyze ] in
+  Cmd.(exit @@ eval cmd)

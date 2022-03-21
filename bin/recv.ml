@@ -102,11 +102,11 @@ let extract dot input =
   | Ok (_prelude, recvs) when dot ->
       let g = make_graph recvs in
       show_graph g ;
-      `Ok 0
+      `Ok ()
   | Ok (_prelude, recvs) ->
       let recvs = List.sort Received.compare recvs in
       show recvs ;
-      `Ok 0
+      `Ok ()
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
 let tmp = Bytes.create 65536
@@ -142,10 +142,10 @@ let stamp hostname zone from _for input =
       let ic = open_in (Fpath.to_string fpath) in
       pipe ic stdout ;
       close_in ic ;
-      `Ok 0
+      `Ok ()
   | None ->
       pipe stdin stdout ;
-      `Ok 0
+      `Ok ()
 
 open Cmdliner
 
@@ -208,8 +208,9 @@ let stamp =
       `S Manpage.s_description;
       `P "$(tname) stamps the given $(i,msgs) with a new $(i,Received) field.";
     ] in
-  ( Term.(ret (const stamp $ hostname $ zone $ from $ _for $ input)),
-    Term.info "stamp" ~doc ~man )
+  Cmd.v
+    (Cmd.info "stamp" ~doc ~man)
+    Term.(ret (const stamp $ hostname $ zone $ from $ _for $ input))
 
 let extract =
   let doc = "Extract Received fields" in
@@ -218,9 +219,11 @@ let extract =
       `S Manpage.s_description;
       `P "$(tname) prints $(i,Received) fields from the specified $(i,msgs).";
     ] in
-  (Term.(ret (const extract $ dot $ input)), Term.info "extract" ~doc ~man)
+  Cmd.v (Cmd.info "extract" ~doc ~man) Term.(ret (const extract $ dot $ input))
 
-let default =
+let default = Term.(ret (const (`Help (`Pager, None))))
+
+let () =
   let doc = "A tool to manipulate Received fields." in
   let man =
     [
@@ -232,6 +235,5 @@ let default =
         "Use $(tname) $(i,stamp) to stamp the given $(i,msgs) with a new \
          $(i,Received) field.";
     ] in
-  (Term.(ret (const (`Help (`Pager, None)))), Term.info "recv" ~doc ~man)
-
-let () = Term.(exit_status @@ eval_choice default [ extract; stamp ])
+  let cmd = Cmd.group ~default (Cmd.info "recv" ~doc ~man) [ extract; stamp ] in
+  Cmd.(exit @@ eval cmd)

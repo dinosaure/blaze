@@ -160,7 +160,7 @@ let run _ fields input =
   | Ok (hdrs, mail, tbl) ->
       close ic ;
       show ~fields ~tbl (hdrs, Some mail) ;
-      `Ok 0
+      `Ok ()
 
 open Cmdliner
 open Args
@@ -206,7 +206,8 @@ let cmd =
       `S Manpage.s_description;
       `P "$(tname) describes the structure of the given email like a tree.";
     ] in
-  ( Term.(ret (const run $ setup_logs $ fields $ input)),
-    Term.info "descr" ~doc ~man )
+  Cmd.v
+    (Cmd.info "descr" ~doc ~man)
+    Term.(ret (const run $ setup_logs $ fields $ input))
 
-let () = Term.(exit_status @@ eval cmd)
+let () = Cmd.(exit @@ eval cmd)
