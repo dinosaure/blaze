@@ -50,8 +50,14 @@ build: [
 ]
 dev-repo: "git+https://github.com/dinosaure/blaze.git"
 pin-depends: [
-  [ "maildir.dev" "git+https://github.com/dinosaure/ocaml-maildir.git#597823c7d2d4fd2aef26a581f6828f2b458371ea" ]
-  [ "mrmime.dev" "git+https://github.com/mirage/mrmime.git#322b15506e127417f8a68c91727e5758b6353d57" ]
-  [ "dmarc.dev" "git+https://github.com/dinosaure/ocaml-dmarc.git#22420443e3ae1a4ee2343e4992fb5c22f15f4598" ]
-  [ "public-suffix.dev" "git+https://github.com/dinosaure/ocaml-dmarc.git#22420443e3ae1a4ee2343e4992fb5c22f15f4598" ]
+  [ "maildir.dev"       "git+https://github.com/dinosaure/ocaml-maildir.git#597823c7d2d4fd2aef26a581f6828f2b458371ea" ]
+  [ "mrmime.dev"        "git+https://github.com/mirage/mrmime.git#722eac6d6579c2f537ac7ac4b14684767f648171" ]
+  [ "dmarc.dev"         "git+https://github.com/dinosaure/ocaml-dmarc.git#72a284cf9f08abdfaa3d8a1b2d89c669349a545f" ]
+  [ "public-suffix.dev" "git+https://github.com/dinosaure/ocaml-dmarc.git#72a284cf9f08abdfaa3d8a1b2d89c669349a545f" ]
+  [ "colombe.dev"       "git+https://github.com/mirage/colombe.git#c1e6e62c8036c8c9bb9ef9be8950db18fe114076" ]
+  [ "received.dev"      "git+https://github.com/mirage/colombe.git#c1e6e62c8036c8c9bb9ef9be8950db18fe114076" ]
+  [ "sendmail.dev"      "git+https://github.com/mirage/colombe.git#c1e6e62c8036c8c9bb9ef9be8950db18fe114076" ]
+  [ "sendmail-lwt.dev"  "git+https://github.com/mirage/colombe.git#c1e6e62c8036c8c9bb9ef9be8950db18fe114076" ]
+  [ "dkim.dev"          "git+https://github.com/mirage/ocaml-dkim.git#81e63131e862e863dfb8be4fb2d3443978c92d0b" ]
+  [ "uspf.dev"          "git+https://github.com/mirage/uspf.git#d923cfae1e28a9d92e67b2bceeb24f2adf9086b8" ]
 ]

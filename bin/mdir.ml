@@ -12,7 +12,6 @@ and go tmp ic oc =
     go tmp ic oc)
 
 let () = Random.self_init () (* TODO(dinosaure): user-specified.  *)
-
 let random () = Random.int64 Int64.max_int
 
 let get _ hostname maildir new_message message output =

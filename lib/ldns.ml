@@ -102,8 +102,10 @@ let getaddrinfo :
 
 type t = { dns : Dns_client_unix.t; local : local }
 
-let create ?size ?nameservers ?timeout ?(local = Domain_name.Map.empty) stack =
-  let dns = Dns_client_unix.create ?size ?nameservers ?timeout stack in
+let create ?cache_size ?edns ?nameservers ?timeout
+    ?(local = Domain_name.Map.empty) stack =
+  let dns =
+    Dns_client_unix.create ?cache_size ?edns ?nameservers ?timeout stack in
   { dns; local }
 
 let getaddrinfo :
