@@ -156,8 +156,7 @@ let verify quiet local fields nameservers extra input =
         Hashtbl.add extra_servers domain_name (extra_to_string extra))
       extra in
   match verify quiet local fields nameservers input with
-  | Ok 0 -> `Ok ()
-  | Ok _ -> `Ok () (* TODO *)
+  | Ok n -> `Ok n
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
 module Keep_flow = struct
@@ -224,7 +223,7 @@ let sign _verbose input output key selector fields hash canon domain_name =
   Fmt.pf ppf "%s%!" (Buffer.contents buffer) ;
   close_ic ic ;
   close_oc oc ;
-  `Ok ()
+  `Ok 0
 
 let sign _verbose input output private_key seed selector fields hash canon
     domain_name =
@@ -257,13 +256,13 @@ let gen seed output =
       Base64.encode_string ~pad:true (Cstruct.to_string cs) in
     Fmt.pr "seed is %s\n%!" (Base64.encode_string ~pad:true seed) ;
     Fmt.pr "public key is %s\n%!" pk ;
-    `Ok ())
+    `Ok 0)
   else
     let pk = X509.Public_key.encode_pem (`RSA pub) in
     Fmt.pr "seed is %s\n%!" (Base64.encode_string ~pad:true seed) ;
     output_string oc (Cstruct.to_string pk) ;
     close oc ;
-    `Ok ()
+    `Ok 0
 
 open Cmdliner
 open Args
@@ -534,4 +533,4 @@ let () =
 
   let cmd =
     Cmd.group ~default (Cmd.info "dkim" ~doc ~man) [ verify; sign; gen ] in
-  Cmd.(exit @@ eval cmd)
+  Cmd.(exit @@ eval' cmd)

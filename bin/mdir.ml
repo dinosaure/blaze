@@ -11,10 +11,9 @@ and go tmp ic oc =
     output oc tmp 0 len ;
     go tmp ic oc)
 
-let () = Random.self_init () (* TODO(dinosaure): user-specified.  *)
-let random () = Random.int64 Int64.max_int
+let random g () = Random.State.int64 g Int64.max_int
 
-let get _ hostname maildir new_message message output =
+let get _ g hostname maildir new_message message output =
   let message = if new_message then Maildir.with_new message else message in
   let host = Domain_name.to_string hostname in
   if message.Maildir.value.Maildir.host <> host
@@ -22,7 +21,8 @@ let get _ hostname maildir new_message message output =
     Logs.warn (fun m ->
         m "The given host (%s) is different from the host's message (%s)." host
           message.Maildir.value.Maildir.host) ;
-  let maildir = Maildir.create ~pid:(Unix.getpid ()) ~host ~random maildir in
+  let maildir =
+    Maildir.create ~pid:(Unix.getpid ()) ~host ~random:(random g) maildir in
   let fpath = Maildir_unix.get maildir message in
   if Sys.file_exists (Fpath.to_string fpath)
   then (
@@ -37,14 +37,15 @@ let get _ hostname maildir new_message message output =
     `Ok ())
   else `Error (false, Fmt.str "%a does not exist." Fpath.pp fpath)
 
-let new_messages _ hostname maildir =
+let new_messages _ g hostname maildir =
   let host = Domain_name.to_string hostname in
-  let maildir = Maildir.create ~pid:(Unix.getpid ()) ~host ~random maildir in
+  let maildir =
+    Maildir.create ~pid:(Unix.getpid ()) ~host ~random:(random g) maildir in
   let fold () { Maildir.value; _ } = Fmt.pr "%a\n%!" Maildir.pp_message value in
   Maildir_unix.scan_only_new fold () Maildir_unix.fs maildir ;
   `Ok ()
 
-let commit _ hostname maildir flags new_message message =
+let commit _ g hostname maildir flags new_message message =
   let message = if new_message then Maildir.with_new message else message in
   let host = Domain_name.to_string hostname in
   if message.Maildir.value.Maildir.host <> host
@@ -52,7 +53,8 @@ let commit _ hostname maildir flags new_message message =
     Logs.warn (fun m ->
         m "The given host (%s) is different from the host's message (%s)." host
           message.Maildir.value.Maildir.host) ;
-  let maildir = Maildir.create ~pid:(Unix.getpid ()) ~host ~random maildir in
+  let maildir =
+    Maildir.create ~pid:(Unix.getpid ()) ~host ~random:(random g) maildir in
   Maildir_unix.commit Maildir_unix.fs maildir ~flags message ;
   `Ok ()
 
@@ -132,6 +134,7 @@ let get =
       ret
         (const get
         $ setup_logs
+        $ setup_random
         $ hostname
         $ maildir
         $ new_message
@@ -146,7 +149,8 @@ let new_messages =
       `P "From the given $(i,maildir), $(b,new) shows new messages.";
     ] in
   Cmd.v (Cmd.info "new" ~doc ~man)
-    Term.(ret (const new_messages $ setup_logs $ hostname $ maildir))
+    Term.(
+      ret (const new_messages $ setup_logs $ setup_random $ hostname $ maildir))
 
 let commit =
   let doc =
@@ -163,6 +167,7 @@ let commit =
       ret
         (const commit
         $ setup_logs
+        $ setup_random
         $ hostname
         $ maildir
         $ flags

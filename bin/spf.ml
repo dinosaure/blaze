@@ -88,8 +88,8 @@ let stamp quiet local nameservers timeout hostname sender helo ip input output =
   match check ?nameservers ~timeout local ctx with
   | Ok res when quiet -> (
       match res with
-      | `Pass _ | `None | `Neutral -> `Ok ()
-      | `Fail | `Softfail | `Permerror | `Temperror -> `Ok () (* TODO *))
+      | `Pass _ | `None | `Neutral -> `Ok 0
+      | `Fail | `Softfail | `Permerror | `Temperror -> `Ok 1)
   | Ok res ->
       let field_name, unstrctrd = Uspf.to_field ~ctx ~receiver:hostname res in
       Fmt.pr "%a: %s\n%!" Mrmime.Field_name.pp field_name
@@ -97,7 +97,11 @@ let stamp quiet local nameservers timeout hostname sender helo ip input output =
       transmit ic oc ;
       close_ic ic ;
       close_oc oc ;
-      `Ok ()
+      let res =
+        match res with
+        | `Pass _ | `None | `Neutral -> 0
+        | _ (* Fail | Softfail | Permerror | Temperror *) -> 1 in
+      `Ok res
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
 let to_exit_code results =
@@ -114,8 +118,7 @@ let to_exit_code results =
         ()
     | _ -> res := false in
   List.iter f results ;
-  if !res then `Ok () else `Ok ()
-(* TODO *)
+  if !res then `Ok 0 else `Ok 1
 
 let pp_expected ppf = function
   | `Pass -> Fmt.(styled `Green string) ppf "pass"
@@ -150,7 +153,7 @@ let show_results results =
         Fmt.pr "unidentified sender: %a (expected %a)\n%!" pp_result result
           pp_expected expected in
   List.iter f results ;
-  `Ok ()
+  `Ok 0
 (* XXX(dinosaure): [to_exit_codes results]? *)
 
 let analyze quiet local nameservers timeout input =
@@ -297,4 +300,4 @@ let () =
          incoming email.";
     ] in
   let cmd = Cmd.group ~default (Cmd.info "spf" ~doc ~man) [ stamp; analyze ] in
-  Cmd.(exit @@ eval cmd)
+  Cmd.(exit @@ eval' cmd)

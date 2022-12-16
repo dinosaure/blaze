@@ -1,6 +1,11 @@
 open Rresult
 open Cmdliner
 
+let src = Logs.Src.create "blaze.args"
+
+module Log = (val Logs.src_log src : Logs.LOG)
+
+let ( <.> ) f g x = f (g x)
 let common_options = "COMMON OPTIONS"
 
 let verbosity =
@@ -30,7 +35,6 @@ let reporter ppf =
     msgf @@ fun ?header ?tags fmt -> with_metadata header tags k ppf fmt in
   { Logs.report }
 
-(* TODO(dinosaure): UTF-8 support? *)
 let setup_logs utf_8 style_renderer level =
   Fmt_tty.setup_std_outputs ~utf_8 ?style_renderer () ;
   Logs.set_level level ;
@@ -99,11 +103,48 @@ let setup_local_dns = function
   | Some fpath ->
   match Ldns.of_directory fpath with
   | Ok local -> local
-  | Error _ -> Domain_name.Map.empty
-(* TODO(dinosaure): say something! *)
+  | Error (`Msg err) ->
+      Log.err (fun m ->
+          m "Got an error when we loaded the local DNS: %a: %s" Fpath.pp fpath
+            err) ;
+      Domain_name.Map.empty
 
 let setup_local_dns = Term.(const setup_local_dns $ local_dns)
 
 let timeout =
   let doc = "The DNS timeout allowed (in nano-second)." in
   Arg.(value & opt int64 5_000_000_000L & info [ "t"; "timeout" ] ~doc)
+
+let string_to_int_array str =
+  let res = Array.make (String.length str / 2) 0 in
+  for i = 0 to (String.length str / 2) - 1 do
+    res.(i) <- (Char.code str.[i * 2] lsl 8) lor Char.code str.[(i * 2) + 1]
+  done ;
+  res
+
+let int_array_to_string arr =
+  let buf = Bytes.create (Array.length arr * 2) in
+  for i = 0 to Array.length arr - 1 do
+    Bytes.set buf (2 * i) (Char.unsafe_chr (arr.(i) lsr 8)) ;
+    Bytes.set buf ((2 * i) + 1) (Char.unsafe_chr arr.(i))
+  done ;
+  Bytes.unsafe_to_string buf
+
+let seed =
+  let parser str =
+    match Base64.decode str with
+    | Ok seed -> Ok (string_to_int_array seed)
+    | Error _ as err -> err in
+  let pp = Fmt.using (Base64.encode_exn <.> int_array_to_string) Fmt.string in
+  Arg.conv ~docv:"<seed>" (parser, pp)
+
+let seed =
+  let doc =
+    "The seed (in base64) used to initialize the random number generator." in
+  Arg.(value & opt (some seed) None & info [ "s"; "seed" ] ~doc ~docv:"<seed>")
+
+let setup_random = function
+  | None -> Random.State.make_self_init ()
+  | Some seed -> Random.State.make seed
+
+let setup_random = Term.(const setup_random $ seed)
