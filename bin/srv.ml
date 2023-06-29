@@ -404,6 +404,7 @@ let serve with_metadata kind sockaddr domain output =
   let socket =
     Unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0 in
   Unix.setsockopt socket SO_REUSEADDR true ;
+  Unix.setsockopt socket SO_REUSEPORT true ;
   let lift = function
     | Ok v -> Ok v
     | Error (`Protocol (`Protocol err)) -> Error (`Protocol err)

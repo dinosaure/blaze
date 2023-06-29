@@ -244,7 +244,7 @@ let gen seed output =
     match seed with
     | Some (`Seed seed) -> seed
     | None ->
-        let () = Mirage_crypto_rng_unix.initialize () in
+        let () = Mirage_crypto_rng_unix.initialize (module Mirage_crypto_rng.Fortuna) in
         let cs = Mirage_crypto_rng.generate 30 in
         Base64.encode_string ~pad:true (Cstruct.to_string cs) in
   let key = priv_of_seed seed in
