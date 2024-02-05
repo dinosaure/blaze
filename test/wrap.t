@@ -1,18 +1,18 @@
 Tests on wrap
-  $ blaze.make --date 2009-07-12T12:00:00Z <<EOF | blaze.make wrap --seed mDKn75q9VvfqX95pjM08k6zhsrEnsYR714L3MF9s9GA= -
+  $ blaze.make --date 2009-07-12T12:00:00Z <<EOF | blaze.make wrap --boundary foo -
   > Hello World!
   > EOF
-  Content-Type: multipart/mixed; boundary="wZRXosmqA5w="
+  Content-Type: multipart/mixed; boundary=foo
   MIME-Version: 1.0
   Date: Sun, 12 Jul 2009 12:00:00 +0000
   
-  --wZRXosmqA5w=
+  --foo
   Content-Type: text/plain; charset=utf-8
   Content-Transfer-Encoding: 7bit
   
   Hello World!
   
-  --wZRXosmqA5w=--
+  --foo--
   $ blaze.make --date 2009-07-12T12:00:00Z --encoding quoted-printable <<EOF | blaze.make wrap --boundary foobar
   > Волим слани краставац.
   > EOF

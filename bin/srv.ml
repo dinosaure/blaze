@@ -135,7 +135,9 @@ let receive :
     domain:'host Domain_name.t ->
     Unix.file_descr ->
     ctx ->
-    (_, [> `Protocol of error ]) Colombe.State.t =
+    ( _,
+      [> `Application of [> `No_recipients ] | `Protocol of error ] )
+    Colombe.State.t =
  fun (module Monad) ~sockaddr ~domain flow ctx ->
   let pp_sockaddr ppf = function
     | Unix.ADDR_INET (inet_addr, _) ->
