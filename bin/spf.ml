@@ -240,19 +240,40 @@ let output =
   let doc = "The path of the produced email with the new Received-SPF field." in
   Arg.(value & opt (some new_file) None & info [ "o"; "output" ] ~doc)
 
-let domain =
-  let parser str =
-    match Angstrom.parse_string ~consume:All Emile.Parser.domain str with
-    | Ok v -> Ok v
-    | Error _ -> R.error_msgf "Invalid domain: %S" str in
+let hostname =
+  let parser = Angstrom.(parse_string ~consume:Consume.All) Emile.Parser.domain in
+  let parser str = match parser str with
+    | Ok _ as value -> value
+    | Error _ -> error_msgf "Invalid domain: %S" str in
   let pp = Emile.pp_domain in
   Arg.conv (parser, pp)
 
-let domain =
-  let doc = "The hostname of the computer." in
+let generate ~len =
+  let res = Bytes.make len '\000' in
+  for i = 0 to len - 1 do
+    let chr = match Random.int (26 + 26 + 10) with
+      | n when n < 26 -> Char.unsafe_chr (65 + n)
+      | n when n < 26 + 26 -> Char.unsafe_chr (97 + n - 26)
+      | n -> Char.unsafe_chr (48 + n - 26 - 26) in
+    Bytes.set res i chr
+  done; Bytes.unsafe_to_string res
+
+let default_hostname =
+  let str = Unix.gethostname () in
+  match (fst hostname) str with
+  | `Ok domain -> domain
+  | `Error _ ->
+    let[@warning "-8"] ((`Ok random_hostname) : [ `Ok of _ | `Error of _ ]) =
+      (fst hostname) (generate ~len:16) in
+    Logs.warn (fun m -> m "Invalid default hostname: %S, use %a as the default hostname"
+      str Emile.pp_domain random_hostname);
+    random_hostname
+
+let hostname =
+  let doc = "Domain name of the machine." in
   let open Arg in
   value
-  & opt domain (R.get_ok (Arg.conv_parser domain (Unix.gethostname ())))
+  & opt hostname default_hostname
   & info [ "h"; "hostname" ] ~doc
 
 let sender =
@@ -294,7 +315,7 @@ let stamp =
   let term =
     const stamp
     $ setup_logs
-    $ domain
+    $ hostname
     $ setup_resolver
     $ sender
     $ helo

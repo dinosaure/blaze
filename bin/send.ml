@@ -319,13 +319,24 @@ let hostname =
   let pp = Colombe.Domain.pp in
   Arg.conv (parser, pp)
 
+let generate ~len =
+  let res = Bytes.make len '\000' in
+  for i = 0 to len - 1 do
+    let chr = match Random.int (26 + 26 + 10) with
+      | n when n < 26 -> Char.unsafe_chr (65 + n)
+      | n when n < 26 + 26 -> Char.unsafe_chr (97 + n - 26)
+      | n -> Char.unsafe_chr (48 + n - 26 - 26) in
+    Bytes.set res i chr
+  done; Bytes.unsafe_to_string res
+
 let default_hostname =
   let hostname = Unix.gethostname () in
   match Colombe.Domain.of_string hostname with
   | Ok domain -> domain
   | Error (`Msg _) ->
-    Logs.err (fun m -> m "Invalid default hostname: %S" hostname);
-    Fmt.failwith "Invalid default hostname: %S" hostname
+    let random_hostname = Colombe.Domain.of_string_exn (generate ~len:16) in
+    Logs.warn (fun m -> m "Invalid default hostname: %S, use %a as the default hostname" hostname Colombe.Domain.pp random_hostname);
+    random_hostname
 
 let hostname =
   let doc = "Domain name of the machine." in
