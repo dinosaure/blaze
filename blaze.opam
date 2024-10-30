@@ -29,6 +29,7 @@ depends: [
   "tls" {>= "0.15.0"}
   "dkim" {>= "0.4.0"}
   "dns-client" {>= "5.0.1"}
+  "dns-client-miou-unix"
   "dune" {>= "2.8.5"}
   "fmt" {>= "0.8.9"}
   "fpath" {>= "0.7.3"}
@@ -43,6 +44,8 @@ depends: [
   "cstruct"
   "dmarc"
   "ke" {>= "0.4"}
+  "mirage-crypto-rng-miou-unix"
+  "sendmail-miou-unix"
 ]
 build: [
   ["dune" "build" "-p" name "-j" jobs]
