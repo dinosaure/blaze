@@ -49,9 +49,10 @@ As you can see, you can craft and send your email along the UNIX pipe.
 
 ## How to receive an email?
 
-`blaze` provides a little server which is able to receive only **one** email.
-By default, it wants to listen on `*:25`. It's an implementation of a simple
-SMTP server and it waiting an email to save it then into your file-system:
+`blaze` provides a little server which is able to receive emails. You can
+receive one or some depending on arguments given to `blaze.srv`. By default, it
+wants to listen on `*:25`. It's an implementation of a simple SMTP server and
+it waiting an email to save it then into your file-system:
 ```
 $ sudo blaze.srv -o new.eml &
 [1] PID
@@ -65,6 +66,16 @@ Content-Transfer-Encoding: 7bit
 Content-Type: text/plain; charset=utf-8
 
 Hello World!
+```
+
+To receive multiple emails, you can launch `blaze.srv` like this:
+```sh
+$ sudo socat TCP-LISTEN:25,fork TCP:localhost:4242 &
+$ mkdir mailbox
+$ blaze.srv -o mailbox/ --format "blaze-%s.eml" localhost:4242 &
+$ blaze.make <<EOF | blaze.send --sender din@osau.re -r foo@bar - localhost:25
+> Hello World!
+> EOF
 ```
 
 ## Submit or send an email?

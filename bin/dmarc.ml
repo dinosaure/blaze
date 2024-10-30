@@ -1,5 +1,7 @@
 open Rresult
-module Lwt_scheduler = Dmarc.Sigs.Make (Lwt)
+module Lwt_scheduler = Dmarc.Sigs.Make (struct
+  type 'a t = 'a
+end)
 
 module Flow = struct
   type flow = Lwt_unix.file_descr
@@ -9,7 +11,7 @@ module Flow = struct
 end
 
 module DNS = struct
-  type t = Ldns.t
+  type t = Dns_static.t
   and +'a io = 'a Lwt.t
 
   and error =

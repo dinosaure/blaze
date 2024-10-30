@@ -10,7 +10,7 @@ let state =
   { return = (fun x -> inj x); bind = (fun x f -> f (prj x)) }
 
 module DNS = struct
-  type t = Ldns.t
+  type t = Dns_static.t
   and backend = Caml_scheduler.t
 
   and error =
@@ -19,7 +19,7 @@ module DNS = struct
     | `No_domain of [ `raw ] Domain_name.t * Dns.Soa.t ]
 
   let getrrecord dns response domain_name =
-    Caml_scheduler.inj @@ Ldns.get_resource_record dns response domain_name
+    Caml_scheduler.inj @@ Dns_static.get_resource_record dns response domain_name
 end
 
 module Flow = struct
@@ -66,8 +66,7 @@ let unstrctrd_to_utf_8_string_with_lf l =
   Unstrctrd.iter ~f l ;
   Buffer.contents buf
 
-let check local ?nameservers ~timeout ctx =
-  let dns = Ldns.create ?nameservers ~timeout ~local () in
+let check dns ctx =
   Uspf.get ~ctx state dns (module DNS) |> Caml_scheduler.prj >>| fun record ->
   Uspf.check ~ctx state dns (module DNS) record |> Caml_scheduler.prj
 
@@ -75,7 +74,12 @@ let extract_received_spf ?newline ic =
   Uspf.extract_received_spf ?newline ic state (module Flow)
   |> Caml_scheduler.prj
 
-let stamp quiet local nameservers timeout hostname sender helo ip input output =
+let stamp quiet hostname (daemon, _he, dns) sender helo ip input output =
+  let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
+  let finally () =
+    Happy_eyeballs_miou_unix.kill daemon;
+    Mirage_crypto_rng_miou_unix.kill rng in
+  Fun.protect ~finally @@ fun () ->
   let ic, close_ic =
     match input with
     | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
@@ -85,7 +89,7 @@ let stamp quiet local nameservers timeout hostname sender helo ip input output =
     | Some fpath -> (open_out (Fpath.to_string fpath), close_out)
     | None -> (stdout, ignore) in
   let ctx = ctx sender helo ip in
-  match check ?nameservers ~timeout local ctx with
+  match check dns ctx with
   | Ok res when quiet -> (
       match res with
       | `Pass _ | `None | `Neutral -> `Ok 0
@@ -156,19 +160,24 @@ let show_results results =
   `Ok 0
 (* XXX(dinosaure): [to_exit_codes results]? *)
 
-let analyze quiet local nameservers timeout input =
+let analyze quiet (daemon, _he, dns) input =
   let ic, close_ic =
     match input with
     | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
     | None -> (stdin, ignore) in
+  let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
+  let finally () =
+    Happy_eyeballs_miou_unix.kill daemon;
+    Mirage_crypto_rng_miou_unix.kill rng;
+    close_ic ic in
+  Fun.protect ~finally @@ fun () ->
   let res = extract_received_spf ~newline:Uspf.LF ic in
-  close_ic ic ;
   match res with
   | Ok extracted ->
       let results =
         List.fold_left
           (fun acc { Uspf.result; ctx; sender; ip; _ } ->
-            match check ?nameservers ~timeout local ctx with
+            match check dns ctx with
             | Ok v -> (sender, ip, result, v) :: acc
             | _ -> acc)
           [] extracted in
@@ -177,6 +186,39 @@ let analyze quiet local nameservers timeout input =
 
 open Cmdliner
 open Args
+
+let setup_resolver happy_eyeballs_cfg nameservers local =
+  let happy_eyeballs = match happy_eyeballs_cfg with
+    | None -> None
+    | Some { aaaa_timeout
+           ; connect_delay
+           ; connect_timeout
+           ; resolve_timeout
+           ; resolve_retries } ->
+      Happy_eyeballs.create
+        ?aaaa_timeout ?connect_delay ?connect_timeout
+        ?resolve_timeout ?resolve_retries (Mtime_clock.elapsed_ns ())
+      |> Option.some in
+  let ( let* ) = Result.bind in
+  let daemon, he = Happy_eyeballs_miou_unix.create ?happy_eyeballs () in
+  let dns = Dns_static.create ~nameservers ~local he in
+  let getaddrinfo dns record domain_name =
+    match record with
+    | `A ->
+      let* ipaddr = Dns_static.gethostbyname dns domain_name in
+      Ok Ipaddr.(Set.singleton (V4 ipaddr))
+    | `AAAA ->
+      let* ipaddr = Dns_static.gethostbyname6 dns domain_name in
+      Ok Ipaddr.(Set.singleton (V6 ipaddr)) in
+  Happy_eyeballs_miou_unix.inject he (getaddrinfo dns);
+  daemon, he, dns
+
+let setup_resolver =
+  let open Term in
+  const setup_resolver
+  $ setup_happy_eyeballs
+  $ setup_nameservers
+  $ setup_dns_static
 
 let existing_file =
   let parser = function
@@ -208,10 +250,10 @@ let domain =
 
 let domain =
   let doc = "The hostname of the computer." in
-  Arg.(
-    value
-    & opt domain (R.get_ok (Arg.conv_parser domain (Unix.gethostname ())))
-    & info [ "h"; "hostname" ] ~doc)
+  let open Arg in
+  value
+  & opt domain (R.get_ok (Arg.conv_parser domain (Unix.gethostname ())))
+  & info [ "h"; "hostname" ] ~doc
 
 let sender =
   let parser str =
@@ -247,21 +289,19 @@ let stamp =
          from given arguments (such as the $(i,ip) address and the \
          $(i,sender)).";
     ] in
-  Cmd.v
-    (Cmd.info "stamp" ~doc ~man)
-    Term.(
-      ret
-        (const stamp
-        $ setup_logs
-        $ setup_local_dns
-        $ nameserver
-        $ timeout
-        $ domain
-        $ sender
-        $ helo
-        $ ip
-        $ input
-        $ output))
+  let open Term in
+  let info = Cmd.info "stamp" ~doc ~man in
+  let term =
+    const stamp
+    $ setup_logs
+    $ domain
+    $ setup_resolver
+    $ sender
+    $ helo
+    $ ip
+    $ input
+    $ output in
+  Cmd.v info (ret term)
 
 let analyze =
   let doc =
@@ -274,17 +314,15 @@ let analyze =
         "Analyzes the given email and extract Received-SPF fields to reproduce \
          expected results.";
     ] in
-  Cmd.v
-    (Cmd.info "analyze" ~doc ~man)
-    Term.(
-      ret
-        (const analyze
-        $ setup_logs
-        $ setup_local_dns
-        $ nameserver
-        $ timeout
-        $ input))
-
+  let open Term in
+  let info = Cmd.info "analyze" ~doc ~man in
+  let term =
+    const analyze
+    $ setup_logs
+    $ setup_resolver
+    $ input in
+  Cmd.v info (ret term)
+    
 let default = Term.(ret (const (`Help (`Pager, None))))
 
 let () =
@@ -300,4 +338,5 @@ let () =
          incoming email.";
     ] in
   let cmd = Cmd.group ~default (Cmd.info "spf" ~doc ~man) [ stamp; analyze ] in
+  Miou_unix.run ~domains:0 @@ fun () ->
   Cmd.(exit @@ eval' cmd)

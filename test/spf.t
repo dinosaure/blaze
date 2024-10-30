@@ -1,5 +1,5 @@
 Tests on SPF fields
-  $ export BLAZE_DNS=cache
+  $ export BLAZE_DNS_STATIC=cache
   $ blaze.spf analyze 001.mail
   bounces+848413-e276-romain.calascibetta=gmail.com@sgmail.github.com from 192.254.112.98: pass (expected: pass)
   $ blaze.spf analyze 002.mail

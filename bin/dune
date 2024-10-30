@@ -3,23 +3,19 @@
  (modules args)
  (public_name blaze.args)
  (libraries
-  blaze.ldns
+  blaze.dns-static
   rresult
   fpath
   ipaddr
   ipaddr.unix
   uri
   cmdliner
+  ca-certs
+  tls
   logs.fmt
   logs.cli
   fmt.tty
   fmt.cli))
-
-(library
- (name unixiz)
- (modules unixiz)
- (public_name blaze.unixiz)
- (libraries ke rresult cstruct unix))
 
 (executable
  (name addr)
@@ -56,7 +52,7 @@
  (name spf)
  (modules spf)
  (public_name blaze.spf)
- (libraries cmdliner fpath rresult uri blaze.args uspf.unix))
+ (libraries cmdliner fpath rresult uri blaze.args mirage-crypto-rng-miou-unix uspf.unix))
 
 (executable
  (name recv)
@@ -80,7 +76,7 @@
  (modules dkim)
  (public_name blaze.dkim)
  (libraries
-  blaze.ldns
+  blaze.dns-static
   cmdliner
   fpath
   rresult
@@ -89,7 +85,7 @@
   fmt
   uri
   dkim
-  dns-client.unix
+  mirage-crypto-rng-miou-unix
   blaze.args))
 
 (executable
@@ -98,7 +94,6 @@
  (public_name blaze.submit)
  (libraries
   blaze.args
-  blaze.unixiz
   cmdliner
   fpath
   rresult
@@ -107,12 +102,12 @@
   fmt
   tls
   colombe
-  unix
   uri
   ca-certs
-  dns-client.unix
-  sendmail
-  sendmail.starttls
+  happy-eyeballs-miou-unix
+  dns-client-miou-unix
+  sendmail-miou-unix
+  mirage-crypto-rng-miou-unix
   colombe.emile))
 
 (executable
@@ -121,7 +116,6 @@
  (public_name blaze.send)
  (libraries
   blaze.args
-  blaze.unixiz
   cmdliner
   fpath
   rresult
@@ -130,10 +124,11 @@
   fmt
   tls
   colombe
-  unix
   uri
   ca-certs
-  dns-client.unix
+  sendmail-miou-unix
+  happy-eyeballs-miou-unix
+  dns-client-miou-unix
   sendmail
   sendmail.starttls
   colombe.emile))
@@ -150,11 +145,11 @@
  (public_name blaze.make)
  (libraries unix blaze.args cmdliner fpath ptime.clock.os mrmime))
 
-(executable
- (name dmarc)
- (modules dmarc)
- (public_name blaze.dmarc)
- (libraries blaze.args dmarc cmdliner lwt.unix))
+; (executable
+;  (name dmarc)
+;  (modules dmarc)
+;  (public_name blaze.dmarc)
+;  (libraries blaze.args dmarc cmdliner lwt.unix))
 
 (executable
  (name descr)
