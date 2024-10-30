@@ -1,4 +1,4 @@
 (library
- (name ldns)
- (public_name blaze.ldns)
- (libraries bos logs rresult dns dns-client.unix fpath astring))
+ (name dns_static)
+ (public_name blaze.dns-static)
+ (libraries bos logs rresult dns dns-client-miou-unix fpath astring))

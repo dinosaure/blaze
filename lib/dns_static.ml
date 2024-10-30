@@ -1,6 +1,6 @@
 open Rresult
 
-let src = Logs.Src.create "local-dns"
+let src = Logs.Src.create "dns-cache"
 
 module Log = (val Logs.src_log src : Logs.LOG)
 
@@ -20,10 +20,8 @@ let rec assoc : type a. a Dns.Rr_map.rr -> record list -> a =
 exception Invalid_line of string
 
 let mx (v, preference) =
-  {
-    Dns.Mx.preference = int_of_string preference;
-    Dns.Mx.mail_exchange = Domain_name.(host_exn (of_string_exn v));
-  }
+  { Dns.Mx.preference = int_of_string preference
+  ; Dns.Mx.mail_exchange = Domain_name.(host_exn (of_string_exn v)) }
 
 let is_colon = ( = ) ':'
 
@@ -75,95 +73,70 @@ let of_fpath local fpath =
 let of_directory directory =
   let fold fpath local =
     match of_fpath local fpath with
-    | Ok local ->
-        Log.debug (fun m ->
-            m "%a added into the local DNS cache." Fpath.pp fpath) ;
-        local
+    | Ok local -> local
     | Error _ ->
         Log.warn (fun m -> m "%a is ignored." Fpath.pp fpath) ;
         local in
   Bos.OS.Dir.fold_contents ~elements:`Files ~dotfiles:true ~traverse:`None fold
     Domain_name.Map.empty directory
 
-let getaddrinfo :
-    type a.
-    local ->
-    a Dns.Rr_map.rr ->
-    'v Domain_name.t ->
-    (a, [> `Msg of string ]) result =
- fun local record domain_name ->
-  match
-    Domain_name.Map.find (Domain_name.raw domain_name) local
-    |> Option.get
-    |> assoc record
-  with
-  | v -> Ok v
-  | exception _ -> R.error_msgf "record does not exist locally"
+let getaddrinfo
+  : type a. local -> a Dns.Rr_map.rr -> 'v Domain_name.t -> (a, [> `Msg of string ]) result
+  = fun local record domain_name ->
+  let none = R.msgf "record does not exist locally" in
+  Domain_name.Map.find (Domain_name.raw domain_name) local
+  |> Option.map (assoc record)
+  |> Option.to_result ~none
 
-type t = { dns : Dns_client_unix.t; local : local }
+type t = { dns : Dns_client_miou_unix.t; local : local }
 
 let create ?cache_size ?edns ?nameservers ?timeout
     ?(local = Domain_name.Map.empty) stack =
-  let dns =
-    Dns_client_unix.create ?cache_size ?edns ?nameservers ?timeout stack in
+  let dns = Dns_client_miou_unix.create ?cache_size ?edns ?nameservers ?timeout stack in
   { dns; local }
 
-let getaddrinfo :
-    type a.
-    t -> a Dns.Rr_map.rr -> 'v Domain_name.t -> (a, [> `Msg of string ]) result
-    =
- fun t record domain_name ->
+let getaddrinfo
+  : type a. t -> a Dns.Rr_map.rr -> 'v Domain_name.t -> (a, [> `Msg of string ]) result
+  = fun t record domain_name ->
   match getaddrinfo t.local record domain_name with
   | Ok _ as v -> v
-  | Error _ -> Dns_client_unix.getaddrinfo t.dns record domain_name
+  | Error _ -> Dns_client_miou_unix.getaddrinfo t.dns record domain_name
 
 let gethostbyname { local; dns } domain_name =
-  match
+  let cached =
     Domain_name.Map.find (Domain_name.raw domain_name) local
-    |> Option.get
-    |> assoc Dns.Rr_map.A
-  with
-  | _, vs -> Ok (Ipaddr.V4.Set.choose vs)
-  | exception _ -> Dns_client_unix.gethostbyname dns domain_name
+    |> Option.map (assoc Dns.Rr_map.A) in
+  match cached with
+  | Some (_, vs) -> Ok (Ipaddr.V4.Set.choose vs)
+  | None -> Dns_client_miou_unix.gethostbyname dns domain_name
 
 let gethostbyname6 { local; dns } domain_name =
-  match
+  let cached =
     Domain_name.Map.find (Domain_name.raw domain_name) local
-    |> Option.get
-    |> assoc Dns.Rr_map.Aaaa
-  with
-  | _, vs -> Ok (Ipaddr.V6.Set.choose vs)
-  | exception _ -> Dns_client_unix.gethostbyname6 dns domain_name
+    |> Option.map (assoc Dns.Rr_map.Aaaa) in
+  match cached with
+  | Some (_, vs) -> Ok (Ipaddr.V6.Set.choose vs)
+  | None -> Dns_client_miou_unix.gethostbyname6 dns domain_name
 
-let get_resource_record :
-    type a.
-    local ->
-    a Dns.Rr_map.rr ->
-    'v Domain_name.t ->
-    ( a,
-      [> `Msg of string
-      | `No_data of [ `raw ] Domain_name.t * Dns.Soa.t
-      | `No_domain of [ `raw ] Domain_name.t * Dns.Soa.t ] )
-    result =
- fun local record domain_name ->
+type error =
+  [ `Msg of string
+  | `No_data of [ `raw ] Domain_name.t * Dns.Soa.t
+  | `No_domain of [ `raw ] Domain_name.t * Dns.Soa.t ]
+
+let get_resource_record
+  : type a. local -> a Dns.Rr_map.rr -> 'v Domain_name.t -> (a, [> error ]) result
+  = fun local record domain_name ->
   let domain_name = Domain_name.raw domain_name in
-  match
-    Domain_name.Map.find domain_name local |> Option.get |> assoc record
-  with
-  | v -> Ok v
-  | exception _ -> R.error_msgf "record does not exist locally"
+  let cached =
+    Domain_name.Map.find_opt domain_name local
+    |> Option.map (assoc record) in
+  match cached with
+  | Some v -> Ok v
+  | None -> R.error_msgf "record does not exist locally"
 
-let get_resource_record :
-    type a.
-    t ->
-    a Dns.Rr_map.rr ->
-    'v Domain_name.t ->
-    ( a,
-      [> `Msg of string
-      | `No_data of [ `raw ] Domain_name.t * Dns.Soa.t
-      | `No_domain of [ `raw ] Domain_name.t * Dns.Soa.t ] )
-    result =
- fun t record domain_name ->
+let get_resource_record
+  : type a. t -> a Dns.Rr_map.rr -> 'v Domain_name.t -> (a, [> error ]) result
+  = fun t record domain_name ->
   match get_resource_record t.local record domain_name with
   | Ok _ as v -> v
-  | Error _ -> Dns_client_unix.get_resource_record t.dns record domain_name
+  | Error _ -> Dns_client_miou_unix.get_resource_record t.dns record domain_name

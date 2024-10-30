@@ -1,5 +1,5 @@
 Test on the simple server
-  $ export PORT=4242
+  $ export PORT=25252
   $ blaze.srv 127.0.0.1:$PORT -o new.eml &
   $ cat >old.eml <<EOF
   > From: admin@blaze.org

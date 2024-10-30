@@ -1,5 +1,5 @@
 Tests on DKIM fields
-  $ export BLAZE_DNS=cache
+  $ export BLAZE_DNS_STATIC=cache
   $ blaze.dkim verify 001.mail
   [OK]: sendgrid.info
   [OK]: github.com
@@ -11,7 +11,7 @@ Tests on DKIM fields
   $ blaze.dkim verify -q 001.mail
   $ cat 002.mail | blaze.dkim verify -q -
   $ cat 002.mail | blaze.dkim verify -q -
-  $ dd if=/dev/urandom bs=32 count=1 status=none | base64 - > seed
+  $ blaze.rand --seed foo= 16 > seed
   $ blaze.dkim gen --seed $(cat seed) key.pem | cut -d' ' -f3 > seed.out
   $ diff seed seed.out
   $ blaze.dkim sign --seed $(cat seed) -s blaze -h x25519.org -f subject 001.mail > mail

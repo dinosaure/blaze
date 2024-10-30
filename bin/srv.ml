@@ -1,6 +1,7 @@
 open Rresult
 
 let ( <.> ) f g x = f (g x)
+let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 
 let add_sub str ~start ~stop acc =
   if start = stop then acc else String.sub str start (stop - start) :: acc
@@ -328,7 +329,7 @@ let handle_with_starttls ~tls ~sockaddr ~domain flow =
         | State.Write { k; buffer; off; len } ->
             State.Write { k = go <.> k; buffer; off; len }
         | State.Return v -> Return v
-        | State.Error err -> Error (`Protocol err) in
+        | State.Error err -> Error err in
       go (encode ctx v w)
 
     let decode_without_tls ctx w =
@@ -338,15 +339,14 @@ let handle_with_starttls ~tls ~sockaddr ~domain flow =
         | State.Write { k; buffer; off; len } ->
             State.Write { k = go <.> k; buffer; off; len }
         | State.Return v -> Return v
-        | State.Error err -> Error (`Protocol err) in
+        | State.Error err -> Error err in
       go (decode ctx w)
   end in
   let module Value_with_tls = Sendmail_with_starttls.Make_with_tls (Value) in
   let module Monad = struct
     type context = Sendmail_with_starttls.Context_with_tls.t
 
-    include
-      State.Scheduler (Sendmail_with_starttls.Context_with_tls) (Value_with_tls)
+    include State.Scheduler (Sendmail_with_starttls.Context_with_tls) (Value_with_tls)
   end in
   let ctx = Sendmail_with_starttls.Context_with_tls.make () in
   let res =
@@ -394,56 +394,61 @@ let show ~with_metadata ~domain_from ~from:(from, _) ~recipients mail output =
       Fmt.(Dump.list pp_recipient)
       recipients) ;
   match output with
-  | Some path ->
+  | `Simple path ->
       let oc = open_out (Fpath.to_string path) in
       output_string oc mail
-  | None when with_metadata ->
-      let mail = cuts ~sep:"\r\n" mail in
-      List.iter (Fmt.pr "%s\n%!") mail
-  | None -> Fmt.pr "%s" mail
+  | `Multiple (dir, fmt) ->
+      let ( let* ) = Result.bind in
+      begin let* path = Bos.OS.File.tmp ~dir fmt in
+      let oc = open_out (Fpath.to_string path) in
+      output_string oc mail;
+      close_out oc; Ok () end |> function
+      | Ok () -> ()
+      | Error (`Msg msg) -> Fmt.epr "%s.\n%!" msg
+
+let is_simple = function
+  | `Simple _ -> true
+  | `Multiple _ -> false
 
 let serve with_metadata kind sockaddr domain output =
-  let socket =
-    Unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0 in
-  Unix.setsockopt socket SO_REUSEADDR true ;
+  let socket = Unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0 in
   Unix.setsockopt socket SO_REUSEPORT true ;
   let lift = function
     | Ok v -> Ok v
-    | Error (`Protocol (`Protocol err)) -> Error (`Protocol err)
+    | Error (`Protocol (`Value err)) -> Error (`Protocol err)
     | Error (`Protocol (#tls_error as tls_error)) -> Error (`Tls tls_error)
-    | Error (`Tls (`Protocol err)) -> Error (`Protocol err)
+    | Error (`Tls (`Value err)) -> Error (`Protocol err)
     | Error (`Tls (#tls_error as tls_error)) -> Error (`Tls tls_error)
     | Error (`Application err) -> Error (`Application err) in
   let rec go socket =
     let flow, peer = Unix.accept socket in
     let res =
+      let finally () = Unix.close flow in
+      Fun.protect ~finally @@ fun () ->
       match kind with
       | `Clear -> handle ~sockaddr ~domain flow
       | `Tls tls -> handle_with_starttls ~tls ~sockaddr ~domain flow |> lift
     in
     match res with
-    | Ok `Quit ->
-        Unix.close flow ;
-        go socket
+    | Ok `Quit -> go socket
     | Ok (`Mail (domain_from, from, recipients, mail)) ->
         show ~with_metadata ~domain_from ~from ~recipients mail output ;
-        Unix.close flow ;
-        Unix.close socket ;
-        `Ok ()
+        if is_simple output
+        then Ok (Unix.close socket)
+        else go socket
     | Error err ->
         Fmt.epr "[%a][%a]: %a.\n%!"
           Fmt.(styled `Red string)
           "ERROR"
           Fmt.(styled `Cyan pp_sockaddr)
           peer pp_error err ;
-        Unix.close flow ;
         go socket in
   try
     Unix.bind socket sockaddr ;
     Unix.listen socket 1 ;
     go socket
   with Unix.Unix_error (err, f, arg) ->
-    `Error (false, Fmt.str "%s(%s): %s." f arg (Unix.error_message err))
+    error_msgf "%s(%s): %s." f arg (Unix.error_message err)
 
 let load_file path =
   let ic = open_in (Fpath.to_string path) in
@@ -451,45 +456,43 @@ let load_file path =
   let rs = Bytes.create ln in
   really_input ic rs 0 ln ;
   close_in ic ;
-  Cstruct.of_bytes rs
+  Bytes.unsafe_to_string rs
 
 let private_key_of_file path = X509.Private_key.decode_pem (load_file path)
 let certificate_of_file path = X509.Certificate.decode_pem (load_file path)
 
-let sockaddr_of_bind_name local = function
+let sockaddr_of_bind_name = function
   | `Inet_addr (inet_addr, port) ->
       Ok (Unix.ADDR_INET (Ipaddr_unix.to_inet_addr inet_addr, port))
   | `Unix path -> Ok (Unix.ADDR_UNIX (Fpath.to_string path))
   | `Host (host, port) ->
-  match (Ldns.gethostbyname local host, Ldns.gethostbyname6 local host) with
-  | _, Ok ipv6 ->
-      Ok (Unix.ADDR_INET (Ipaddr_unix.to_inet_addr (Ipaddr.V6 ipv6), port))
-  | Ok ipv4, _ ->
-      Ok (Unix.ADDR_INET (Ipaddr_unix.to_inet_addr (Ipaddr.V4 ipv4), port))
-  | _ -> R.error_msgf "Unknown domain-name %a" Domain_name.pp host
+  match Unix.gethostbyname (Domain_name.to_string host) with
+  | { Unix.h_addr_list= [||]; _ } -> R.error_msgf "Unknown domain-name %a" Domain_name.pp host
+  | { Unix.h_addr_list; _ } -> Ok (Unix.ADDR_INET (h_addr_list.(0), port))
 
-let run _ local nameservers timeout with_metadata private_key certificate
-    bind_name domain output =
-  let dns = Ldns.create ?nameservers ~timeout ~local () in
-  match sockaddr_of_bind_name dns bind_name with
-  | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
-  | Ok sockaddr ->
-  match (private_key, certificate) with
+type output =
+  [ `Simple of Fpath.t
+  | `Multiple of Fpath.t * Bos.OS.File.tmp_name_pat ]
+
+let run with_metadata pk cert bind_name domain (output : output) =
+  let ( let* ) = Result.bind in
+  let* sockaddr = sockaddr_of_bind_name bind_name in
+  match (pk, cert) with
   | None, None -> serve with_metadata `Clear sockaddr domain output
-  | Some private_key, Some certificate -> (
-      match
-        (private_key_of_file private_key, certificate_of_file certificate)
-      with
-      | Ok private_key, Ok certificate ->
-          let tls =
-            Tls.Config.server
-              ~certificates:(`Single ([ certificate ], private_key))
-              () in
+  | Some pk, Some cert -> begin
+      match private_key_of_file pk, certificate_of_file cert with
+      | Ok pk, Ok cert ->
+          let* tls = Tls.Config.server ~certificates:(`Single ([ cert ], pk)) () in
           serve with_metadata (`Tls tls) sockaddr domain output
-      | Error (`Msg err), _ -> `Error (false, Fmt.str "%s." err)
-      | _, Error (`Msg err) -> `Error (false, Fmt.str "%s." err))
+      | Error (`Msg _) as err, _
+      | _, (Error (`Msg _) as err) -> err end
   | Some _, None | None, Some _ ->
-      `Error (true, "Missing elements to initiate a STARTTLS server.")
+      error_msgf "Missing elements to initiate a STARTTLS server."
+
+let run _ with_metadata pk cert bind_name domain output =
+  match run with_metadata pk cert bind_name domain output with
+  | Ok () -> `Ok ()
+  | Error (`Msg msg) -> `Error (false, Fmt.str "%s." msg)
 
 open Cmdliner
 open Args
@@ -531,14 +534,60 @@ let default_bind_name = `Inet_addr (Ipaddr.V4 Ipaddr.V4.any, 25)
 
 let bind_name =
   let doc = "The address where the server listens." in
-  Arg.(
-    value & pos 0 bind_name default_bind_name & info [] ~docv:"<address>" ~doc)
+  let open Arg in
+  value & pos 0 bind_name default_bind_name & info [] ~docv:"ADDRESS" ~doc
 
-let new_file = Arg.conv (Fpath.of_string, Fpath.pp)
+let fmt : (string -> string, Format.formatter, unit, string) format4 option Term.t =
+  let doc = "The format of incoming emails saved into the given directory." in
+  let parser str =
+    let proof = CamlinternalFormatBasics.(String_ty End_of_fmtty) in
+    try Ok (CamlinternalFormat.format_of_string_fmtty str proof)
+    with _ -> error_msgf "Invalid format: %S" str in
+  let pp ppf (CamlinternalFormatBasics.Format (_, str)) =
+    Fmt.pf ppf "%S" str in
+  let fmt = Arg.conv (parser, pp) in
+  let open Arg in
+  value & opt (some fmt) None & info [ "format" ] ~doc
 
 let output =
   let doc = "The path of the received email." in
-  Arg.(value & opt (some new_file) None & info [ "o"; "output" ] ~doc)
+  let parser str = match Fpath.of_string str with
+    | Ok v ->
+      if Sys.file_exists str && Sys.is_directory str
+      then Ok (Fpath.to_dir_path v)
+      else if Sys.file_exists str
+      then error_msgf "%a already exists" Fpath.pp v
+      else Ok v
+    | Error _ as err -> err in
+  let output = Arg.conv (parser, Fpath.pp) in
+  Arg.(value & opt (some output) None & info [ "o"; "output" ] ~doc)
+
+let default_fmt : (string -> string, Format.formatter, unit, string) format4 = "blaze-%s.eml"
+
+let setup_output output fmt : (output, [> `Msg of string ]) result =
+  let ( let* ) = Result.bind in
+  match output, fmt with
+  | None, Some _ ->
+    Result.error (`Msg "A directory is required to store incoming emails.")
+  | Some output, fmt ->
+    if Fpath.is_dir_path output
+    then
+      let* _ = Bos.OS.Dir.create ~path:true output in
+      let fmt = Option.value ~default:default_fmt fmt in
+      Ok (`Multiple (output, fmt))
+    else begin
+      if Option.is_some fmt
+      then Log.warn (fun m -> m "The format argument is useless, we will handle only one incoming email");
+      Ok (`Simple output)
+    end
+  | None, None ->
+    let* tmp = Bos.OS.File.tmp "blaze-%s.eml" in
+    Fmt.pr "The incoming email will be saved into: %a\n%!" Fpath.pp tmp;
+    Ok (`Simple tmp)
+
+let setup_output =
+  let open Term in
+  term_result ~usage:true (const setup_output $ output $ fmt)
 
 let default_domain = R.get_ok (Domain_name.of_string (Unix.gethostname ()))
 let domain = Arg.conv (Domain_name.of_string, Domain_name.pp)
@@ -582,14 +631,11 @@ let cmd =
       ret
         (const run
         $ setup_logs
-        $ setup_local_dns
-        $ nameserver
-        $ timeout
         $ with_metadata
         $ private_key
         $ certificate
         $ bind_name
         $ domain
-        $ output))
+        $ setup_output))
 
 let () = Cmd.(exit @@ eval cmd)

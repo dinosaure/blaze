@@ -123,7 +123,7 @@ let rec transmit state oc stream =
           transmit `None oc stream)
   | None -> ()
 
-let map _ diff input output =
+let mailmap _ diff input output =
   let ic, close_ic =
     match input with
     | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
@@ -179,6 +179,6 @@ let map =
       `P "From the given email, we try to decode and encode it.";
     ] in
   Cmd.v (Cmd.info "map" ~doc ~man)
-    Term.(ret (const map $ setup_logs $ diff $ input $ output))
+    Term.(ret (const mailmap $ setup_logs $ diff $ input $ output))
 
 let () = Cmd.(exit @@ eval map)

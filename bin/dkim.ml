@@ -16,7 +16,7 @@ end
 let extra_servers = Hashtbl.create 0x100
 
 module DNS = struct
-  include Ldns
+  include Dns_static
 
   type backend = Caml_scheduler.t
 
@@ -87,12 +87,13 @@ let stream_of_queue q () =
   | v -> Caml_scheduler.inj (Some v)
   | exception Queue.Empty -> Caml_scheduler.inj None
 
-let verify quiet local fields nameservers input =
-  let dns = Ldns.create ?nameservers ~local () in
+let verify quiet fields dns input =
   let ic, close =
     match input with
     | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
     | None -> (stdin, ignore) in
+  let finally () = close ic in
+  Fun.protect ~finally @@ fun () ->
   let open Caml_scheduler in
   Dkim.extract_dkim ~newline ic caml (module Caml_flow) |> prj
   >>= fun ({ Dkim.prelude; dkim_fields; _ } as extracted) ->
@@ -118,33 +119,35 @@ let verify quiet local fields nameservers input =
         Logs.err (fun m -> m "Got an error for a DKIM-Signature field: %s" err) ;
         (valid, expired, invalid)
     | Ok (dkim, server) ->
-    match
-      ( Dkim.verify caml ~epoch extracted.Dkim.fields
+        let verify = Dkim.verify caml ~epoch extracted.Dkim.fields
           (dkim_field_name, dkim_field_value)
           ~simple:(stream_of_queue (Queue.copy s))
           ~relaxed:(stream_of_queue (Queue.copy r))
-          dkim server
-        |> prj,
-        Dkim.expired ~epoch dkim )
-    with
-    | true, false -> (dkim :: valid, expired, invalid)
-    | true, true -> (valid, dkim :: expired, invalid)
-    | false, _ -> (valid, expired, dkim :: invalid) in
+          dkim server in
+        let has_expired = Dkim.expired ~epoch dkim in
+        match prj verify, has_expired with
+        | true, false -> (dkim :: valid, expired, invalid)
+        | true, true -> (valid, dkim :: expired, invalid)
+        | false, _ -> (valid, expired, dkim :: invalid) in
   let () = prj th in
   let valid, expired, invalid = List.fold_left fold ([], [], []) dkim_fields in
   if (not quiet) && not fields
   then show_result valid expired invalid
   else if (not quiet) && fields
-  then show_fields valid ;
-  close ic ;
+  then show_fields valid;
   match invalid with [] -> Ok 0 | _ -> Ok 1
 
 let extra_to_string pk =
   let pk = X509.Public_key.encode_der pk in
   Fmt.str "v=DKIM1; k=rsa; p=%s"
-    (Base64.encode_string ~pad:true (Cstruct.to_string pk))
+    (Base64.encode_string ~pad:true pk)
 
-let verify quiet local fields nameservers extra input =
+let verify quiet fields extra (daemon, _, dns) input =
+  let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
+  let finally () =
+    Happy_eyeballs_miou_unix.kill daemon;
+    Mirage_crypto_rng_miou_unix.kill rng in
+  Fun.protect ~finally @@ fun () ->
   let () =
     List.iter
       (fun (selector, v, extra) ->
@@ -155,7 +158,7 @@ let verify quiet local fields nameservers extra input =
         let domain_name = Domain_name.to_string domain_name in
         Hashtbl.add extra_servers domain_name (extra_to_string extra))
       extra in
-  match verify quiet local fields nameservers input with
+  match verify quiet fields dns input with
   | Ok n -> `Ok n
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
@@ -170,9 +173,7 @@ module Keep_flow = struct
 end
 
 let priv_of_seed seed =
-  let g =
-    let seed = Cstruct.of_string seed in
-    Mirage_crypto_rng.(create ~seed (module Fortuna)) in
+  let g = Mirage_crypto_rng.(create ~seed (module Fortuna)) in
   Mirage_crypto_pk.Rsa.generate ~g ~bits:2048 ()
 
 let pub_of_seed seed = Mirage_crypto_pk.Rsa.pub_of_priv (priv_of_seed seed)
@@ -227,6 +228,9 @@ let sign _verbose input output key selector fields hash canon domain_name =
 
 let sign _verbose input output private_key seed selector fields hash canon
     domain_name =
+  let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
+  let finally () = Mirage_crypto_rng_miou_unix.kill rng in
+  Fun.protect ~finally @@ fun () ->
   match (seed, private_key) with
   | None, None -> `Error (true, "A private key or a seed is required.")
   | _, Some pk ->
@@ -236,34 +240,35 @@ let sign _verbose input output private_key seed selector fields hash canon
       sign _verbose input output pk selector fields hash canon domain_name
 
 let gen seed output =
+  let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let oc, close =
     match output with
     | Some fpath -> (open_out (Fpath.to_string fpath), close_out)
     | None -> (stdout, ignore) in
+  let finally () =
+    Mirage_crypto_rng_miou_unix.kill rng;
+    close oc in
+  Fun.protect ~finally @@ fun () ->
   let seed =
     match seed with
     | Some (`Seed seed) -> seed
     | None ->
-        let () =
-          Mirage_crypto_rng_unix.initialize (module Mirage_crypto_rng.Fortuna)
-        in
-        let cs = Mirage_crypto_rng.generate 30 in
-        Base64.encode_string ~pad:true (Cstruct.to_string cs) in
+        let str = Mirage_crypto_rng.generate 30 in
+        Base64.encode_string ~pad:true str in
   let key = priv_of_seed seed in
   let pub = Mirage_crypto_pk.Rsa.pub_of_priv key in
   if oc == stdout
   then (
     let pk =
       let cs = X509.Public_key.encode_der (`RSA pub) in
-      Base64.encode_string ~pad:true (Cstruct.to_string cs) in
+      Base64.encode_string ~pad:true cs in
     Fmt.pr "seed is %s\n%!" (Base64.encode_string ~pad:true seed) ;
     Fmt.pr "public key is %s\n%!" pk ;
     `Ok 0)
   else
     let pk = X509.Public_key.encode_pem (`RSA pub) in
     Fmt.pr "seed is %s\n%!" (Base64.encode_string ~pad:true seed) ;
-    output_string oc (Cstruct.to_string pk) ;
-    close oc ;
+    output_string oc pk;
     `Ok 0
 
 open Cmdliner
@@ -277,8 +282,8 @@ let parse_public_key str =
       let rs = Bytes.create ln in
       really_input ic rs 0 ln ;
       close_in ic ;
-      X509.Public_key.decode_pem (Cstruct.of_bytes rs)
-  | _ -> Base64.decode str >>| Cstruct.of_string >>= X509.Public_key.decode_der
+      X509.Public_key.decode_pem (Bytes.unsafe_to_string rs)
+  | _ -> Base64.decode str >>= X509.Public_key.decode_der
 
 let extra =
   let parser str =
@@ -297,8 +302,7 @@ let extra =
     | _ -> R.error_msgf "Invalid format: %S" str in
   let pp ppf (selector, domain_name, pk) =
     let pk =
-      Base64.encode_string ~pad:true
-        (Cstruct.to_string (X509.Public_key.encode_der pk)) in
+      Base64.encode_string ~pad:true (X509.Public_key.encode_der pk) in
     Fmt.pf ppf "%a:%a:%s" Domain_name.pp selector Domain_name.pp domain_name pk
   in
   Arg.conv (parser, pp)
@@ -325,24 +329,54 @@ let input =
   let doc = "The email to verify." in
   Arg.(value & pos 0 existing_file None & info [] ~doc)
 
+let setup_resolver happy_eyeballs_cfg nameservers local =
+  let happy_eyeballs = match happy_eyeballs_cfg with
+    | None -> None
+    | Some { aaaa_timeout
+           ; connect_delay
+           ; connect_timeout
+           ; resolve_timeout
+           ; resolve_retries } ->
+      Happy_eyeballs.create
+        ?aaaa_timeout ?connect_delay ?connect_timeout
+        ?resolve_timeout ?resolve_retries (Mtime_clock.elapsed_ns ())
+      |> Option.some in
+  let ( let* ) = Result.bind in
+  let daemon, he = Happy_eyeballs_miou_unix.create ?happy_eyeballs () in
+  let dns = Dns_static.create ~nameservers ~local he in
+  let getaddrinfo dns record domain_name =
+    match record with
+    | `A ->
+      let* ipaddr = Dns_static.gethostbyname dns domain_name in
+      Ok Ipaddr.(Set.singleton (V4 ipaddr))
+    | `AAAA ->
+      let* ipaddr = Dns_static.gethostbyname6 dns domain_name in
+      Ok Ipaddr.(Set.singleton (V6 ipaddr)) in
+  Happy_eyeballs_miou_unix.inject he (getaddrinfo dns);
+  daemon, he, dns
+
+let setup_resolver =
+  let open Term in
+  const setup_resolver
+  $ setup_happy_eyeballs
+  $ setup_nameservers
+  $ setup_dns_static
+
 let verify =
   let doc = "Verify DKIM fields from the given email." in
   let man =
-    [
-      `S Manpage.s_description;
-      `P "$(tname) verifies DKIM fiels from the given $(i,msgs).";
+    [ `S Manpage.s_description
+    ; `P "$(tname) verifies DKIM fiels from the given $(i,msgs)."
     ] in
-  Cmd.v
-    (Cmd.info "verify" ~doc ~man)
-    Term.(
-      ret
-        (const verify
-        $ setup_logs
-        $ setup_local_dns
-        $ fields
-        $ nameserver
-        $ extra
-        $ input))
+  let open Term in
+  let info = Cmd.info "verify" ~doc ~man in
+  let term = const verify
+    $ setup_logs
+    $ fields
+    $ extra
+    $ setup_resolver
+    $ input in
+  Cmd.v info (ret term)
 
 let input =
   let doc = "The email to sign." in
@@ -358,25 +392,24 @@ let private_key =
   let parser str =
     match
       Base64.decode ~pad:true str
-      >>| Cstruct.of_string
       >>= X509.Private_key.decode_der
     with
     | Ok (`RSA key) -> Ok key
     | Ok _ -> R.error_msgf "We handle only RSA key"
     | Error _ ->
     match Fpath.of_string str with
-    | Ok _ when Sys.file_exists str -> (
+    | Error _ as err -> err
+    | Ok _ when Sys.file_exists str ->
         let ic = open_in str in
         let ln = in_channel_length ic in
         let rs = Bytes.create ln in
         really_input ic rs 0 ln ;
         let rs = Bytes.unsafe_to_string rs in
-        match X509.Private_key.decode_pem (Cstruct.of_string rs) with
+        begin match X509.Private_key.decode_pem rs with
         | Ok (`RSA key) -> Ok key
         | Ok _ -> R.error_msgf "We handle only RSA key"
-        | Error _ as err -> err)
-    | Ok fpath -> R.error_msgf "%a does not exist" Fpath.pp fpath
-    | Error _ as err -> err in
+        | Error _ as err -> err end
+    | Ok fpath -> R.error_msgf "%a does not exist" Fpath.pp fpath in
   let pp ppf _pk = Fmt.pf ppf "<private-key>" in
   Arg.conv (parser, pp)
 
@@ -435,10 +468,10 @@ let seed =
 
 let fields =
   let doc = "Fields which will be used to generate the DKIM signature." in
-  Arg.(
-    value
-    & opt_all field_name [ Mrmime.Field_name.from ]
-    & info [ "f"; "field" ] ~doc)
+  let open Arg in
+  value
+  & opt_all field_name [ Mrmime.Field_name.from ]
+  & info [ "f"; "field" ] ~doc
 
 let selector =
   let doc =
@@ -472,25 +505,23 @@ let hostname =
 let sign =
   let doc = "Sign the given email and put a new DKIM field." in
   let man =
-    [
-      `S Manpage.s_description;
-      `P "$(tname) signs the given $(i,msgs) and put a new DKIM field.";
+    [ `S Manpage.s_description
+    ; `P "$(tname) signs the given $(i,msgs) and put a new DKIM field."
     ] in
-  Cmd.v
-    (Cmd.info "sign" ~doc ~man)
-    Term.(
-      ret
-        (const sign
-        $ setup_logs
-        $ input
-        $ output
-        $ private_key
-        $ seed
-        $ selector
-        $ fields
-        $ hash
-        $ canon
-        $ hostname))
+  let open Term in
+  let info = Cmd.info "sign" ~doc ~man in
+  let term = const sign
+    $ setup_logs
+    $ input
+    $ output
+    $ private_key
+    $ seed
+    $ selector
+    $ fields
+    $ hash
+    $ canon
+    $ hostname in
+  Cmd.v info (ret term)
 
 let output =
   let doc = "The path of the produced PEM-encoded public key." in
@@ -512,9 +543,8 @@ let gen =
   let doc =
     "Generate a public RSA key and a seed to reproduce the private key." in
   let man =
-    [
-      `S Manpage.s_description;
-      `P "$(tname) generates a new RSA key from a seed (optional).";
+    [ `S Manpage.s_description
+    ; `P "$(tname) generates a new RSA key from a seed (optional)."
     ] in
   Cmd.v (Cmd.info "gen" ~doc ~man) Term.(ret (const gen $ seed $ output))
 
@@ -535,4 +565,5 @@ let () =
 
   let cmd =
     Cmd.group ~default (Cmd.info "dkim" ~doc ~man) [ verify; sign; gen ] in
+  Miou_unix.run ~domains:0 @@ fun () ->
   Cmd.(exit @@ eval' cmd)
