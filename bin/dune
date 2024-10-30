@@ -156,3 +156,9 @@
  (modules descr)
  (public_name blaze.descr)
  (libraries blaze.args cmdliner mrmime fpath))
+
+(executable
+ (name rand)
+ (modules rand)
+ (public_name blaze.rand)
+ (libraries blaze.args cmdliner fmt mirage-crypto-rng ohex base64))

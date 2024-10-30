@@ -17,4 +17,5 @@
   %{bin:blaze.map}
   %{bin:blaze.srv}
   %{bin:blaze.spf}
-  %{bin:blaze.descr}))
+  %{bin:blaze.descr}
+  %{bin:blaze.rand}))
