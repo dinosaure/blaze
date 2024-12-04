@@ -118,34 +118,34 @@ let verify quiet fields dns input =
     | Error (`Msg err) ->
         Logs.err (fun m -> m "Got an error for a DKIM-Signature field: %s" err) ;
         (valid, expired, invalid)
-    | Ok (dkim, server) ->
-        let verify = Dkim.verify caml ~epoch extracted.Dkim.fields
-          (dkim_field_name, dkim_field_value)
-          ~simple:(stream_of_queue (Queue.copy s))
-          ~relaxed:(stream_of_queue (Queue.copy r))
-          dkim server in
+    | Ok (dkim, server) -> (
+        let verify =
+          Dkim.verify caml ~epoch extracted.Dkim.fields
+            (dkim_field_name, dkim_field_value)
+            ~simple:(stream_of_queue (Queue.copy s))
+            ~relaxed:(stream_of_queue (Queue.copy r))
+            dkim server in
         let has_expired = Dkim.expired ~epoch dkim in
-        match prj verify, has_expired with
+        match (prj verify, has_expired) with
         | true, false -> (dkim :: valid, expired, invalid)
         | true, true -> (valid, dkim :: expired, invalid)
-        | false, _ -> (valid, expired, dkim :: invalid) in
+        | false, _ -> (valid, expired, dkim :: invalid)) in
   let () = prj th in
   let valid, expired, invalid = List.fold_left fold ([], [], []) dkim_fields in
   if (not quiet) && not fields
   then show_result valid expired invalid
   else if (not quiet) && fields
-  then show_fields valid;
+  then show_fields valid ;
   match invalid with [] -> Ok 0 | _ -> Ok 1
 
 let extra_to_string pk =
   let pk = X509.Public_key.encode_der pk in
-  Fmt.str "v=DKIM1; k=rsa; p=%s"
-    (Base64.encode_string ~pad:true pk)
+  Fmt.str "v=DKIM1; k=rsa; p=%s" (Base64.encode_string ~pad:true pk)
 
 let verify quiet fields extra (daemon, _, dns) input =
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let finally () =
-    Happy_eyeballs_miou_unix.kill daemon;
+    Happy_eyeballs_miou_unix.kill daemon ;
     Mirage_crypto_rng_miou_unix.kill rng in
   Fun.protect ~finally @@ fun () ->
   let () =
@@ -246,7 +246,7 @@ let gen seed output =
     | Some fpath -> (open_out (Fpath.to_string fpath), close_out)
     | None -> (stdout, ignore) in
   let finally () =
-    Mirage_crypto_rng_miou_unix.kill rng;
+    Mirage_crypto_rng_miou_unix.kill rng ;
     close oc in
   Fun.protect ~finally @@ fun () ->
   let seed =
@@ -268,7 +268,7 @@ let gen seed output =
   else
     let pk = X509.Public_key.encode_pem (`RSA pub) in
     Fmt.pr "seed is %s\n%!" (Base64.encode_string ~pad:true seed) ;
-    output_string oc pk;
+    output_string oc pk ;
     `Ok 0
 
 open Cmdliner
@@ -301,8 +301,7 @@ let extra =
             err)
     | _ -> R.error_msgf "Invalid format: %S" str in
   let pp ppf (selector, domain_name, pk) =
-    let pk =
-      Base64.encode_string ~pad:true (X509.Public_key.encode_der pk) in
+    let pk = Base64.encode_string ~pad:true (X509.Public_key.encode_der pk) in
     Fmt.pf ppf "%a:%a:%s" Domain_name.pp selector Domain_name.pp domain_name pk
   in
   Arg.conv (parser, pp)
@@ -330,30 +329,34 @@ let input =
   Arg.(value & pos 0 existing_file None & info [] ~doc)
 
 let setup_resolver happy_eyeballs_cfg nameservers local =
-  let happy_eyeballs = match happy_eyeballs_cfg with
+  let happy_eyeballs =
+    match happy_eyeballs_cfg with
     | None -> None
-    | Some { aaaa_timeout
-           ; connect_delay
-           ; connect_timeout
-           ; resolve_timeout
-           ; resolve_retries } ->
-      Happy_eyeballs.create
-        ?aaaa_timeout ?connect_delay ?connect_timeout
-        ?resolve_timeout ?resolve_retries (Mtime_clock.elapsed_ns ())
-      |> Option.some in
+    | Some
+        {
+          aaaa_timeout;
+          connect_delay;
+          connect_timeout;
+          resolve_timeout;
+          resolve_retries;
+        } ->
+        Happy_eyeballs.create ?aaaa_timeout ?connect_delay ?connect_timeout
+          ?resolve_timeout ?resolve_retries
+          (Mtime_clock.elapsed_ns ())
+        |> Option.some in
   let ( let* ) = Result.bind in
   let daemon, he = Happy_eyeballs_miou_unix.create ?happy_eyeballs () in
   let dns = Dns_static.create ~nameservers ~local he in
   let getaddrinfo dns record domain_name =
     match record with
     | `A ->
-      let* ipaddr = Dns_static.gethostbyname dns domain_name in
-      Ok Ipaddr.(Set.singleton (V4 ipaddr))
+        let* ipaddr = Dns_static.gethostbyname dns domain_name in
+        Ok Ipaddr.(Set.singleton (V4 ipaddr))
     | `AAAA ->
-      let* ipaddr = Dns_static.gethostbyname6 dns domain_name in
-      Ok Ipaddr.(Set.singleton (V6 ipaddr)) in
-  Happy_eyeballs_miou_unix.inject he (getaddrinfo dns);
-  daemon, he, dns
+        let* ipaddr = Dns_static.gethostbyname6 dns domain_name in
+        Ok Ipaddr.(Set.singleton (V6 ipaddr)) in
+  Happy_eyeballs_miou_unix.inject he (getaddrinfo dns) ;
+  (daemon, he, dns)
 
 let setup_resolver =
   let open Term in
@@ -365,17 +368,14 @@ let setup_resolver =
 let verify =
   let doc = "Verify DKIM fields from the given email." in
   let man =
-    [ `S Manpage.s_description
-    ; `P "$(tname) verifies DKIM fiels from the given $(i,msgs)."
+    [
+      `S Manpage.s_description;
+      `P "$(tname) verifies DKIM fiels from the given $(i,msgs).";
     ] in
   let open Term in
   let info = Cmd.info "verify" ~doc ~man in
-  let term = const verify
-    $ setup_logs
-    $ fields
-    $ extra
-    $ setup_resolver
-    $ input in
+  let term =
+    const verify $ setup_logs $ fields $ extra $ setup_resolver $ input in
   Cmd.v info (ret term)
 
 let input =
@@ -390,25 +390,22 @@ let output =
 
 let private_key =
   let parser str =
-    match
-      Base64.decode ~pad:true str
-      >>= X509.Private_key.decode_der
-    with
+    match Base64.decode ~pad:true str >>= X509.Private_key.decode_der with
     | Ok (`RSA key) -> Ok key
     | Ok _ -> R.error_msgf "We handle only RSA key"
     | Error _ ->
     match Fpath.of_string str with
     | Error _ as err -> err
-    | Ok _ when Sys.file_exists str ->
+    | Ok _ when Sys.file_exists str -> (
         let ic = open_in str in
         let ln = in_channel_length ic in
         let rs = Bytes.create ln in
         really_input ic rs 0 ln ;
         let rs = Bytes.unsafe_to_string rs in
-        begin match X509.Private_key.decode_pem rs with
+        match X509.Private_key.decode_pem rs with
         | Ok (`RSA key) -> Ok key
         | Ok _ -> R.error_msgf "We handle only RSA key"
-        | Error _ as err -> err end
+        | Error _ as err -> err)
     | Ok fpath -> R.error_msgf "%a does not exist" Fpath.pp fpath in
   let pp ppf _pk = Fmt.pf ppf "<private-key>" in
   Arg.conv (parser, pp)
@@ -505,12 +502,14 @@ let hostname =
 let sign =
   let doc = "Sign the given email and put a new DKIM field." in
   let man =
-    [ `S Manpage.s_description
-    ; `P "$(tname) signs the given $(i,msgs) and put a new DKIM field."
+    [
+      `S Manpage.s_description;
+      `P "$(tname) signs the given $(i,msgs) and put a new DKIM field.";
     ] in
   let open Term in
   let info = Cmd.info "sign" ~doc ~man in
-  let term = const sign
+  let term =
+    const sign
     $ setup_logs
     $ input
     $ output
@@ -543,8 +542,9 @@ let gen =
   let doc =
     "Generate a public RSA key and a seed to reproduce the private key." in
   let man =
-    [ `S Manpage.s_description
-    ; `P "$(tname) generates a new RSA key from a seed (optional)."
+    [
+      `S Manpage.s_description;
+      `P "$(tname) generates a new RSA key from a seed (optional).";
     ] in
   Cmd.v (Cmd.info "gen" ~doc ~man) Term.(ret (const gen $ seed $ output))
 
@@ -565,5 +565,4 @@ let () =
 
   let cmd =
     Cmd.group ~default (Cmd.info "dkim" ~doc ~man) [ verify; sign; gen ] in
-  Miou_unix.run ~domains:0 @@ fun () ->
-  Cmd.(exit @@ eval' cmd)
+  Miou_unix.run ~domains:0 @@ fun () -> Cmd.(exit @@ eval' cmd)

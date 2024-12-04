@@ -18,4 +18,7 @@
   %{bin:blaze.srv}
   %{bin:blaze.spf}
   %{bin:blaze.descr}
-  %{bin:blaze.rand}))
+  %{bin:blaze.rand}
+  %{bin:blaze.iso}
+  %{bin:blaze.to_crlf}
+  %{bin:blaze.pack}))

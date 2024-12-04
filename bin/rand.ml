@@ -1,17 +1,16 @@
 let run _ seed len output =
   let g = Mirage_crypto_rng.Fortuna.create () in
   let g = Mirage_crypto_rng.(create ~g ~seed (module Fortuna)) in
-  Mirage_crypto_rng.set_default_generator g;
+  Mirage_crypto_rng.set_default_generator g ;
   let res = Mirage_crypto_rng.generate ~g len in
   match output with
   | `Base64 ->
-    let b64 = Base64.encode_exn res in
-    Fmt.pr "%s\n%!" b64
+      let b64 = Base64.encode_exn res in
+      Fmt.pr "%s\n%!" b64
   | `Hex ->
-    let hex = Ohex.encode res in
-    Fmt.pr "%s\n%!" hex
-  | `Raw ->
-    Fmt.pr "%s" res
+      let hex = Ohex.encode res in
+      Fmt.pr "%s\n%!" hex
+  | `Raw -> Fmt.pr "%s" res
 
 open Cmdliner
 open Args
@@ -42,23 +41,20 @@ let output =
   let raw =
     let doc = "Outputs the random value as it is." in
     Arg.info [ "raw" ] ~doc in
-  Arg.(value & vflag `Base64 [ `Base64, base64
-                             ; `Hex, hex
-                             ; `Raw, raw ])
+  Arg.(value & vflag `Base64 [ (`Base64, base64); (`Hex, hex); (`Raw, raw) ])
 
 let cmd =
   let doc = "Generate a random value from a seed with the fortuna algorithm." in
   let man =
-    [ `S Manpage.s_description
-    ; `P "$(tname) generates a random value from a seed with the $(b,fortuna) \
-          algorithm. The user can set the output of the value (base64 or hex)" ] in
-  let open Term in 
+    [
+      `S Manpage.s_description;
+      `P
+        "$(tname) generates a random value from a seed with the $(b,fortuna) \
+         algorithm. The user can set the output of the value (base64 or hex)";
+    ] in
+  let open Term in
   let info = Cmd.info "rand" ~doc ~man in
-  let term = const run 
-    $ setup_logs
-    $ seed
-    $ length
-    $ output in
+  let term = const run $ setup_logs $ seed $ length $ output in
   Cmd.v info term
 
 let () = Cmd.(exit @@ eval cmd)

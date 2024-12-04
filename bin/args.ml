@@ -6,7 +6,6 @@ module Log = (val Logs.src_log src : Logs.LOG)
 
 let ( <.> ) f g x = f (g x)
 let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
-
 let output_options = "OUTPUT OPTIONS"
 
 let verbosity =
@@ -43,7 +42,6 @@ let setup_logs utf_8 style_renderer level =
   Option.is_none level
 
 let setup_logs = Term.(const setup_logs $ utf_8 $ renderer $ verbosity)
-
 let docs_dns = "DOMAIN NAME SERVICE"
 
 let timeout =
@@ -53,9 +51,8 @@ let timeout =
       let len = ref 0 in
       while !len < String.length str && is_digit str.[!len] do
         incr len
-      done;
-      !len
-    in
+      done ;
+      !len in
     let meter = String.sub str len (String.length str - len) in
     let value = String.sub str 0 len in
     match meter with
@@ -65,8 +62,7 @@ let timeout =
     | "sec" | "s" -> Ok (Duration.of_sec (int_of_string value))
     | "min" | "m" -> Ok (Duration.of_min (int_of_string value))
     | "hour" | "h" -> Ok (Duration.of_hour (int_of_string value))
-    | _ -> error_msgf "Invalid time: %S" str
-  in
+    | _ -> error_msgf "Invalid time: %S" str in
   Arg.conv ~docv:"TIME" (parser, Duration.pp)
 
 let aaaa_timeout =
@@ -106,22 +102,25 @@ let resolve_retries =
   & opt (some int) None
   & info [ "resolve-retries" ] ~doc ~docv:"N" ~docs:docs_dns
 
-type happy_eyeballs =
-  { aaaa_timeout: int64 option
-  ; connect_delay: int64 option
-  ; connect_timeout: int64 option
-  ; resolve_timeout: int64 option
-  ; resolve_retries: int option }
+type happy_eyeballs = {
+  aaaa_timeout : int64 option;
+  connect_delay : int64 option;
+  connect_timeout : int64 option;
+  resolve_timeout : int64 option;
+  resolve_retries : int option;
+}
 
 let setup_happy_eyeballs aaaa_timeout connect_delay connect_timeout
     resolve_timeout resolve_retries = function
   | false ->
       Some
-        { aaaa_timeout
-        ; connect_delay
-        ; connect_timeout
-        ; resolve_timeout
-        ; resolve_retries }
+        {
+          aaaa_timeout;
+          connect_delay;
+          connect_timeout;
+          resolve_timeout;
+          resolve_retries;
+        }
   | _ -> None
 
 let without_happy_eyeballs =
@@ -147,15 +146,13 @@ let nameserver_of_string str =
       match String.split_on_char '!' str with
       | [ nameserver ] ->
           let* ipaddr, port =
-            Ipaddr.with_port_of_string ~default:853 nameserver
-          in
+            Ipaddr.with_port_of_string ~default:853 nameserver in
           let* authenticator = Ca_certs.authenticator () in
           let* tls = Tls.Config.client ~authenticator () in
           Ok (`Tcp, `Tls (tls, ipaddr, port))
       | nameserver :: authenticator ->
           let* ipaddr, port =
-            Ipaddr.with_port_of_string ~default:853 nameserver
-          in
+            Ipaddr.with_port_of_string ~default:853 nameserver in
           let authenticator = String.concat "!" authenticator in
           let* authenticator = X509.Authenticator.of_string authenticator in
           let time () = Some (Ptime.v (Ptime_clock.now_d_ps ())) in
@@ -187,8 +184,7 @@ let nameserver =
     | `Tcp, `Plaintext (ipaddr, port) ->
         Fmt.pf ppf "tcp:%a:%d" Ipaddr.pp ipaddr port
     | `Udp, `Plaintext (ipaddr, port) ->
-        Fmt.pf ppf "%a:%d" Ipaddr.pp ipaddr port
-  in
+        Fmt.pf ppf "%a:%d" Ipaddr.pp ipaddr port in
   Arg.conv (parser, pp) ~docv:"NAMESERVER"
 
 let nameservers =
@@ -202,11 +198,8 @@ let nameservers =
 let setup_nameservers nameservers =
   let tcp, udp =
     List.partition_map
-      begin function
-      | `Udp, v -> Either.Right v
-      | `Tcp, v -> Either.Left v
-      end nameservers
-  in
+      (function `Udp, v -> Either.Right v | `Tcp, v -> Either.Left v)
+      nameservers in
   match (tcp, udp) with
   | [], nameservers -> `Ok (`Udp, nameservers)
   | nameservers, [] -> `Ok (`Tcp, nameservers)
@@ -217,72 +210,79 @@ let setup_nameservers = Term.(ret (const setup_nameservers $ nameservers))
 let dns =
   let open Arg in
   let system =
-    let doc = "Domain name resolution is done by the system (usually 127.0.0.53:53)." in
+    let doc =
+      "Domain name resolution is done by the system (usually 127.0.0.53:53)."
+    in
     info [ "system" ] ~doc ~docs:docs_dns in
   let internal =
-    let doc = "Domain name resolution is done by the program itself with given nameservers." in
+    let doc =
+      "Domain name resolution is done by the program itself with given \
+       nameservers." in
     info [ "internal" ] ~doc ~docs:docs_dns in
-  value & vflag `System
-    [ `System, system
-    ; `Internal, internal ]
+  value & vflag `System [ (`System, system); (`Internal, internal) ]
 
 let existing_directory =
   let parser str =
     match Fpath.of_string str with
     | Ok v when Sys.is_directory str -> Ok v
     | Ok v ->
-        error_msgf "%a does not exist or it's not a valid directory" Fpath.pp
-          v
+        error_msgf "%a does not exist or it's not a valid directory" Fpath.pp v
     | Error _ as err -> err in
   Arg.conv (parser, Fpath.pp)
 
 let dns_static =
   let env = Cmd.Env.info "BLAZE_DNS_STATIC" in
   let doc = "Load a static DNS tree." in
-  Arg.(value & opt (some existing_directory) None & info [ "dns-static" ] ~env ~doc)
+  Arg.(
+    value & opt (some existing_directory) None & info [ "dns-static" ] ~env ~doc)
 
 let setup_dns_static = function
   | None -> Domain_name.Map.empty
-  | Some fpath -> match Dns_static.of_directory fpath with
-    | Ok local -> local
-    | Error (`Msg err) ->
-        Log.err (fun m ->
-            m "Got an error when we loaded the local DNS: %a: %s" Fpath.pp fpath
-              err) ;
-        Domain_name.Map.empty
+  | Some fpath ->
+  match Dns_static.of_directory fpath with
+  | Ok local -> local
+  | Error (`Msg err) ->
+      Log.err (fun m ->
+          m "Got an error when we loaded the local DNS: %a: %s" Fpath.pp fpath
+            err) ;
+      Domain_name.Map.empty
 
 let setup_dns_static = Term.(const setup_dns_static $ dns_static)
 
 let setup_resolver happy_eyeballs_cfg dns_cfg nameservers local =
-  let happy_eyeballs = match happy_eyeballs_cfg with
+  let happy_eyeballs =
+    match happy_eyeballs_cfg with
     | None -> None
-    | Some { aaaa_timeout
-           ; connect_delay
-           ; connect_timeout
-           ; resolve_timeout
-           ; resolve_retries } ->
-      Happy_eyeballs.create
-        ?aaaa_timeout ?connect_delay ?connect_timeout
-        ?resolve_timeout ?resolve_retries (Mtime_clock.elapsed_ns ())
-      |> Option.some in
+    | Some
+        {
+          aaaa_timeout;
+          connect_delay;
+          connect_timeout;
+          resolve_timeout;
+          resolve_retries;
+        } ->
+        Happy_eyeballs.create ?aaaa_timeout ?connect_delay ?connect_timeout
+          ?resolve_timeout ?resolve_retries
+          (Mtime_clock.elapsed_ns ())
+        |> Option.some in
   match dns_cfg with
   | `System ->
-    let daemon, he = Happy_eyeballs_miou_unix.create ?happy_eyeballs () in
-    daemon, he
+      let daemon, he = Happy_eyeballs_miou_unix.create ?happy_eyeballs () in
+      (daemon, he)
   | `Internal ->
-    let ( let* ) = Result.bind in
-    let daemon, he = Happy_eyeballs_miou_unix.create ?happy_eyeballs () in
-    let dns = Dns_static.create ~nameservers ~local he in
-    let getaddrinfo dns record domain_name =
-      match record with
-      | `A ->
-        let* ipaddr = Dns_static.gethostbyname dns domain_name in
-        Ok Ipaddr.(Set.singleton (V4 ipaddr))
-      | `AAAA ->
-        let* ipaddr = Dns_static.gethostbyname6 dns domain_name in
-        Ok Ipaddr.(Set.singleton (V6 ipaddr)) in
-    Happy_eyeballs_miou_unix.inject he (getaddrinfo dns);
-    daemon, he
+      let ( let* ) = Result.bind in
+      let daemon, he = Happy_eyeballs_miou_unix.create ?happy_eyeballs () in
+      let dns = Dns_static.create ~nameservers ~local he in
+      let getaddrinfo dns record domain_name =
+        match record with
+        | `A ->
+            let* ipaddr = Dns_static.gethostbyname dns domain_name in
+            Ok Ipaddr.(Set.singleton (V4 ipaddr))
+        | `AAAA ->
+            let* ipaddr = Dns_static.gethostbyname6 dns domain_name in
+            Ok Ipaddr.(Set.singleton (V6 ipaddr)) in
+      Happy_eyeballs_miou_unix.inject he (getaddrinfo dns) ;
+      (daemon, he)
 
 let setup_resolver =
   let open Term in

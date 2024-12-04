@@ -19,7 +19,8 @@ module DNS = struct
     | `No_domain of [ `raw ] Domain_name.t * Dns.Soa.t ]
 
   let getrrecord dns response domain_name =
-    Caml_scheduler.inj @@ Dns_static.get_resource_record dns response domain_name
+    Caml_scheduler.inj
+    @@ Dns_static.get_resource_record dns response domain_name
 end
 
 module Flow = struct
@@ -77,7 +78,7 @@ let extract_received_spf ?newline ic =
 let stamp quiet hostname (daemon, _he, dns) sender helo ip input output =
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let finally () =
-    Happy_eyeballs_miou_unix.kill daemon;
+    Happy_eyeballs_miou_unix.kill daemon ;
     Mirage_crypto_rng_miou_unix.kill rng in
   Fun.protect ~finally @@ fun () ->
   let ic, close_ic =
@@ -167,8 +168,8 @@ let analyze quiet (daemon, _he, dns) input =
     | None -> (stdin, ignore) in
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let finally () =
-    Happy_eyeballs_miou_unix.kill daemon;
-    Mirage_crypto_rng_miou_unix.kill rng;
+    Happy_eyeballs_miou_unix.kill daemon ;
+    Mirage_crypto_rng_miou_unix.kill rng ;
     close_ic ic in
   Fun.protect ~finally @@ fun () ->
   let res = extract_received_spf ~newline:Uspf.LF ic in
@@ -188,30 +189,34 @@ open Cmdliner
 open Args
 
 let setup_resolver happy_eyeballs_cfg nameservers local =
-  let happy_eyeballs = match happy_eyeballs_cfg with
+  let happy_eyeballs =
+    match happy_eyeballs_cfg with
     | None -> None
-    | Some { aaaa_timeout
-           ; connect_delay
-           ; connect_timeout
-           ; resolve_timeout
-           ; resolve_retries } ->
-      Happy_eyeballs.create
-        ?aaaa_timeout ?connect_delay ?connect_timeout
-        ?resolve_timeout ?resolve_retries (Mtime_clock.elapsed_ns ())
-      |> Option.some in
+    | Some
+        {
+          aaaa_timeout;
+          connect_delay;
+          connect_timeout;
+          resolve_timeout;
+          resolve_retries;
+        } ->
+        Happy_eyeballs.create ?aaaa_timeout ?connect_delay ?connect_timeout
+          ?resolve_timeout ?resolve_retries
+          (Mtime_clock.elapsed_ns ())
+        |> Option.some in
   let ( let* ) = Result.bind in
   let daemon, he = Happy_eyeballs_miou_unix.create ?happy_eyeballs () in
   let dns = Dns_static.create ~nameservers ~local he in
   let getaddrinfo dns record domain_name =
     match record with
     | `A ->
-      let* ipaddr = Dns_static.gethostbyname dns domain_name in
-      Ok Ipaddr.(Set.singleton (V4 ipaddr))
+        let* ipaddr = Dns_static.gethostbyname dns domain_name in
+        Ok Ipaddr.(Set.singleton (V4 ipaddr))
     | `AAAA ->
-      let* ipaddr = Dns_static.gethostbyname6 dns domain_name in
-      Ok Ipaddr.(Set.singleton (V6 ipaddr)) in
-  Happy_eyeballs_miou_unix.inject he (getaddrinfo dns);
-  daemon, he, dns
+        let* ipaddr = Dns_static.gethostbyname6 dns domain_name in
+        Ok Ipaddr.(Set.singleton (V6 ipaddr)) in
+  Happy_eyeballs_miou_unix.inject he (getaddrinfo dns) ;
+  (daemon, he, dns)
 
 let setup_resolver =
   let open Term in
@@ -241,8 +246,10 @@ let output =
   Arg.(value & opt (some new_file) None & info [ "o"; "output" ] ~doc)
 
 let hostname =
-  let parser = Angstrom.(parse_string ~consume:Consume.All) Emile.Parser.domain in
-  let parser str = match parser str with
+  let parser =
+    Angstrom.(parse_string ~consume:Consume.All) Emile.Parser.domain in
+  let parser str =
+    match parser str with
     | Ok _ as value -> value
     | Error _ -> error_msgf "Invalid domain: %S" str in
   let pp = Emile.pp_domain in
@@ -251,30 +258,31 @@ let hostname =
 let generate ~len =
   let res = Bytes.make len '\000' in
   for i = 0 to len - 1 do
-    let chr = match Random.int (26 + 26 + 10) with
+    let chr =
+      match Random.int (26 + 26 + 10) with
       | n when n < 26 -> Char.unsafe_chr (65 + n)
       | n when n < 26 + 26 -> Char.unsafe_chr (97 + n - 26)
       | n -> Char.unsafe_chr (48 + n - 26 - 26) in
     Bytes.set res i chr
-  done; Bytes.unsafe_to_string res
+  done ;
+  Bytes.unsafe_to_string res
 
 let default_hostname =
   let str = Unix.gethostname () in
   match (fst hostname) str with
   | `Ok domain -> domain
   | `Error _ ->
-    let[@warning "-8"] ((`Ok random_hostname) : [ `Ok of _ | `Error of _ ]) =
-      (fst hostname) (generate ~len:16) in
-    Logs.warn (fun m -> m "Invalid default hostname: %S, use %a as the default hostname"
-      str Emile.pp_domain random_hostname);
-    random_hostname
+      let[@warning "-8"] (`Ok random_hostname : [ `Ok of _ | `Error of _ ]) =
+        (fst hostname) (generate ~len:16) in
+      Logs.warn (fun m ->
+          m "Invalid default hostname: %S, use %a as the default hostname" str
+            Emile.pp_domain random_hostname) ;
+      random_hostname
 
 let hostname =
   let doc = "Domain name of the machine." in
   let open Arg in
-  value
-  & opt hostname default_hostname
-  & info [ "h"; "hostname" ] ~doc
+  value & opt hostname default_hostname & info [ "h"; "hostname" ] ~doc
 
 let sender =
   let parser str =
@@ -337,13 +345,9 @@ let analyze =
     ] in
   let open Term in
   let info = Cmd.info "analyze" ~doc ~man in
-  let term =
-    const analyze
-    $ setup_logs
-    $ setup_resolver
-    $ input in
+  let term = const analyze $ setup_logs $ setup_resolver $ input in
   Cmd.v info (ret term)
-    
+
 let default = Term.(ret (const (`Help (`Pager, None))))
 
 let () =
@@ -359,5 +363,4 @@ let () =
          incoming email.";
     ] in
   let cmd = Cmd.group ~default (Cmd.info "spf" ~doc ~man) [ stamp; analyze ] in
-  Miou_unix.run ~domains:0 @@ fun () ->
-  Cmd.(exit @@ eval' cmd)
+  Miou_unix.run ~domains:0 @@ fun () -> Cmd.(exit @@ eval' cmd)

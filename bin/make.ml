@@ -820,18 +820,20 @@ let put =
       `S Manpage.s_description;
       `P "Put a new part into the given multipart email.";
     ] in
-  Cmd.v (Cmd.info "put" ~doc ~man)
-    Term.(
-      ret
-        (const put
-        $ setup_logs
-        $ headers
-        $ content_encoding
-        $ mime_type
-        $ content_parameters
-        $ body
-        $ input
-        $ output))
+  let term =
+    let open Term in
+    ret
+      (const put
+      $ setup_logs
+      $ headers
+      $ content_encoding
+      $ mime_type
+      $ content_parameters
+      $ body
+      $ input
+      $ output) in
+
+  Cmd.v (Cmd.info "put" ~doc ~man) term
 
 let () =
   let cmd = Cmd.group ~default:make_term make_info [ add_field; wrap; put ] in

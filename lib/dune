@@ -1,4 +1,11 @@
 (library
  (name dns_static)
  (public_name blaze.dns-static)
+ (modules dns_static)
  (libraries bos logs rresult dns dns-client-miou-unix fpath astring))
+
+(library
+ (name trim)
+ (public_name blaze.trim)
+ (modules trim)
+ (libraries logs unix fpath encore mrmime))

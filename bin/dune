@@ -52,7 +52,14 @@
  (name spf)
  (modules spf)
  (public_name blaze.spf)
- (libraries cmdliner fpath rresult uri blaze.args mirage-crypto-rng-miou-unix uspf.unix))
+ (libraries
+  cmdliner
+  fpath
+  rresult
+  uri
+  blaze.args
+  mirage-crypto-rng-miou-unix
+  uspf.unix))
 
 (executable
  (name recv)
@@ -162,3 +169,21 @@
  (modules rand)
  (public_name blaze.rand)
  (libraries blaze.args cmdliner fmt mirage-crypto-rng ohex base64))
+
+(executable
+ (name iso)
+ (modules iso)
+ (public_name blaze.iso)
+ (libraries blaze.args cmdliner blaze.trim))
+
+(executable
+ (name to_crlf)
+ (modules to_crlf)
+ (public_name blaze.to_crlf)
+ (libraries blaze.args cmdliner))
+
+(executable
+ (name pack)
+ (modules pack)
+ (public_name blaze.pack)
+ (libraries blaze.args carton-miou-unix blaze.trim))
