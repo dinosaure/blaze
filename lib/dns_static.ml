@@ -82,8 +82,7 @@ let of_directory directory =
   Bos.OS.Dir.fold_contents ~elements:`Files ~dotfiles:true ~traverse:`None fold
     Domain_name.Map.empty directory
 
-let getaddrinfo :
-    type a.
+let getaddrinfo : type a.
     local ->
     a Dns.Rr_map.rr ->
     'v Domain_name.t ->
@@ -103,8 +102,7 @@ let create ?cache_size ?edns ?nameservers ?timeout
   in
   { dns; local }
 
-let getaddrinfo :
-    type a.
+let getaddrinfo : type a.
     t -> a Dns.Rr_map.rr -> 'v Domain_name.t -> (a, [> `Msg of string ]) result
     =
  fun t record domain_name ->
@@ -133,8 +131,7 @@ type error =
   | `No_data of [ `raw ] Domain_name.t * Dns.Soa.t
   | `No_domain of [ `raw ] Domain_name.t * Dns.Soa.t ]
 
-let get_resource_record :
-    type a.
+let get_resource_record : type a.
     local -> a Dns.Rr_map.rr -> 'v Domain_name.t -> (a, [> error ]) result =
  fun local record domain_name ->
   let domain_name = Domain_name.raw domain_name in
@@ -145,8 +142,8 @@ let get_resource_record :
   | Some v -> Ok v
   | None -> R.error_msgf "record does not exist locally"
 
-let get_resource_record :
-    type a. t -> a Dns.Rr_map.rr -> 'v Domain_name.t -> (a, [> error ]) result =
+let get_resource_record : type a.
+    t -> a Dns.Rr_map.rr -> 'v Domain_name.t -> (a, [> error ]) result =
  fun t record domain_name ->
   match get_resource_record t.local record domain_name with
   | Ok _ as v -> v

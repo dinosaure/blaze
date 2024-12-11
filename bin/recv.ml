@@ -131,7 +131,9 @@ let stamp hostname zone from _for input =
     match Fmt.utf_8 Fmt.stdout with
     | false -> Received.protocol "LMTP"
     | true -> Received.protocol "UTF8LMTP" in
-  let id = None (* TODO(dinosaure): see [maildir]. *) in
+  let id =
+    None
+    (* TODO(dinosaure): see [maildir]. *) in
   let stamp =
     Received.make ~from:(Received.Only from) ~by ~via:link ~protocol ?id
       (Some _for) ~zone (Ptime_clock.now ()) in

@@ -42,6 +42,7 @@ depends: [
   "uri" {>= "4.2.0"}
   "ipaddr" {>= "5.2.0"}
   "cstruct"
+  "encore"
   "dmarc"
   "ke" {>= "0.4"}
   "mirage-crypto-rng-miou-unix"

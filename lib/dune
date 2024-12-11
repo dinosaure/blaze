@@ -5,7 +5,18 @@
  (libraries bos logs rresult dns dns-client-miou-unix fpath astring))
 
 (library
- (name trim)
- (public_name blaze.trim)
- (modules trim)
+ (name email)
+ (public_name blaze.email)
+ (modules email)
  (libraries logs unix fpath encore mrmime))
+
+(library
+ (name protocol)
+ (public_name blaze.protocol)
+ (modules protocol))
+
+; (library
+;  (name pop3)
+;  (public_name blaze.pop3)
+;  (modules pop3)
+;  (libraries blaze.protocol miou.unix))

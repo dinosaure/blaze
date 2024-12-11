@@ -129,8 +129,7 @@ let run : Unix.file_descr -> ('a, 'err) Colombe.State.t -> ('a, 'err) result =
     | Colombe.State.Error err -> Error err in
   go state
 
-let receive :
-    type ctx error.
+let receive : type ctx error.
     (module MONAD with type context = ctx and type error = error) ->
     sockaddr:Unix.sockaddr ->
     domain:'host Domain_name.t ->
@@ -213,8 +212,8 @@ let handle ~sockaddr ~domain flow =
     type decoder = Decoder.decoder
     type encoder = Encoder.encoder
 
-    let encode :
-        type a. encoder -> a send -> a -> (unit, [> Encoder.error ]) State.t =
+    let encode : type a.
+        encoder -> a send -> a -> (unit, [> Encoder.error ]) State.t =
      fun encoder w v ->
       let fiber : a send -> [> Encoder.error ] Encoder.state = function
         | Payload ->
@@ -276,8 +275,8 @@ let handle_with_starttls ~tls ~sockaddr ~domain flow =
     type decoder = Decoder.decoder
     type encoder = Encoder.encoder
 
-    let encode :
-        type a. encoder -> a send -> a -> (unit, [> Encoder.error ]) State.t =
+    let encode : type a.
+        encoder -> a send -> a -> (unit, [> Encoder.error ]) State.t =
      fun encoder w v ->
       let fiber : a send -> [> Encoder.error ] Encoder.state = function
         | Payload ->

@@ -1,5 +1,5 @@
 let to_value mail =
-  match Trim.of_filename mail with
+  match Email.of_filename mail with
   | Ok t -> (mail, t)
   | Error (`Msg msg) ->
       Logs.err (fun m -> m "%a is an invalid email" Fpath.pp mail) ;
@@ -73,14 +73,14 @@ let to_entries (filename, t) =
     let bstr = Bigarray.array1_of_genarray barr in
     let hash = mail_identify ~kind:`B bstr in
     (pos, len, hash) in
-  let t = Trim.map fn t in
+  let t = Email.map fn t in
   let fn entries (pos, len, hash) =
     let entry =
       Entry.make ~kind:`B ~length:len hash (Body (filename, pos, len)) in
     entry :: entries in
-  let entries = Trim.fold fn [] t in
-  let t = Trim.map (fun (_, _, (hash : Carton.Uid.t)) -> (hash :> string)) t in
-  let serialized = Trim.to_string t in
+  let entries = Email.fold fn [] t in
+  let t = Email.map (fun (_, _, (hash : Carton.Uid.t)) -> (hash :> string)) t in
+  let serialized = Email.to_string t in
   let hash =
     let hdr = Fmt.str "mail %d\000" (String.length serialized) in
     Digestif.SHA1.digest_string (hdr ^ serialized) in
@@ -225,7 +225,7 @@ let run_list _quit filename =
     let bstr = Carton.Value.bigstring value in
     let bstr = Bigarray.Array1.sub bstr 0 (Carton.Value.length value) in
     let uid = mail_identify ~kind:`A ~len:(Carton.Value.length value) bstr in
-    match Trim.of_bigstring bstr with
+    match Email.of_bigstring bstr with
     | Ok _t -> Fmt.pr "%08x %a\n%!" offset Carton.Uid.pp uid
     | Error (`Msg msg) -> Fmt.failwith "%s" msg in
   Seq.iter show seq
@@ -277,8 +277,9 @@ let run_get _quiet pack idx identifier =
     | Some pack -> Some pack
     | None ->
         let pack = Fpath.set_ext ".pack" idx in
-        if Sys.file_exists (Fpath.to_string pack) = false
-           || Sys.is_directory (Fpath.to_string pack)
+        if
+          Sys.file_exists (Fpath.to_string pack) = false
+          || Sys.is_directory (Fpath.to_string pack)
         then None
         else Some pack in
   if Option.is_none pack then Fmt.failwith "PACK file not found" ;
@@ -313,7 +314,7 @@ let run_get _quiet pack idx identifier =
         identifier
   | `A -> (
       let str = Carton.Value.string value in
-      match Trim.of_string str with
+      match Email.of_string str with
       | Error (`Msg msg) -> Fmt.failwith "%s" msg
       | Ok t ->
           let load uid =
@@ -324,10 +325,10 @@ let run_get _quiet pack idx identifier =
             let len = Carton.Value.length value in
             let bstr = Carton.Value.bigstring value in
             Bigarray.Array1.sub bstr 0 len in
-          let seq = Trim.to_seq ~load t in
+          let seq = Email.to_seq ~load t in
           let fn = function
             | `String str -> output_string stdout str
-            | `Value bstr -> Trim.output_bigstring stdout bstr in
+            | `Value bstr -> Email.output_bigstring stdout bstr in
           Seq.iter fn seq)
 
 open Cmdliner

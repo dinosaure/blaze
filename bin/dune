@@ -174,7 +174,7 @@
  (name iso)
  (modules iso)
  (public_name blaze.iso)
- (libraries blaze.args cmdliner blaze.trim))
+ (libraries blaze.args cmdliner blaze.email))
 
 (executable
  (name to_crlf)
@@ -186,4 +186,4 @@
  (name pack)
  (modules pack)
  (public_name blaze.pack)
- (libraries blaze.args carton-miou-unix blaze.trim))
+ (libraries blaze.args carton-miou-unix blaze.email))

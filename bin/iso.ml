@@ -1,5 +1,5 @@
 let run _quiet filename output =
-  match Trim.of_filename filename with
+  match Email.of_filename filename with
   | Ok t ->
       let oc, finally =
         match output with
@@ -9,7 +9,7 @@ let run _quiet filename output =
             (oc, finally)
         | None -> (stdout, ignore) in
       Fun.protect ~finally @@ fun () ->
-      Trim.to_output_channel_from_filename filename t oc ;
+      Email.to_output_channel_from_filename filename t oc ;
       `Ok ()
   | Error (`Msg msg) -> `Error (false, Fmt.str "%s." msg)
 
