@@ -112,6 +112,26 @@ In both case, `bar@foo` will receive an email but:
 - in the second case, your _serviteur_ (`blaze.org`) probably put some
   _metadata_ to let `bar@foo` to _verify_ the given email
 
+## How to fetch emails?
+
+blaze also lets you download emails and store them in a folder. There are
+additional tools for storing these emails in ‘maildir’, ‘mbox’ or our special
+‘pack’ format.
+
+You can currently download emails from your GMail account for the last 30 days
+in this way:
+```sh
+$ mkdir mailbox
+$ blaze.fetch pop3://pop.gmail.com:995 --username recent:<username>@gmail.com \
+  --password ****** -f "mailbox/%s.eml" > emails.txt
+```
+
+You can then generate an archive of these emails in our PACK format:
+```sh
+$ blaze.pack make -o pack.pack emails.txt
+$ blaze.pack index pack.pack
+```
+
 `blaze` has received funding from the Next Generation Internet Initiative
 (NGI) within the framework of the DAPSI Project.
 
