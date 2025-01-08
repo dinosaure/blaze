@@ -1,5 +1,11 @@
+let src = Logs.Src.create "protocol"
+
+module Log = (val Logs.src_log src : Logs.LOG)
+
 module Decoder = struct
   type t = { buffer : bytes; mutable pos : int; mutable max : int }
+
+  let make len = { buffer = Bytes.make len '\000'; pos = 0; max = 0 }
 
   type ('v, 'err) state =
     | Done of 'v
@@ -16,6 +22,11 @@ module Decoder = struct
 
   type error = [ `End_of_input | `Not_enough_space | `Expected_eol ]
 
+  let pp_error ppf = function
+    | `End_of_input -> Fmt.string ppf "End of input"
+    | `Not_enough_space -> Fmt.string ppf "Not enough space"
+    | `Expected_eol -> Fmt.string ppf "Expected EOL"
+
   exception Leave of error info
 
   let return v _ = Done v
@@ -28,20 +39,20 @@ module Decoder = struct
     let info = { error; buffer = t.buffer; committed = t.pos } in
     raise (Leave info)
 
-  let at_least_one_line decoder =
-    let pos = ref decoder.pos in
+  let at_least_one_line (t : t) =
+    let pos = ref t.pos in
     let chr = ref '\000' in
     let has_cr = ref false in
     while
-      !pos < decoder.max
+      !pos < t.max
       &&
-      (chr := Bytes.unsafe_get decoder.buffer !pos ;
+      (chr := Bytes.unsafe_get t.buffer !pos ;
        not (!chr = '\n' && !has_cr))
     do
       has_cr := !chr = '\r' ;
       incr pos
     done ;
-    !pos < decoder.max && !chr = '\n' && !has_cr
+    !pos < t.max && !chr = '\n' && !has_cr
 
   let prompt k decoder =
     if decoder.pos > 0
@@ -52,7 +63,9 @@ module Decoder = struct
       decoder.pos <- 0
     end ;
     let rec go off =
-      if off = Bytes.length decoder.buffer
+      let at_least_one_line = at_least_one_line { decoder with max = off } in
+      Log.debug (fun m -> m "prompt (at least, one line: %b)" at_least_one_line) ;
+      if (not at_least_one_line) && off = Bytes.length decoder.buffer
       then
         let info =
           {
@@ -61,7 +74,7 @@ module Decoder = struct
             committed = decoder.pos;
           } in
         Error info
-      else if not (at_least_one_line { decoder with max = off })
+      else if not at_least_one_line
       then
         let continue = function
           | `Len len -> go (off + len)
@@ -102,10 +115,14 @@ module Decoder = struct
     if !idx < end_of_input t && !chr = '\n' && !has_cr
     then (t.buffer, t.pos, !idx + 1 - t.pos)
     else leave_with t `Expected_eol
+
+  let skip t len = t.pos <- t.pos + len
 end
 
 module Encoder = struct
   type t = { payload : bytes; mutable pos : int }
+
+  let make len = { payload = Bytes.make len '\000'; pos = 0 }
 
   type 'err state =
     | Write of {
@@ -120,6 +137,9 @@ module Encoder = struct
   and 'err continue = int -> 'err state
 
   type error = [ `Not_enough_space ]
+
+  let pp_error ppf = function
+    | `Not_enough_space -> Fmt.string ppf "Not enough space"
 
   exception Leave of error
 
@@ -208,14 +228,21 @@ let bind t fn =
       Write { k = k1; buffer; off; len }
 
 let return v = Return v
+let error err = Error err
 
 type ctx = { encoder : Encoder.t; decoder : Decoder.t }
 type error = [ Decoder.error | Encoder.error ]
 
+let pp_error ppf = function
+  | #Encoder.error as err -> Encoder.pp_error ppf err
+  | #Decoder.error as err -> Decoder.pp_error ppf err
+
+let ctx () = { encoder = Encoder.make 0x1000; decoder = Decoder.make 0x1000 }
+
 let encode ctx str =
   let k t =
-    Encoder.write str t ;
-    Encoder.Done in
+    Encoder.write (str ^ "\r\n") t ;
+    Encoder.flush (fun _t -> Encoder.Done) t in
   let k t = Encoder.safe k t in
   let rec go = function
     | Encoder.Done -> Return ()
@@ -227,7 +254,9 @@ let encode ctx str =
 let decode ctx =
   let k t =
     let buf, off, len = Decoder.peek_while_eol t in
-    let str = Bytes.sub_string buf off len in
+    let str = Bytes.sub_string buf off (len - 2) in
+    Decoder.skip t len ;
+    Log.debug (fun m -> m "decode %d byte(s)" len) ;
     Decoder.Done str in
   let k t =
     if Decoder.at_least_one_line t then Decoder.safe k t else Decoder.prompt k t

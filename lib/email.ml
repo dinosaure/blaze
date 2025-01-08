@@ -33,7 +33,9 @@ and 'octet multipart = {
   parts : (transport_padding * 'octet part) list;
 }
 
-let rec map fn { headers; body } =
+and 'octet t = 'octet part
+
+let rec map fn { headers; body; _ } =
   let headers = fn headers in
   let body =
     match body with

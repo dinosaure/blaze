@@ -4,6 +4,7 @@ let src = Logs.Src.create "blaze.args"
 
 module Log = (val Logs.src_log src : Logs.LOG)
 
+let () = Logs_threaded.enable ()
 let ( <.> ) f g x = f (g x)
 let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 let output_options = "OUTPUT OPTIONS"
@@ -28,7 +29,9 @@ let reporter ppf =
       k () in
     let with_metadata header _tags k ppf fmt =
       Fmt.kpf k ppf
-        ("%a[%a]: " ^^ fmt ^^ "\n%!")
+        ("[%a]%a[%a]: " ^^ fmt ^^ "\n%!")
+        Fmt.(styled `Cyan int)
+        (Stdlib.Domain.self () :> int)
         Logs_fmt.pp_header (level, header)
         Fmt.(styled `Magenta string)
         (Logs.Src.name src) in

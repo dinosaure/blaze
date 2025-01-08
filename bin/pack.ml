@@ -1,3 +1,5 @@
+let ( $ ) f g = fun x -> f (g x)
+
 let to_value mail =
   match Email.of_filename mail with
   | Ok t -> (mail, t)
@@ -31,15 +33,27 @@ let rec terminate acc orphans =
       err
 
 let parallel ~fn lst =
-  let rec go acc orphans lst =
+  let domains = Miou.Domain.available () in
+  let chop len lst =
+    let rec go acc n lst =
+      if n <= 0
+      then (acc, lst)
+      else match lst with [] -> (acc, []) | x :: r -> go (x :: acc) (n - 1) r
+    in
+    go [] len lst in
+  let rec go acc lst =
     match (acc, lst) with
     | (Error _ as err), _ -> err
-    | Ok acc, [] -> terminate acc orphans
-    | Ok acc, x :: r ->
-        let acc = clean acc orphans in
-        let _ = Miou.call ~orphans @@ fun () -> fn x in
-        go acc orphans r in
-  go (Ok []) (Miou.orphans ()) lst
+    | Ok acc, [] -> Ok acc
+    | Ok acc, lst ->
+        let todo, lst = chop domains lst in
+        let results = Miou.parallel fn todo in
+        let rec check acc = function
+          | [] -> go (Ok acc) lst
+          | Ok value :: rest -> check (value :: acc) rest
+          | (Error _ as err) :: _ -> err in
+        check acc results in
+  go (Ok []) lst
 
 type src = Mail of string | Body of Fpath.t * int * int
 
@@ -48,17 +62,15 @@ let pp_kind ppf = function
   | `B -> Fmt.string ppf "blob"
   | `C | `D -> Fmt.string ppf "deadbeef"
 
-let mail_identify ~kind ?(off = 0) ?len bstr =
-  let len =
-    match len with Some len -> len | None -> Bigarray.Array1.dim bstr - off
-  in
-  let ctx = Digestif.SHA1.empty in
-  let hdr = Fmt.str "%a %d\000" pp_kind kind len in
-  let ctx = Digestif.SHA1.feed_string ctx hdr in
-  let ctx = Digestif.SHA1.feed_bigstring ctx ~off ~len bstr in
-  let hash = Digestif.SHA1.get ctx in
-  let hash = Digestif.SHA1.to_raw_string hash in
-  Carton.Uid.unsafe_of_string hash
+let mail_identify =
+  let open Digestif in
+  let init kind (len : Carton.Size.t) =
+    let hdr = Fmt.str "%a %d\000" pp_kind kind (len :> int) in
+    let ctx = SHA1.empty in
+    SHA1.feed_string ctx hdr in
+  let feed bstr ctx = SHA1.feed_bigstring ctx bstr in
+  let serialize = SHA1.(Carton.Uid.unsafe_of_string $ to_raw_string $ get) in
+  { Carton.First_pass.init; feed; serialize }
 
 let to_entries (filename, t) =
   let open Cartonnage in
@@ -71,8 +83,11 @@ let to_entries (filename, t) =
       Unix.map_file fd ~pos:(Int64.of_int pos) Bigarray.char Bigarray.c_layout
         false [| len |] in
     let bstr = Bigarray.array1_of_genarray barr in
-    let hash = mail_identify ~kind:`B bstr in
-    (pos, len, hash) in
+    let ctx =
+      mail_identify.Carton.First_pass.init `B (Carton.Size.of_int_exn len) in
+    let ctx = mail_identify.Carton.First_pass.feed bstr ctx in
+    let uid = mail_identify.Carton.First_pass.serialize ctx in
+    (pos, len, uid) in
   let t = Email.map fn t in
   let fn entries (pos, len, hash) =
     let entry =
@@ -90,6 +105,19 @@ let to_entries (filename, t) =
     Entry.make ~kind:`A ~length:(String.length serialized) hash
       (Mail serialized) in
   entry :: entries
+
+let delete_duplicates entriess =
+  let tbl = Hashtbl.create 0x100 in
+  let rec go acc = function
+    | [] -> List.rev acc
+    | entry :: rest -> (
+        let hash = Cartonnage.Entry.uid entry in
+        match Hashtbl.find tbl hash with
+        | _ -> go acc rest
+        | exception Not_found ->
+            Hashtbl.add tbl hash () ;
+            go (entry :: acc) rest) in
+  List.fold_left (fun acc entries -> go [] entries :: acc) [] entriess
 
 let load _uid = function
   | Mail str -> Carton.Value.of_string ~kind:`A str
@@ -117,13 +145,14 @@ let sha1 =
     } in
   Carton.First_pass.Digest (hash, Hash.empty)
 
-let run_make _quiet mails_from_stdin mails_from_cmdline output =
-  Miou_unix.run @@ fun () ->
+let run_make _quiet threads mails_from_stdin mails_from_cmdline output =
+  Miou_unix.run ~domains:threads @@ fun () ->
   let ( let* ) = Result.bind in
   let ref_length = Digestif.SHA1.digest_size in
   let mails = List.rev_append mails_from_stdin mails_from_cmdline in
   let* mails = parallel ~fn:to_value mails in
   let* entries = parallel ~fn:to_entries mails in
+  let entries = delete_duplicates entries in
   let with_header =
     List.fold_left (fun acc entries -> acc + List.length entries) 0 entries
   in
@@ -158,6 +187,17 @@ let seq_of_filename filename =
         Some str in
   Seq.of_dispenser dispenser
 
+let hash_of_value value =
+  let kind = Carton.Value.kind value in
+  let bstr = Carton.Value.bigstring value in
+  let len = Carton.Value.length value in
+  let ctx =
+    mail_identify.Carton.First_pass.init kind (Carton.Size.of_int_exn len) in
+  let ctx =
+    mail_identify.Carton.First_pass.feed (Bigarray.Array1.sub bstr 0 len) ctx
+  in
+  mail_identify.Carton.First_pass.serialize ctx
+
 let run_list _quit filename =
   Miou_unix.run @@ fun () ->
   let ref_length = Digestif.SHA1.digest_size in
@@ -165,8 +205,8 @@ let run_list _quit filename =
   let seq =
     let output = De.bigstring_create De.io_buffer_size in
     let allocate bits = De.make_window ~bits in
-    Carton.First_pass.of_seq ~output ~allocate ~ref_length ~digest:sha1 seq
-  in
+    Carton.First_pass.of_seq ~output ~allocate ~ref_length ~digest:sha1
+      ~identify:mail_identify seq in
   let pack = Carton_miou_unix.make ~ref_length filename in
   let mails_by_offsets = Hashtbl.create 0x100 in
   let mails_by_refs = Hashtbl.create 0x100 in
@@ -177,14 +217,11 @@ let run_list _quit filename =
     | None, Some ref -> Hashtbl.mem mails_by_refs ref in
   let filter_map = function
     | `Number _ | `Hash _ -> None
-    | `Entry { Carton.First_pass.kind = Base `A; offset; size; _ } ->
+    | `Entry { Carton.First_pass.kind = Base (`A, _); offset; size; _ } ->
         Hashtbl.add mails_by_offsets offset () ;
         let blob = Carton.Blob.make ~size in
         let value = Carton.of_offset pack blob ~cursor:offset in
-        let uid =
-          mail_identify ~kind:`A
-            ~len:(Carton.Value.length value)
-            (Carton.Value.bigstring value) in
+        let uid = hash_of_value value in
         Hashtbl.add mails_by_refs uid () ;
         Some (offset, value)
     | `Entry { Carton.First_pass.kind = Ofs { sub; _ }; offset; _ } ->
@@ -196,10 +233,7 @@ let run_list _quit filename =
             Carton.size_of_offset pack ~cursor:offset Carton.Size.zero in
           let blob = Carton.Blob.make ~size in
           let value = Carton.of_offset pack blob ~cursor:offset in
-          let uid =
-            mail_identify ~kind:`A
-              ~len:(Carton.Value.length value)
-              (Carton.Value.bigstring value) in
+          let uid = hash_of_value value in
           Hashtbl.add mails_by_refs uid () ;
           Some (offset, value))
         else None
@@ -211,10 +245,7 @@ let run_list _quit filename =
             Carton.size_of_offset pack ~cursor:offset Carton.Size.zero in
           let blob = Carton.Blob.make ~size in
           let value = Carton.of_offset pack blob ~cursor:offset in
-          let uid =
-            mail_identify ~kind:`A
-              ~len:(Carton.Value.length value)
-              (Carton.Value.bigstring value) in
+          let uid = hash_of_value value in
           Hashtbl.add mails_by_refs uid () ;
           Some (offset, value))
         else None
@@ -224,7 +255,7 @@ let run_list _quit filename =
     assert (Carton.Value.kind value = `A) ;
     let bstr = Carton.Value.bigstring value in
     let bstr = Bigarray.Array1.sub bstr 0 (Carton.Value.length value) in
-    let uid = mail_identify ~kind:`A ~len:(Carton.Value.length value) bstr in
+    let uid = hash_of_value value in
     match Email.of_bigstring bstr with
     | Ok _t -> Fmt.pr "%08x %a\n%!" offset Carton.Uid.pp uid
     | Error (`Msg msg) -> Fmt.failwith "%s" msg in
@@ -247,7 +278,9 @@ let entries_of_pack cfg digest pack =
 let run_index _quiet threads pack =
   Miou_unix.run ~domains:threads @@ fun () ->
   let ref_length = Digestif.SHA1.digest_size in
-  let cfg = Carton_miou_unix.config ~threads ~ref_length mail_identify in
+  let cfg =
+    Carton_miou_unix.config ~threads ~ref_length (Carton.Identify mail_identify)
+  in
   let entries, hash = entries_of_pack cfg sha1 pack in
   let encoder =
     Classeur.Encoder.encoder `Manual ~digest:sha1 ~pack:hash ~ref_length entries
@@ -270,21 +303,10 @@ let run_index _quiet threads pack =
   Classeur.Encoder.dst encoder out 0 (Bytes.length out) ;
   go `Await
 
-let run_get _quiet pack idx identifier =
+let run_get _quiet idx identifier =
   Miou_unix.run @@ fun () ->
-  let pack =
-    match pack with
-    | Some pack -> Some pack
-    | None ->
-        let pack = Fpath.set_ext ".pack" idx in
-        if
-          Sys.file_exists (Fpath.to_string pack) = false
-          || Sys.is_directory (Fpath.to_string pack)
-        then None
-        else Some pack in
-  if Option.is_none pack then Fmt.failwith "PACK file not found" ;
+  let pack = Fpath.set_ext ".pack" idx in
   let ref_length = Digestif.SHA1.digest_size in
-  let pack = Option.get pack in
   let idx =
     Carton_miou_unix.index ~hash_length:Digestif.SHA1.digest_size ~ref_length
       idx in
@@ -330,6 +352,34 @@ let run_get _quiet pack idx identifier =
             | `String str -> output_string stdout str
             | `Value bstr -> Email.output_bigstring stdout bstr in
           Seq.iter fn seq)
+
+let pp_status tbl ppf = function
+  | Carton.Unresolved_base { cursor } ->
+      Fmt.pf ppf "%08x %d" cursor (Hashtbl.find tbl cursor)
+  | Unresolved_node -> ()
+  | Resolved_base { cursor; uid; kind; _ } ->
+      Fmt.pf ppf "%a %a %d %d" Carton.Uid.pp uid Carton.Kind.pp kind cursor
+        (Hashtbl.find tbl cursor)
+  | Resolved_node { cursor; uid; kind; depth; parent; _ } ->
+      Fmt.pf ppf "%a %a %d %d %d %a" Carton.Uid.pp uid Carton.Kind.pp kind
+        cursor (Hashtbl.find tbl cursor) (depth - 1) Carton.Uid.pp parent
+
+let run_verify quiet threads pagesize pack =
+  Miou_unix.run ~domains:threads @@ fun () ->
+  let ref_length = Digestif.SHA1.digest_size in
+  let tbl = Hashtbl.create 0x100 in
+  let on_entry ~max:_ { Carton_miou_unix.offset; consumed; _ } =
+    Hashtbl.add tbl offset consumed in
+  let cfg =
+    Carton_miou_unix.config ~threads ~pagesize ~ref_length ~on_entry
+      (Carton.Identify mail_identify) in
+  let digest = sha1 in
+  let matrix, _hash =
+    match pack with
+    | `Pack filename -> Carton_miou_unix.verify_from_pack ~cfg ~digest filename
+    | `Idx (filename, _) ->
+        Carton_miou_unix.verify_from_idx ~cfg ~digest filename in
+  if not quiet then Array.iter (Fmt.pr "%a\n%!" (pp_status tbl)) matrix
 
 open Cmdliner
 open Args
@@ -421,10 +471,10 @@ let pack =
 
 let default_threads = Int.min 4 (Stdlib.Domain.recommended_domain_count () - 1)
 
-let threads =
+let threads ?(min = default_threads) () =
   let doc = "The number of threads to allocate for the PACKv2 verification." in
   let open Arg in
-  value & opt int default_threads & info [ "t"; "threads" ] ~doc ~docv:"NUMBER"
+  value & opt int min & info [ "t"; "threads" ] ~doc ~docv:"NUMBER"
 
 let uid_of_string_opt str =
   match Ohex.decode ~skip_whitespace:true str with
@@ -445,7 +495,7 @@ let identifier =
     | `Uid uid -> Fmt.pf ppf "%s" (Ohex.encode uid) in
   let identifier = Arg.conv (parser, pp) in
   let open Arg in
-  required & pos 2 (some identifier) None & info [] ~doc ~docv:"IDENTIFIER"
+  required & pos 1 (some identifier) None & info [] ~doc ~docv:"IDENTIFIER"
 
 let make_term =
   let open Term in
@@ -456,6 +506,7 @@ let make_term =
     (app (const to_ret)
        (const run_make
        $ setup_logs
+       $ threads ~min:2 ()
        $ setup_mails_from_in_channel
        $ mails
        $ output))
@@ -466,19 +517,71 @@ let list_term =
 
 let index_term =
   let open Term in
-  const run_index $ setup_logs $ threads $ pack
+  const run_index $ setup_logs $ threads () $ pack
+
+let pack =
+  let parser str =
+    match Fpath.of_string str with
+    | Ok value when Sys.file_exists str && Sys.is_directory str = false -> begin
+        match Fpath.get_ext value with
+        | ".pack" -> Ok (`Pack value)
+        | ".idx" ->
+            let pack = Fpath.set_ext ".pack" value in
+            if
+              Sys.file_exists (Fpath.to_string pack)
+              && Sys.is_directory (Fpath.to_string pack) = false
+            then Ok (`Idx (value, pack))
+            else
+              error_msgf "The associated PACK file to %a does not exist"
+                Fpath.pp value
+        | _ -> error_msgf "Unexpected file %a" Fpath.pp value
+      end
+    | Ok value -> error_msgf "%a does not exist" Fpath.pp value
+    | Error _ as err -> err in
+  let pp ppf = function `Pack value | `Idx (value, _) -> Fpath.pp ppf value in
+  Arg.conv (parser, pp) ~docv:"FILE"
+
+let errorf ?(usage = false) fmt = Fmt.kstr (fun msg -> `Error (usage, msg)) fmt
 
 let get_term =
-  let pack =
-    let doc = "The PACKv2 file." in
-    let open Arg in
-    value & pos 0 (some existing_file) None & info [] ~doc ~docv:"PACK" in
-  let idx =
-    let doc = "The IDX file." in
-    let open Arg in
-    required & pos 1 (some existing_file) None & info [] ~doc ~docv:"IDX" in
+  let setup_pack = function
+    | `Pack pack ->
+        let idx = Fpath.set_ext ".idx" pack in
+        if
+          Sys.file_exists (Fpath.to_string idx)
+          && Sys.is_directory (Fpath.to_string idx) = false
+        then `Ok idx
+        else
+          errorf "You must have the IDX file of %a to be able to get emails."
+            Fpath.pp pack
+    | `Idx (idx, _) -> `Ok idx in
   let open Term in
-  const run_get $ setup_logs $ pack $ idx $ identifier
+  let pack =
+    let doc =
+      "The file used to access to the PACK file (it can be the PACK file \
+       directly or the associated IDX file). The IDX file must exist." in
+    Arg.(required & pos 0 (some pack) None & info [] ~doc ~docv:"FILE") in
+  let setup_pack = ret (const setup_pack $ pack) in
+  const run_get $ setup_logs $ setup_pack $ identifier
+
+external getpagesize : unit -> int = "carton_miou_unix_getpagesize" [@@noalloc]
+
+let pagesize =
+  let doc =
+    "The memory page size to use to verify the given PACK file (must be a \
+     power of two)." in
+  let open Arg in
+  value & opt int (getpagesize ()) & info [ "pagesize" ] ~doc ~docv:"BYTES"
+
+let pack =
+  let doc =
+    "The file used to access to the PACK file (it can be the PACK file \
+     directly or the associated IDX file)." in
+  Arg.(required & pos 0 (some pack) None & info [] ~doc ~docv:"FILE")
+
+let verify_term =
+  let open Term in
+  const run_verify $ setup_logs $ threads () $ pagesize $ pack
 
 let error_to_string exn = Printexc.to_string exn
 
@@ -506,6 +609,12 @@ let get_cmd =
   let info = Cmd.info "get" ~doc ~man in
   Cmd.v info get_term
 
+let verify_cmd =
+  let doc = "A tool to verify a PACK file of emails." in
+  let man = [] in
+  let info = Cmd.info "verify" ~doc ~man in
+  Cmd.v info verify_term
+
 let default = Term.(ret (const (`Help (`Pager, None))))
 
 let () =
@@ -514,5 +623,5 @@ let () =
   let cmd =
     Cmd.group ~default
       (Cmd.info "pack" ~doc ~man)
-      [ make_cmd; list_cmd; index_cmd; get_cmd ] in
+      [ make_cmd; list_cmd; index_cmd; get_cmd; verify_cmd ] in
   Cmd.(exit @@ eval cmd)

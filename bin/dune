@@ -3,6 +3,7 @@
  (modules args)
  (public_name blaze.args)
  (libraries
+  logs.threaded
   blaze.dns-static
   rresult
   fpath
@@ -187,3 +188,9 @@
  (modules pack)
  (public_name blaze.pack)
  (libraries blaze.args carton-miou-unix blaze.email))
+
+(executable
+ (name fetch)
+ (modules fetch)
+ (public_name blaze.fetch)
+ (libraries mirage-crypto-rng-miou-unix blaze.args blaze.pop3-miou-unix))

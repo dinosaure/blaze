@@ -13,28 +13,30 @@ and 'octet multipart = {
   parts : (transport_padding * 'octet part) list;
 }
 
-val map : ('a -> 'b) -> 'a part -> 'b part
-val fold : ('acc -> 'a -> 'acc) -> 'acc -> 'a part -> 'acc
+and 'octet t = 'octet part
+
+val map : ('a -> 'b) -> 'a t -> 'b t
+val fold : ('acc -> 'a -> 'acc) -> 'acc -> 'a t -> 'acc
 
 module Format : sig
-  val t : string part Encore.t
+  val t : string t Encore.t
 end
 
 module Parser : sig
-  val t : (int * int) part Angstrom.t
+  val t : (int * int) t Angstrom.t
 end
 
-val of_filename : Fpath.t -> ((int * int) part, [> `Msg of string ]) result
+val of_filename : Fpath.t -> ((int * int) t, [> `Msg of string ]) result
 
 val to_seq :
-  load:('a -> 'b) -> 'a part -> [ `String of string | `Value of 'b ] Seq.t
+  load:('a -> 'b) -> 'a t -> [ `String of string | `Value of 'b ] Seq.t
 
 val to_output_channel_from_filename :
-  Fpath.t -> (int * int) part -> out_channel -> unit
+  Fpath.t -> (int * int) t -> out_channel -> unit
 
-val of_string : string -> (string part, [> `Msg of string ]) result
-val of_bigstring : bigstring -> (string part, [> `Msg of string ]) result
-val to_string : string part -> string
+val of_string : string -> (string t, [> `Msg of string ]) result
+val of_bigstring : bigstring -> (string t, [> `Msg of string ]) result
+val to_string : string t -> string
 
 (**/**)
 

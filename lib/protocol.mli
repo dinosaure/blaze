@@ -1,6 +1,8 @@
 module Decoder : sig
   type t = { buffer : bytes; mutable pos : int; mutable max : int }
 
+  val make : int -> t
+
   type ('v, 'err) state =
     | Done of 'v
     | Read of {
@@ -23,6 +25,8 @@ end
 
 module Encoder : sig
   type t
+
+  val make : int -> t
 
   type 'err state =
     | Write of {
@@ -58,9 +62,12 @@ type (+'a, 'err) t =
 val reword_error : ('err0 -> 'err1) -> ('a, 'err0) t -> ('a, 'err1) t
 val bind : ('a, 'err) t -> ('a -> ('b, 'err) t) -> ('b, 'err) t
 val return : 'a -> ('a, 'err) t
+val error : 'err -> ('a, 'err) t
 
 type ctx
 type error = [ Decoder.error | Encoder.error ]
 
+val pp_error : error Fmt.t
+val ctx : unit -> ctx
 val encode : ctx -> string -> (unit, [> Encoder.error ]) t
 val decode : ctx -> (string, [> Decoder.error ]) t

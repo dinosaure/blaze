@@ -13,10 +13,24 @@
 (library
  (name protocol)
  (public_name blaze.protocol)
- (modules protocol))
+ (modules protocol)
+ (libraries hxd.core hxd.string logs fmt))
 
-; (library
-;  (name pop3)
-;  (public_name blaze.pop3)
-;  (modules pop3)
-;  (libraries blaze.protocol miou.unix))
+(library
+ (name pop3)
+ (public_name blaze.pop3)
+ (modules pop3)
+ (libraries astring blaze.protocol))
+
+(library
+ (name pop3_miou_unix)
+ (public_name blaze.pop3-miou-unix)
+ (modules pop3_miou_unix)
+ (libraries
+  hxd.core
+  hxd.string
+  tls-miou-unix
+  happy-eyeballs-miou-unix
+  ca-certs
+  blaze.pop3
+  miou.unix))
