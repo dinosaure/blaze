@@ -44,6 +44,8 @@ depends: [
   "cstruct"
   "encore"
   "dmarc"
+  "progress"
+  "carton-miou-unix"
   "ke" {>= "0.4"}
   "mirage-crypto-rng-miou-unix"
   "sendmail-miou-unix"
@@ -57,4 +59,8 @@ pin-depends: [
   [ "maildir.dev"            "git+https://github.com/dinosaure/ocaml-maildir.git#597823c7d2d4fd2aef26a581f6828f2b458371ea" ]
   [ "dmarc.dev"              "git+https://github.com/dinosaure/ocaml-dmarc.git#72a284cf9f08abdfaa3d8a1b2d89c669349a545f" ]
   [ "public-suffix.dev"      "git+https://github.com/dinosaure/ocaml-dmarc.git#72a284cf9f08abdfaa3d8a1b2d89c669349a545f" ]
+  [ "carton.dev"             "git+https://github.com/robur-coop/carton.git#1b2d0b2671e89f46f09650e63dc11278502d412c" ]
+  [ "carton-miou-unix.dev"   "git+https://github.com/robur-coop/carton.git#1b2d0b2671e89f46f09650e63dc11278502d412c" ]
+  [ "cachet.dev"             "git+https://git.robur.coop/robur/cachet.git#977e28a03616f0e89170d6b1cc067cdffa4e9cab" ]
+  [ "miou.dev"               "git+https://github.com/robur-coop/miou.git#01b75212e595d154a0f24387e0fdde8cf86254f2" ]
 ]
