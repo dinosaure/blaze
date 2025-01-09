@@ -18,15 +18,8 @@ open Args
 
 let input =
   let doc = "The incoming email." in
-  let parser str =
-    match Fpath.of_string str with
-    | Ok value when Sys.file_exists str && Sys.is_directory str = false ->
-        Ok value
-    | Ok value -> error_msgf "%a does not exist" Fpath.pp value
-    | Error _ as err -> err in
-  let existing_filename = Arg.conv (parser, Fpath.pp) in
   let open Arg in
-  required & pos 0 (some existing_filename) None & info [] ~doc ~docv:"FILE"
+  required & pos 0 (some existing_file) None & info [] ~doc ~docv:"FILE"
 
 let output =
   let doc = "The output of the $(tname) program." in

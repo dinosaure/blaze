@@ -3,7 +3,11 @@ type transport_padding = string
 type bigstring =
   (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
 
-type 'octet body = Multipart of 'octet multipart | Single of 'octet option
+type 'octet body =
+  | Multipart of 'octet multipart
+  | Single of 'octet option
+  | Message of 'octet t
+
 and 'octet part = { headers : 'octet; body : 'octet body }
 
 and 'octet multipart = {

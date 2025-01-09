@@ -91,8 +91,8 @@ let show_graph g =
 let extract dot input =
   let ic, close =
     match input with
-    | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
-    | None -> (stdin, ignore) in
+    | `File fpath -> (open_in (Fpath.to_string fpath), close_in)
+    | `Stdin -> (stdin, ignore) in
   let stream = stream_of_in_channel ic in
   match
     Received.of_stream stream >>| fun res ->
@@ -140,16 +140,17 @@ let stamp hostname zone from _for input =
   Fmt.pr "%s%!"
     (Prettym.to_string ~new_line:"\n" Received.Encoder.as_field stamp) ;
   match input with
-  | Some fpath ->
+  | `File fpath ->
       let ic = open_in (Fpath.to_string fpath) in
       pipe ic stdout ;
       close_in ic ;
       `Ok ()
-  | None ->
+  | `Stdin ->
       pipe stdin stdout ;
       `Ok ()
 
 open Cmdliner
+open Args
 
 let hostname =
   let parser str =
@@ -168,19 +169,9 @@ let path =
     >>= Colombe_emile.to_path in
   Arg.conv (parser, Colombe.Path.pp)
 
-let existing_file =
-  let parser = function
-    | "-" -> Ok None
-    | str ->
-    match Fpath.of_string str with
-    | Ok v when Sys.file_exists str -> Ok (Some v)
-    | Ok v -> R.error_msgf "%a not found" Fpath.pp v
-    | Error _ as err -> err in
-  Arg.conv (parser, Fmt.option ~none:(Fmt.any "-") Fpath.pp)
-
 let input =
   let doc = "The email to analyze." in
-  Arg.(value & pos ~rev:true 0 existing_file None & info [] ~doc)
+  Arg.(value & pos ~rev:true 0 existing_file_or_stdin `Stdin & info [] ~doc)
 
 let dot =
   let doc = "Print a $(i,dot) graph." in

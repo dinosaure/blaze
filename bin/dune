@@ -13,6 +13,7 @@
   cmdliner
   ca-certs
   tls
+  progress
   logs.fmt
   logs.cli
   fmt.tty
@@ -67,6 +68,7 @@
  (modules recv)
  (public_name blaze.recv)
  (libraries
+  blaze.args
   ocamlgraph
   cmdliner
   fpath
@@ -187,10 +189,16 @@
  (name pack)
  (modules pack)
  (public_name blaze.pack)
- (libraries blaze.args carton-miou-unix blaze.email))
+ (libraries blaze.args blaze.pack carton-miou-unix blaze.email))
 
 (executable
  (name fetch)
  (modules fetch)
  (public_name blaze.fetch)
  (libraries mirage-crypto-rng-miou-unix blaze.args blaze.pop3-miou-unix))
+
+(executable
+ (name mbox)
+ (modules mbox)
+ (public_name blaze.mbox)
+ (libraries blaze.args blaze.pack carton-miou-unix blaze.mbox blaze.email))

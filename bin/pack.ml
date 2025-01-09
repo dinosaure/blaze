@@ -1,12 +1,5 @@
 let ( $ ) f g = fun x -> f (g x)
 
-let to_value mail =
-  match Email.of_filename mail with
-  | Ok t -> (mail, t)
-  | Error (`Msg msg) ->
-      Logs.err (fun m -> m "%a is an invalid email" Fpath.pp mail) ;
-      Fmt.failwith "%s" msg
-
 let rec clean acc orphans =
   match Miou.care orphans with
   | None | Some None -> Ok acc
@@ -55,57 +48,6 @@ let parallel ~fn lst =
         check acc results in
   go (Ok []) lst
 
-type src = Mail of string | Body of Fpath.t * int * int
-
-let pp_kind ppf = function
-  | `A -> Fmt.string ppf "mail"
-  | `B -> Fmt.string ppf "blob"
-  | `C | `D -> Fmt.string ppf "deadbeef"
-
-let mail_identify =
-  let open Digestif in
-  let init kind (len : Carton.Size.t) =
-    let hdr = Fmt.str "%a %d\000" pp_kind kind (len :> int) in
-    let ctx = SHA1.empty in
-    SHA1.feed_string ctx hdr in
-  let feed bstr ctx = SHA1.feed_bigstring ctx bstr in
-  let serialize = SHA1.(Carton.Uid.unsafe_of_string $ to_raw_string $ get) in
-  { Carton.First_pass.init; feed; serialize }
-
-let to_entries (filename, t) =
-  let open Cartonnage in
-  let fd = Unix.openfile (Fpath.to_string filename) Unix.[ O_RDONLY ] 0o644 in
-  let finally () = Unix.close fd in
-  Fun.protect ~finally @@ fun () ->
-  let fn (pos, pos_end) =
-    let len = pos_end - pos in
-    let barr =
-      Unix.map_file fd ~pos:(Int64.of_int pos) Bigarray.char Bigarray.c_layout
-        false [| len |] in
-    let bstr = Bigarray.array1_of_genarray barr in
-    let ctx =
-      mail_identify.Carton.First_pass.init `B (Carton.Size.of_int_exn len) in
-    let ctx = mail_identify.Carton.First_pass.feed bstr ctx in
-    let uid = mail_identify.Carton.First_pass.serialize ctx in
-    (pos, len, uid) in
-  let t = Email.map fn t in
-  let fn entries (pos, len, hash) =
-    let entry =
-      Entry.make ~kind:`B ~length:len hash (Body (filename, pos, len)) in
-    entry :: entries in
-  let entries = Email.fold fn [] t in
-  let t = Email.map (fun (_, _, (hash : Carton.Uid.t)) -> (hash :> string)) t in
-  let serialized = Email.to_string t in
-  let hash =
-    let hdr = Fmt.str "mail %d\000" (String.length serialized) in
-    Digestif.SHA1.digest_string (hdr ^ serialized) in
-  let hash = Digestif.SHA1.to_raw_string hash in
-  let hash = Carton.Uid.unsafe_of_string hash in
-  let entry =
-    Entry.make ~kind:`A ~length:(String.length serialized) hash
-      (Mail serialized) in
-  entry :: entries
-
 let delete_duplicates entriess =
   let tbl = Hashtbl.create 0x100 in
   let rec go acc = function
@@ -120,8 +62,8 @@ let delete_duplicates entriess =
   List.fold_left (fun acc entries -> go [] entries :: acc) [] entriess
 
 let load _uid = function
-  | Mail str -> Carton.Value.of_string ~kind:`A str
-  | Body (filename, pos, len) ->
+  | Pack.Mail str -> Carton.Value.of_string ~kind:`A str
+  | Pack.Body (filename, pos, len) ->
       let fd =
         Unix.openfile (Fpath.to_string filename) Unix.[ O_RDONLY ] 0o644 in
       let finally () = Unix.close fd in
@@ -132,26 +74,31 @@ let load _uid = function
       let bstr = Bigarray.array1_of_genarray barr in
       Carton.Value.make ~kind:`B bstr
 
-let sha1 =
-  let module Hash = (val Digestif.module_of_hash' `SHA1) in
-  let feed_bigstring bstr ctx = Hash.feed_bigstring ctx bstr in
-  let feed_bytes buf ~off ~len ctx = Hash.feed_bytes ctx ~off ~len buf in
-  let hash =
-    {
-      Carton.First_pass.feed_bytes;
-      feed_bigstring;
-      serialize = Fun.compose Hash.to_raw_string Hash.get;
-      length = Hash.digest_size;
-    } in
-  Carton.First_pass.Digest (hash, Hash.empty)
+let bar ~total =
+  let open Progress.Line in
+  let style = if Fmt.utf_8 Fmt.stdout then `UTF8 else `ASCII in
+  list [ brackets @@ bar ~style ~width:(`Fixed 30) total; count_to total ]
 
-let run_make _quiet threads mails_from_stdin mails_from_cmdline output =
+let with_reporter ~config ?total quiet =
+  match (quiet, total) with
+  | true, _ | _, None -> (ignore, ignore)
+  | false, Some total ->
+      let display = Progress.(Display.start ~config Multi.(line (bar ~total))) in
+      let[@warning "-8"] Progress.Reporter.[ reporter ] =
+        Progress.Display.reporters display in
+      let on n =
+        reporter n ;
+        Progress.Display.tick display in
+      let finally () = Progress.Display.finalise display in
+      (on, finally)
+
+let run_make quiet progress without_progress threads mails_from_stdin
+    mails_from_cmdline output =
   Miou_unix.run ~domains:threads @@ fun () ->
   let ( let* ) = Result.bind in
-  let ref_length = Digestif.SHA1.digest_size in
   let mails = List.rev_append mails_from_stdin mails_from_cmdline in
-  let* mails = parallel ~fn:to_value mails in
-  let* entries = parallel ~fn:to_entries mails in
+  let* mails = parallel ~fn:Pack.filename_to_email mails in
+  let* entries = parallel ~fn:Pack.email_to_entries mails in
   let entries = delete_duplicates entries in
   let with_header =
     List.fold_left (fun acc entries -> acc + List.length entries) 0 entries
@@ -159,10 +106,19 @@ let run_make _quiet threads mails_from_stdin mails_from_cmdline output =
   let entries = List.map List.to_seq entries in
   let entries = List.to_seq entries in
   let entries = Seq.concat entries in
-  let targets = Carton_miou_unix.delta ~ref_length ~load entries in
-  let pack =
-    Carton_miou_unix.to_pack ~with_header ~with_signature:sha1 ~load targets
+  let targets = Pack.delta ~load entries in
+  let with_signature = Digestif.SHA1.empty in
+  let on, finally =
+    with_reporter ~config:progress ~total:with_header (quiet || without_progress)
   in
+  Fun.protect ~finally @@ fun () ->
+  let targets =
+    Seq.map
+      (fun value ->
+        on 1 ;
+        value)
+      targets in
+  let pack = Pack.to_pack ~with_header ~with_signature ~load targets in
   let oc, finally =
     match output with
     | Some filename ->
@@ -187,17 +143,6 @@ let seq_of_filename filename =
         Some str in
   Seq.of_dispenser dispenser
 
-let hash_of_value value =
-  let kind = Carton.Value.kind value in
-  let bstr = Carton.Value.bigstring value in
-  let len = Carton.Value.length value in
-  let ctx =
-    mail_identify.Carton.First_pass.init kind (Carton.Size.of_int_exn len) in
-  let ctx =
-    mail_identify.Carton.First_pass.feed (Bigarray.Array1.sub bstr 0 len) ctx
-  in
-  mail_identify.Carton.First_pass.serialize ctx
-
 let run_list _quit filename =
   Miou_unix.run @@ fun () ->
   let ref_length = Digestif.SHA1.digest_size in
@@ -205,8 +150,8 @@ let run_list _quit filename =
   let seq =
     let output = De.bigstring_create De.io_buffer_size in
     let allocate bits = De.make_window ~bits in
-    Carton.First_pass.of_seq ~output ~allocate ~ref_length ~digest:sha1
-      ~identify:mail_identify seq in
+    Carton.First_pass.of_seq ~output ~allocate ~ref_length ~digest:Pack.sha1
+      ~identify:Pack.mail_identify seq in
   let pack = Carton_miou_unix.make ~ref_length filename in
   let mails_by_offsets = Hashtbl.create 0x100 in
   let mails_by_refs = Hashtbl.create 0x100 in
@@ -221,7 +166,7 @@ let run_list _quit filename =
         Hashtbl.add mails_by_offsets offset () ;
         let blob = Carton.Blob.make ~size in
         let value = Carton.of_offset pack blob ~cursor:offset in
-        let uid = hash_of_value value in
+        let uid = Pack.uid_of_value value in
         Hashtbl.add mails_by_refs uid () ;
         Some (offset, value)
     | `Entry { Carton.First_pass.kind = Ofs { sub; _ }; offset; _ } ->
@@ -233,7 +178,7 @@ let run_list _quit filename =
             Carton.size_of_offset pack ~cursor:offset Carton.Size.zero in
           let blob = Carton.Blob.make ~size in
           let value = Carton.of_offset pack blob ~cursor:offset in
-          let uid = hash_of_value value in
+          let uid = Pack.uid_of_value value in
           Hashtbl.add mails_by_refs uid () ;
           Some (offset, value))
         else None
@@ -245,7 +190,7 @@ let run_list _quit filename =
             Carton.size_of_offset pack ~cursor:offset Carton.Size.zero in
           let blob = Carton.Blob.make ~size in
           let value = Carton.of_offset pack blob ~cursor:offset in
-          let uid = hash_of_value value in
+          let uid = Pack.uid_of_value value in
           Hashtbl.add mails_by_refs uid () ;
           Some (offset, value))
         else None
@@ -255,14 +200,14 @@ let run_list _quit filename =
     assert (Carton.Value.kind value = `A) ;
     let bstr = Carton.Value.bigstring value in
     let bstr = Bigarray.Array1.sub bstr 0 (Carton.Value.length value) in
-    let uid = hash_of_value value in
+    let uid = Pack.uid_of_value value in
     match Email.of_bigstring bstr with
     | Ok _t -> Fmt.pr "%08x %a\n%!" offset Carton.Uid.pp uid
     | Error (`Msg msg) -> Fmt.failwith "%s" msg in
   Seq.iter show seq
 
-let entries_of_pack cfg digest pack =
-  let matrix, hash = Carton_miou_unix.verify_from_pack ~cfg ~digest pack in
+let entries_of_pack cfg pack =
+  let matrix, hash = Pack.verify_from_pack ~cfg pack in
   let fn _idx = function
     | Carton.Unresolved_base _ | Carton.Unresolved_node ->
         Logs.err (fun m -> m "object %d unresolved" _idx) ;
@@ -277,13 +222,12 @@ let entries_of_pack cfg digest pack =
 
 let run_index _quiet threads pack =
   Miou_unix.run ~domains:threads @@ fun () ->
-  let ref_length = Digestif.SHA1.digest_size in
-  let cfg =
-    Carton_miou_unix.config ~threads ~ref_length (Carton.Identify mail_identify)
-  in
-  let entries, hash = entries_of_pack cfg sha1 pack in
+  let cfg = Pack.config ~threads () in
+  let entries, hash = entries_of_pack cfg pack in
   let encoder =
-    Classeur.Encoder.encoder `Manual ~digest:sha1 ~pack:hash ~ref_length entries
+    let digest = Pack.sha1 in
+    let ref_length = Digestif.SHA1.digest_size in
+    Classeur.Encoder.encoder `Manual ~digest ~pack:hash ~ref_length entries
   in
   let output = Fpath.set_ext ".idx" pack in
   let oc = open_out (Fpath.to_string output) in
@@ -307,9 +251,7 @@ let run_get _quiet idx identifier =
   Miou_unix.run @@ fun () ->
   let pack = Fpath.set_ext ".pack" idx in
   let ref_length = Digestif.SHA1.digest_size in
-  let idx =
-    Carton_miou_unix.index ~hash_length:Digestif.SHA1.digest_size ~ref_length
-      idx in
+  let idx = Pack.index idx in
   let index (uid : Carton.Uid.t) =
     let uid = Classeur.uid_of_string_exn idx (uid :> string) in
     Classeur.find_offset idx uid in
@@ -353,33 +295,101 @@ let run_get _quiet idx identifier =
             | `Value bstr -> Email.output_bigstring stdout bstr in
           Seq.iter fn seq)
 
-let pp_status tbl ppf = function
+let pp_status tbl ~max_consumed ~max_offset ppf = function
   | Carton.Unresolved_base { cursor } ->
       Fmt.pf ppf "%08x %d" cursor (Hashtbl.find tbl cursor)
   | Unresolved_node -> ()
-  | Resolved_base { cursor; uid; kind; _ } ->
-      Fmt.pf ppf "%a %a %d %d" Carton.Uid.pp uid Carton.Kind.pp kind cursor
-        (Hashtbl.find tbl cursor)
-  | Resolved_node { cursor; uid; kind; depth; parent; _ } ->
-      Fmt.pf ppf "%a %a %d %d %d %a" Carton.Uid.pp uid Carton.Kind.pp kind
-        cursor (Hashtbl.find tbl cursor) (depth - 1) Carton.Uid.pp parent
+  | Resolved_base { cursor; uid; kind; crc } ->
+      Fmt.pf ppf "%a %a %*d %*d    %08lx" Carton.Uid.pp uid Carton.Kind.pp kind
+        max_offset cursor max_consumed (Hashtbl.find tbl cursor)
+        (Optint.to_unsigned_int32 crc)
+  | Resolved_node { cursor; uid; kind; depth; parent; crc } ->
+      Fmt.pf ppf "%a %a %*d %*d %2d %08lx %a" Carton.Uid.pp uid Carton.Kind.pp
+        kind max_offset cursor max_consumed (Hashtbl.find tbl cursor) (depth - 1)
+        (Optint.to_unsigned_int32 crc)
+        Carton.Uid.pp parent
 
-let run_verify quiet threads pagesize pack =
+let with_reporter ~config quiet t fn =
+  let on_entry, on_object, finally =
+    match quiet with
+    | true -> (ignore, ignore, ignore)
+    | false ->
+        let lines = Progress.Multi.(line t ++ line t) in
+        let display = Progress.Display.start ~config lines in
+        let[@warning "-8"] Progress.Reporter.[ reporter0; reporter1 ] =
+          Progress.Display.reporters display in
+        let on_entry n =
+          reporter0 n ;
+          Progress.Display.tick display in
+        let on_object n =
+          reporter1 n ;
+          Progress.Display.tick display in
+        let finally () = Progress.Display.finalise display in
+        (on_entry, on_object, finally) in
+  fn (on_entry, on_object, finally)
+
+let printer ~total entries objects progress =
+  let rec go total counter =
+    if counter < total * 2
+    then begin
+      let new_entries = Atomic.exchange entries 0 in
+      let new_objects = Atomic.exchange objects 0 in
+      let on_entry, on_object, _ = Miou.Lazy.force progress in
+      on_entry new_entries ;
+      on_object new_objects ;
+      Miou.yield () ;
+      go total (counter + new_entries + new_objects)
+    end in
+  fun () ->
+    let total = Miou.Computation.await_exn total in
+    go total 0
+
+let display ~config quiet t =
+  let c = Miou.Computation.create () in
+  let consumed = Hashtbl.create 0x7ff in
+  let entries = Atomic.make 0 in
+  let objects = Atomic.make 0 in
+  let progress =
+    Miou.Lazy.from_fun @@ fun () ->
+    let total = Miou.Computation.await_exn c in
+    with_reporter ~config quiet (t ~total) Fun.id in
+  let on_entry ~max entry =
+    if Miou.Computation.is_running c
+    then assert (Miou.Computation.try_return c max) ;
+    Hashtbl.add consumed entry.Carton_miou_unix.offset entry.consumed ;
+    Atomic.incr entries ;
+    Miou.yield () in
+  let on_object ~cursor:_ _ _ =
+    Atomic.incr objects ;
+    Miou.yield () in
+  let printer = Miou.async (printer ~total:c entries objects progress) in
+  let finally () =
+    let _, _, finally = Miou.Lazy.force progress in
+    finally () ;
+    Miou.cancel printer in
+  (on_entry, on_object, finally, consumed)
+
+let run_verify quiet progress without_progress threads pagesize pack =
   Miou_unix.run ~domains:threads @@ fun () ->
-  let ref_length = Digestif.SHA1.digest_size in
-  let tbl = Hashtbl.create 0x100 in
-  let on_entry ~max:_ { Carton_miou_unix.offset; consumed; _ } =
-    Hashtbl.add tbl offset consumed in
-  let cfg =
-    Carton_miou_unix.config ~threads ~pagesize ~ref_length ~on_entry
-      (Carton.Identify mail_identify) in
-  let digest = sha1 in
+  let on_entry, on_object, finally, tbl =
+    display ~config:progress (quiet || without_progress) bar in
+  let cfg = Pack.config ~threads ~pagesize ~on_entry ~on_object () in
   let matrix, _hash =
+    Fun.protect ~finally @@ fun () ->
     match pack with
-    | `Pack filename -> Carton_miou_unix.verify_from_pack ~cfg ~digest filename
-    | `Idx (filename, _) ->
-        Carton_miou_unix.verify_from_idx ~cfg ~digest filename in
-  if not quiet then Array.iter (Fmt.pr "%a\n%!" (pp_status tbl)) matrix
+    | `Pack filename -> Pack.verify_from_pack ~cfg filename
+    | `Idx (filename, _) -> Pack.verify_from_idx ~cfg filename in
+  let max_consumed = Hashtbl.fold (fun _ a b -> Int.max a b) tbl 0 in
+  let max_consumed = Float.to_int (log10 (Float.of_int max_consumed)) + 1 in
+  let max_offset =
+    match matrix.(Array.length matrix - 1) with
+    | Carton.Unresolved_base { cursor } -> cursor
+    | Unresolved_node -> 0
+    | Resolved_base { cursor; _ } -> cursor
+    | Resolved_node { cursor; _ } -> cursor in
+  let max_offset = Float.to_int (log10 (Float.of_int max_offset)) + 1 in
+  let pp_status = pp_status tbl ~max_consumed ~max_offset in
+  if not quiet then Array.iter (Fmt.pr "%a\n%!" pp_status) matrix
 
 open Cmdliner
 open Args
@@ -451,14 +461,6 @@ let setup_mails_from_in_channel =
 
 let output =
   let doc = "The output file where to save the PACK file." in
-  let parser str =
-    match Fpath.of_string str with
-    | Ok value ->
-        if Sys.file_exists str
-        then error_msgf "%a already exists" Fpath.pp value
-        else Ok value
-    | Error _ as err -> err in
-  let non_existing_file = Arg.conv (parser, Fpath.pp) in
   let open Arg in
   value
   & opt (some non_existing_file) None
@@ -468,13 +470,6 @@ let pack =
   let doc = "The PACKv2 file." in
   let open Arg in
   required & pos 0 (some existing_file) None & info [] ~doc ~docv:"PACK"
-
-let default_threads = Int.min 4 (Stdlib.Domain.recommended_domain_count () - 1)
-
-let threads ?(min = default_threads) () =
-  let doc = "The number of threads to allocate for the PACKv2 verification." in
-  let open Arg in
-  value & opt int min & info [ "t"; "threads" ] ~doc ~docv:"NUMBER"
 
 let uid_of_string_opt str =
   match Ohex.decode ~skip_whitespace:true str with
@@ -506,6 +501,8 @@ let make_term =
     (app (const to_ret)
        (const run_make
        $ setup_logs
+       $ setup_progress
+       $ without_progress
        $ threads ~min:2 ()
        $ setup_mails_from_in_channel
        $ mails
@@ -581,7 +578,13 @@ let pack =
 
 let verify_term =
   let open Term in
-  const run_verify $ setup_logs $ threads () $ pagesize $ pack
+  const run_verify
+  $ setup_logs
+  $ setup_progress
+  $ without_progress
+  $ threads ()
+  $ pagesize
+  $ pack
 
 let error_to_string exn = Printexc.to_string exn
 

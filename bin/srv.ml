@@ -600,14 +600,6 @@ let domain =
   let doc = "Hostname of the machine." in
   Arg.(value & opt domain default_domain & info [ "h"; "hostname" ] ~doc)
 
-let existing_file =
-  let parser str =
-    match Fpath.of_string str with
-    | Ok _ as v when Sys.file_exists str -> v
-    | Ok v -> R.error_msgf "%a does not exist" Fpath.pp v
-    | Error _ as err -> err in
-  Arg.conv (parser, Fpath.pp)
-
 let private_key =
   let doc = "Private key to initiate the STARTTLS extension." in
   Arg.(value & opt (some existing_file) None & info [ "k"; "key" ] ~doc)

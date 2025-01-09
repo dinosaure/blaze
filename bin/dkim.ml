@@ -90,8 +90,8 @@ let stream_of_queue q () =
 let verify quiet fields dns input =
   let ic, close =
     match input with
-    | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
-    | None -> (stdin, ignore) in
+    | `File fpath -> (open_in (Fpath.to_string fpath), close_in)
+    | `Stdin -> (stdin, ignore) in
   let finally () = close ic in
   Fun.protect ~finally @@ fun () ->
   let open Caml_scheduler in
@@ -200,10 +200,10 @@ let both =
 let sign _verbose input output key selector fields hash canon domain_name =
   let ic, length_ic, close_ic =
     match input with
-    | Some fpath ->
+    | `File fpath ->
         let ic = open_in (Fpath.to_string fpath) in
         (ic, in_channel_length ic, close_in)
-    | None -> (stdin, 0x1000, ignore) in
+    | `Stdin -> (stdin, 0x7ff, ignore) in
   let oc, close_oc =
     match output with
     | Some fpath -> (open_out (Fpath.to_string fpath), close_out)
@@ -314,19 +314,9 @@ let fields =
   let doc = "Print which field are secured by the DKIM signatures." in
   Arg.(value & flag & info [ "fields" ] ~doc)
 
-let existing_file =
-  let parser = function
-    | "-" -> Ok None
-    | str ->
-    match Fpath.of_string str with
-    | Ok v when Sys.file_exists str -> Ok (Some v)
-    | Ok v -> Rresult.R.error_msgf "%a not found" Fpath.pp v
-    | Error _ as err -> err in
-  Arg.conv (parser, Fmt.option ~none:(Fmt.any "-") Fpath.pp)
-
 let input =
   let doc = "The email to verify." in
-  Arg.(value & pos 0 existing_file None & info [] ~doc)
+  Arg.(value & pos 0 existing_file_or_stdin `Stdin & info [] ~doc)
 
 let setup_resolver happy_eyeballs_cfg nameservers local =
   let happy_eyeballs =
@@ -380,7 +370,7 @@ let verify =
 
 let input =
   let doc = "The email to sign." in
-  Arg.(value & pos 0 existing_file None & info [] ~doc)
+  Arg.(value & pos 0 existing_file_or_stdin `Stdin & info [] ~doc)
 
 let new_file = Arg.conv (Fpath.of_string, Fpath.pp)
 

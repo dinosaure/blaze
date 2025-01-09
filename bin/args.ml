@@ -227,11 +227,49 @@ let dns =
 let existing_directory =
   let parser str =
     match Fpath.of_string str with
-    | Ok v when Sys.is_directory str -> Ok v
+    | Ok v when Sys.is_directory str -> Ok (Fpath.to_dir_path v)
     | Ok v ->
         error_msgf "%a does not exist or it's not a valid directory" Fpath.pp v
     | Error _ as err -> err in
   Arg.conv (parser, Fpath.pp)
+
+let existing_file =
+  let parser str =
+    match Fpath.of_string str with
+    | Ok _ as v when Sys.file_exists str && not (Sys.is_directory str) -> v
+    | Ok v -> error_msgf "%a does not exist" Fpath.pp v
+    | Error _ as err -> err in
+  Arg.conv (parser, Fpath.pp)
+
+let existing_file_or_stdin =
+  let parser = function
+    | "-" -> Ok `Stdin
+    | str ->
+    match Fpath.of_string str with
+    | Ok v when Sys.file_exists str -> Ok (`File v)
+    | Ok v -> error_msgf "%a not found" Fpath.pp v
+    | Error _ as err -> err in
+  let pp ppf = function
+    | `Stdin -> Fmt.string ppf "-"
+    | `File filename -> Fpath.pp ppf filename in
+  Arg.conv (parser, pp)
+
+let non_existing_file =
+  let parser str =
+    match Fpath.of_string str with
+    | Ok value ->
+        if Sys.file_exists str
+        then error_msgf "%a already exists" Fpath.pp value
+        else Ok value
+    | Error _ as err -> err in
+  Arg.conv (parser, Fpath.pp)
+
+let default_threads = Int.min 4 (Stdlib.Domain.recommended_domain_count () - 1)
+
+let threads ?(min = default_threads) () =
+  let doc = "The number of threads to allocate for the PACKv2 verification." in
+  let open Arg in
+  value & opt int min & info [ "t"; "threads" ] ~doc ~docv:"NUMBER"
 
 let dns_static =
   let env = Cmd.Env.info "BLAZE_DNS_STATIC" in
@@ -328,3 +366,16 @@ let setup_random = function
   | Some seed -> Random.State.make seed
 
 let setup_random = Term.(const setup_random $ seed)
+let setup_progress max_width = Progress.Config.v ~max_width ()
+
+let width =
+  let doc = "Width of the terminal." in
+  let default = Terminal.Size.get_columns () in
+  let open Arg in
+  value & opt (some int) default & info [ "width" ] ~doc ~docv:"WIDTH"
+
+let setup_progress = Term.(const setup_progress $ width)
+
+let without_progress =
+  let doc = "Don't print progress bar." in
+  Arg.(value & flag & info [ "without-progress" ] ~doc)

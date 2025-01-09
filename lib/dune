@@ -34,3 +34,17 @@
   ca-certs
   blaze.pop3
   miou.unix))
+
+(library
+ (name mbox)
+ (public_name blaze.mbox)
+ (modules mbox mbox_lexer)
+ (libraries hxd.core hxd.string logs))
+
+(ocamllex mbox_lexer)
+
+(library
+ (name pack)
+ (public_name blaze.pack)
+ (modules pack)
+ (libraries digestif carton-miou-unix blaze.email))

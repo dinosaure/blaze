@@ -118,16 +118,6 @@ let verify quiet local nameservers timeout sender helo ip input =
 open Cmdliner
 open Args
 
-let existing_file =
-  let parser = function
-    | "-" -> Ok None
-    | str ->
-    match Fpath.of_string str with
-    | Ok v when Sys.file_exists str -> Ok (Some v)
-    | Ok v -> R.error_msgf "%a not found" Fpath.pp v
-    | Error _ as err -> err in
-  Arg.conv (parser, Fmt.option ~none:(Fmt.any "-") Fpath.pp)
-
 let input =
   let doc = "The email to check." in
   Arg.(value & pos 0 existing_file None & info [] ~doc)

@@ -14,7 +14,7 @@
      ( CRLF body )?
 *)
 
-let src = Logs.Src.create "blaze.trim"
+let src = Logs.Src.create "blaze.email"
 
 module Log = (val Logs.src_log src : Logs.LOG)
 
@@ -23,7 +23,11 @@ type transport_padding = string
 type bigstring =
   (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
 
-type 'octet body = Multipart of 'octet multipart | Single of 'octet option
+type 'octet body =
+  | Multipart of 'octet multipart
+  | Single of 'octet option
+  | Message of 'octet t
+
 and 'octet part = { headers : 'octet; body : 'octet body }
 
 and 'octet multipart = {
@@ -44,7 +48,8 @@ let rec map fn { headers; body; _ } =
     | Multipart vs ->
         let fn (transport_padding, part) = (transport_padding, map fn part) in
         let parts = List.map fn vs.parts in
-        Multipart { vs with parts } in
+        Multipart { vs with parts }
+    | Message t -> Message (map fn t) in
   { headers; body }
 
 let rec fold fn acc { headers; body } =
@@ -55,6 +60,7 @@ let rec fold fn acc { headers; body } =
   | Multipart vs ->
       let fn acc (_, part) = fold fn acc part in
       List.fold_left fn acc vs.parts
+  | Message t -> fold fn acc t
 
 module Format = struct
   open Encore
@@ -130,7 +136,13 @@ module Format = struct
     bijection <$> ctor '\003' () *> multipart part
 
   let body : string part t -> string body t =
-   fun part -> choice [ single_none; single_some; multipart part ]
+   fun part ->
+    let bijection =
+      let fwd t = Message t in
+      let bwd = function Message t -> t | _ -> raise Bij.Bijection in
+      Bij.v ~fwd ~bwd in
+    let message = bijection <$> ctor '\004' () *> part in
+    choice [ single_none; single_some; multipart part; message ]
 
   let part =
     let part =
@@ -258,7 +270,9 @@ module Parser = struct
             return
               { headers = (start_hdrs, stop_hdrs); body = Multipart multipart }
         | None -> fail "Invalid email: boundary expected")
-    | `Message -> assert false (* TODO *)
+    | `Message ->
+        part boundary >>| fun t ->
+        { headers = (start_hdrs, stop_hdrs); body = Message t }
 
   let t = part None
 end
@@ -355,7 +369,7 @@ let output_bigstring oc bstr =
       go (Bigarray.Array1.sub bstr len (dim - len))) in
   go bstr
 
-let to_seq ~load t =
+let rec to_seq ~load t =
   let rec go part =
     let hdr = load part.headers in
     match part.body with
@@ -386,7 +400,8 @@ let to_seq ~load t =
             Seq.return suffix;
           ] in
         let seq = List.to_seq lst in
-        Seq.(concat (concat seq)) in
+        Seq.(concat (concat seq))
+    | Message t -> Seq.cons (`Value hdr) (to_seq ~load t) in
   go t
 
 let to_output_channel_from_filename filename t oc =

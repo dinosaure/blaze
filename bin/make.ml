@@ -129,14 +129,13 @@ let make _ headers content_encoding mime_type content_parameters from _to cc bcc
     match (body, content_encoding) with
     | `Stdin, (`Bit7 | `Bit8 | `Binary | `Ietf_token _ | `X_token _) ->
         stream_of_stdin_with_crlf
-    | `Filename filename, (`Bit7 | `Bit8 | `Binary | `Ietf_token _ | `X_token _)
-      ->
+    | `File filename, (`Bit7 | `Bit8 | `Binary | `Ietf_token _ | `X_token _) ->
         stream_of_filename_with_crlf filename
     | `Stdin, `Base64 -> stream_of_stdin
-    | `Filename filename, `Base64 -> stream_of_filename filename
+    | `File filename, `Base64 -> stream_of_filename filename
     | `Stdin, `Quoted_printable -> stream_of_stdin_as_lines
-    | `Filename filename, `Quoted_printable ->
-        stream_of_filename_as_lines filename in
+    | `File filename, `Quoted_printable -> stream_of_filename_as_lines filename
+  in
   let part = Mt.part ~header:hdrs body in
   let mail = Mt.make Header.empty Mt.simple part in
   let stream = Mt.to_stream mail in
@@ -200,7 +199,7 @@ let wrap fields g boundary subty input output =
   let ic, ic_close =
     match input with
     | `Stdin -> (stdin, ignore)
-    | `Filename fpath -> (open_in (Fpath.to_string fpath), close_in) in
+    | `File fpath -> (open_in (Fpath.to_string fpath), close_in) in
   let decoder = Hd.decoder default in
   let rec go hdr =
     match Hd.decode decoder with
@@ -313,7 +312,7 @@ let put headers content_encoding mime_type content_parameters body input output
   let ic, ic_close =
     match input with
     | `Stdin -> (stdin, ignore)
-    | `Filename fpath -> (open_in (Fpath.to_string fpath), close_in) in
+    | `File fpath -> (open_in (Fpath.to_string fpath), close_in) in
   let decoder = Hd.decoder Field_name.Map.empty in
   let queue = Queue.create () in
   let rec go () =
@@ -466,8 +465,8 @@ let add_field _ headers content_encoding mime_type content_parameters from _to
       let stream =
         match input with
         | `Stdin -> concat_stream stream stream_of_stdin
-        | `Filename filename ->
-            concat_stream stream (stream_of_filename filename) in
+        | `File filename -> concat_stream stream (stream_of_filename filename)
+      in
       (match output with
       | Some filename -> stream_to_filename stream filename
       | None -> stream_to_stdout stream) ;
@@ -547,19 +546,6 @@ let address =
     | Ok _ as v -> v
     | Error _ -> R.error_msgf "Invalid address: %S" str in
   Arg.conv (parser, Emile.pp)
-
-let existing_filename =
-  let parser = function
-    | "-" -> Ok `Stdin
-    | str ->
-    match Fpath.of_string str with
-    | Ok v when Sys.file_exists str -> Ok (`Filename v)
-    | Ok v -> R.error_msgf "%a does not exist" Fpath.pp v
-    | Error _ as err -> err in
-  let pp ppf = function
-    | `Stdin -> Fmt.string ppf "-"
-    | `Filename v -> Fpath.pp ppf v in
-  Arg.conv (parser, pp)
 
 let filename =
   let parser = function
@@ -652,7 +638,7 @@ let date =
 
 let body =
   let doc = "Body of the email." in
-  Arg.(value & pos ~rev:true 0 existing_filename `Stdin & info [] ~doc)
+  Arg.(value & pos ~rev:true 0 existing_file_or_stdin `Stdin & info [] ~doc)
 
 let output =
   let doc = "The filename where you want to save the email." in
@@ -694,7 +680,7 @@ let make_term, make_info =
 
 let input =
   let doc = "The email to be modified." in
-  Arg.(value & pos ~rev:true 0 existing_filename `Stdin & info [] ~doc)
+  Arg.(value & pos ~rev:true 0 existing_file_or_stdin `Stdin & info [] ~doc)
 
 let add_field =
   let content_encoding =
@@ -733,7 +719,7 @@ let add_field =
 
 let input =
   let doc = "The email to wrap into a multipart one." in
-  Arg.(value & pos ~rev:true 0 existing_filename `Stdin & info [] ~doc)
+  Arg.(value & pos ~rev:true 0 existing_file_or_stdin `Stdin & info [] ~doc)
 
 let seed =
   let doc = "Seed used by the random number generator." in
@@ -790,19 +776,11 @@ let wrap =
 
 let input =
   let doc = "The email to wrap into a multipart one." in
-  Arg.(value & pos 1 existing_filename `Stdin & info [] ~doc)
-
-let existing_filename =
-  let parser str =
-    match Fpath.of_string str with
-    | Ok v when Sys.file_exists str -> Ok v
-    | Ok v -> R.error_msgf "%a does not exist" Fpath.pp v
-    | Error _ as err -> err in
-  Arg.conv (parser, Fpath.pp)
+  Arg.(value & pos 1 existing_file_or_stdin `Stdin & info [] ~doc)
 
 let body =
   let doc = "Body of the email." in
-  Arg.(required & pos 0 (some existing_filename) None & info [] ~doc)
+  Arg.(required & pos 0 (some existing_file) None & info [] ~doc)
 
 let put =
   let content_encoding =
