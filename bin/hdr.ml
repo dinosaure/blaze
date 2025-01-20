@@ -254,5 +254,3 @@ let cmd =
   Cmd.v (Cmd.info "hdr" ~doc ~man)
     Term.(
       ret (const run $ fields $ decode_rfc2047 $ prefix $ parameter $ input))
-
-let () = Cmd.(exit @@ eval cmd)

@@ -154,8 +154,10 @@ let to_exit_status = function
   | Ok () -> `Ok ()
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
-let run _ authenticator (daemon, happy_eyeballs) destination authentication
-    domain sender recipients mail =
+let run _ authenticator resolver destination authentication domain sender
+    recipients mail =
+  Miou_unix.run ~domains:0 @@ fun () ->
+  let daemon, happy_eyeballs = resolver () in
   let authenticator = Option.map (fun (fn, _) -> fn now) authenticator in
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let finally () =
@@ -344,5 +346,3 @@ let cmd =
     $ recipients
     $ mail in
   Cmd.v info (ret term)
-
-let () = Miou_unix.run ~domains:0 @@ fun () -> Cmd.(exit @@ eval cmd)

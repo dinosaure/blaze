@@ -1,5 +1,5 @@
 Tests on wrap
-  $ blaze.make --date 2009-07-12T12:00:00Z <<EOF | blaze.make wrap --boundary foo -
+  $ blaze make --date 2009-07-12T12:00:00Z <<EOF | blaze make wrap --boundary foo -
   > Hello World!
   > EOF
   Content-Type: multipart/mixed; boundary=foo
@@ -13,7 +13,7 @@ Tests on wrap
   Hello World!
   
   --foo--
-  $ blaze.make --date 2009-07-12T12:00:00Z --encoding quoted-printable <<EOF | blaze.make wrap --boundary foobar
+  $ blaze make --date 2009-07-12T12:00:00Z --encoding quoted-printable <<EOF | blaze make wrap --boundary foobar
   > Волим слани краставац.
   > EOF
   Content-Type: multipart/mixed; boundary=foobar

@@ -51,7 +51,5 @@ let cmd =
     "Transforms an email using the system's line feed into an email compatible \
      with the SMTP protocol." in
   let man = [] in
-  let info = Cmd.info "to_crlf" ~doc ~man in
+  let info = Cmd.info "crlf" ~doc ~man in
   Cmd.v info term
-
-let () = Cmd.(exit @@ eval cmd)

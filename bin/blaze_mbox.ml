@@ -36,17 +36,21 @@ let load _uid = function
       let bstr = Bigarray.array1_of_genarray barr in
       Carton.Value.make ~kind:`B bstr
 
-let delete_duplicates entriess =
+let delete_duplicates ?(quiet = true) entriess =
   let tbl = Hashtbl.create 0x100 in
+  let cnt = ref 0 in
   let rec go acc = function
     | [] -> List.rev acc
     | entry :: rest -> (
         let hash = Cartonnage.Entry.uid entry in
         match Hashtbl.find tbl hash with
-        | _ -> go acc rest
+        | _ ->
+            incr cnt ;
+            go acc rest
         | exception Not_found ->
             Hashtbl.add tbl hash () ;
             go (entry :: acc) rest) in
+  if (not quiet) && !cnt > 0 then Fmt.pr "%d duplicate entries\n%!" !cnt ;
   List.fold_left (fun acc entries -> go [] entries :: acc) [] entriess
 
 let explode ?tmp:temp_dir seq =
@@ -77,7 +81,25 @@ let explode ?tmp:temp_dir seq =
     go [] seq None in
   producer seq
 
-let run_pack _quiet threads mbox output =
+let bar ~total =
+  let open Progress.Line in
+  let style = if Fmt.utf_8 Fmt.stdout then `UTF8 else `ASCII in
+  list [ brackets @@ bar ~style ~width:(`Fixed 30) total; count_to total ]
+
+let with_reporter ~config ?total quiet =
+  match (quiet, total) with
+  | true, _ | _, None -> (ignore, ignore)
+  | false, Some total ->
+      let display = Progress.(Display.start ~config Multi.(line (bar ~total))) in
+      let[@warning "-8"] Progress.Reporter.[ reporter ] =
+        Progress.Display.reporters display in
+      let on n =
+        reporter n ;
+        Progress.Display.tick display in
+      let finally () = Progress.Display.finalise display in
+      (on, finally)
+
+let run_pack quiet progress without_progress threads mbox output =
   Miou_unix.run ~domains:threads @@ fun () ->
   let ( let* ) = Result.bind in
   let ic, ic_finally =
@@ -92,7 +114,7 @@ let run_pack _quiet threads mbox output =
   let mails = explode seq in
   let* mails = parallel ~fn:Pack.filename_to_email mails in
   let* entries = parallel ~fn:Pack.email_to_entries mails in
-  let entries = delete_duplicates entries in
+  let entries = delete_duplicates ~quiet entries in
   let with_header =
     List.fold_left (fun acc entries -> acc + List.length entries) 0 entries
   in
@@ -101,6 +123,16 @@ let run_pack _quiet threads mbox output =
   let entries = Seq.concat entries in
   let targets = Pack.delta ~load entries in
   let with_signature = Digestif.SHA1.empty in
+  let on, finally =
+    with_reporter ~config:progress ~total:with_header (quiet || without_progress)
+  in
+  Fun.protect ~finally @@ fun () ->
+  let targets =
+    Seq.map
+      (fun value ->
+        on 1 ;
+        value)
+      targets in
   let pack = Pack.to_pack ~with_header ~with_signature ~load targets in
   let oc, oc_finally =
     match output with
@@ -131,15 +163,20 @@ let output =
 let pack_term =
   let open Term in
   let to_result = function
-    | Ok () -> Ok ()
-    | Error exn -> Error (Printexc.to_string exn) in
-  let term = const run_pack $ setup_logs $ threads ~min:2 () $ mbox $ output in
-  const to_result $ term
+    | Ok () -> `Ok ()
+    | Error exn -> `Error (false, Fmt.str "%s." (Printexc.to_string exn)) in
+  let term =
+    const run_pack
+    $ setup_logs
+    $ setup_progress
+    $ without_progress
+    $ threads ~min:2 ()
+    $ mbox
+    $ output in
+  ret (const to_result $ term)
 
-let pack_cmd =
+let cmd =
   let doc = "Transform a mbox file to a PACK file." in
   let man = [] in
-  let info = Cmd.info "pack" ~doc ~man in
+  let info = Cmd.info "mbox" ~doc ~man in
   Cmd.v info pack_term
-
-let () = Cmd.(exit @@ eval_result pack_cmd)

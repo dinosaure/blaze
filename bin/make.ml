@@ -810,9 +810,6 @@ let put =
       $ body
       $ input
       $ output) in
-
   Cmd.v (Cmd.info "put" ~doc ~man) term
 
-let () =
-  let cmd = Cmd.group ~default:make_term make_info [ add_field; wrap; put ] in
-  Cmd.(exit @@ eval cmd)
+let cmd = Cmd.group ~default:make_term make_info [ add_field; wrap; put ]

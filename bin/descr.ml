@@ -206,8 +206,8 @@ let cmd =
       `S Manpage.s_description;
       `P "$(tname) describes the structure of the given email like a tree.";
     ] in
-  Cmd.v
-    (Cmd.info "descr" ~doc ~man)
-    Term.(ret (const run $ setup_logs $ fields $ input))
-
-let () = Cmd.(exit @@ eval cmd)
+  let info = Cmd.info "descr" ~doc ~man in
+  let term =
+    let open Term in
+    ret (const run $ setup_logs $ fields $ input) in
+  Cmd.v info term

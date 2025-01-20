@@ -216,7 +216,7 @@ let extract =
 
 let default = Term.(ret (const (`Help (`Pager, None))))
 
-let () =
+let cmd =
   let doc = "A tool to manipulate Received fields." in
   let man =
     [
@@ -228,5 +228,4 @@ let () =
         "Use $(tname) $(i,stamp) to stamp the given $(i,msgs) with a new \
          $(i,Received) field.";
     ] in
-  let cmd = Cmd.group ~default (Cmd.info "recv" ~doc ~man) [ extract; stamp ] in
-  Cmd.(exit @@ eval cmd)
+  Cmd.group ~default (Cmd.info "recv" ~doc ~man) [ extract; stamp ]

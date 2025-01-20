@@ -2,7 +2,7 @@ let src = Logs.Src.create "blaze.pack"
 
 module Log = (val Logs.src_log src : Logs.LOG)
 
-let ( $ ) f g = fun x -> f (g x)
+let ( % ) f g = fun x -> f (g x)
 
 let pp_kind ppf = function
   | `A -> Fmt.string ppf "mail"
@@ -16,7 +16,7 @@ let mail_identify =
     let ctx = SHA1.empty in
     SHA1.feed_string ctx hdr in
   let feed bstr ctx = SHA1.feed_bigstring ctx bstr in
-  let serialize = SHA1.(Carton.Uid.unsafe_of_string $ to_raw_string $ get) in
+  let serialize = SHA1.(Carton.Uid.unsafe_of_string % to_raw_string % get) in
   { Carton.First_pass.init; feed; serialize }
 
 let uid_of_value value =

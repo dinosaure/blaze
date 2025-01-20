@@ -19,25 +19,25 @@
   fmt.tty
   fmt.cli))
 
-(executable
+(library
  (name addr)
  (modules addr)
  (public_name blaze.addr)
- (libraries cmdliner fpath rresult mrmime bigstringaf emile))
+ (libraries blaze.args cmdliner fpath rresult mrmime bigstringaf emile))
 
-(executable
+(library
  (name hdr)
  (modules hdr)
  (public_name blaze.hdr)
  (libraries cmdliner fpath rresult mrmime bigstringaf fmt))
 
-(executable
+(library
  (name map)
  (modules map)
  (public_name blaze.map)
  (libraries cmdliner blaze.args fpath mrmime))
 
-(executable
+(library
  (name mdir)
  (modules mdir)
  (public_name blaze.mdir)
@@ -50,7 +50,7 @@
   rresult
   maildir.unix))
 
-(executable
+(library
  (name spf)
  (modules spf)
  (public_name blaze.spf)
@@ -63,7 +63,7 @@
   mirage-crypto-rng-miou-unix
   uspf.unix))
 
-(executable
+(library
  (name recv)
  (modules recv)
  (public_name blaze.recv)
@@ -81,9 +81,9 @@
   unix
   ptime.clock.os))
 
-(executable
- (name dkim)
- (modules dkim)
+(library
+ (name blaze_dkim)
+ (modules blaze_dkim)
  (public_name blaze.dkim)
  (libraries
   blaze.dns-static
@@ -98,7 +98,7 @@
   mirage-crypto-rng-miou-unix
   blaze.args))
 
-(executable
+(library
  (name submit)
  (modules submit)
  (public_name blaze.submit)
@@ -120,7 +120,7 @@
   mirage-crypto-rng-miou-unix
   colombe.emile))
 
-(executable
+(library
  (name send)
  (modules send)
  (public_name blaze.send)
@@ -143,13 +143,13 @@
   sendmail.starttls
   colombe.emile))
 
-(executable
+(library
  (name srv)
  (modules srv)
  (public_name blaze.srv)
  (libraries fpath sendmail.starttls rresult blaze.args colombe))
 
-(executable
+(library
  (name make)
  (modules make)
  (public_name blaze.make)
@@ -161,44 +161,69 @@
 ;  (public_name blaze.dmarc)
 ;  (libraries blaze.args dmarc cmdliner lwt.unix))
 
-(executable
+(library
  (name descr)
  (modules descr)
  (public_name blaze.descr)
  (libraries blaze.args cmdliner mrmime fpath))
 
-(executable
+(library
  (name rand)
  (modules rand)
  (public_name blaze.rand)
  (libraries blaze.args cmdliner fmt mirage-crypto-rng ohex base64))
 
-(executable
+(library
  (name iso)
  (modules iso)
  (public_name blaze.iso)
  (libraries blaze.args cmdliner blaze.email))
 
-(executable
- (name to_crlf)
- (modules to_crlf)
- (public_name blaze.to_crlf)
+(library
+ (name crlf)
+ (modules crlf)
+ (public_name blaze.crlf)
  (libraries blaze.args cmdliner))
 
-(executable
- (name pack)
- (modules pack)
- (public_name blaze.pack)
+(library
+ (name blaze_pack)
+ (modules blaze_pack)
+ (public_name blaze.epack)
  (libraries blaze.args blaze.pack carton-miou-unix blaze.email))
 
-(executable
+(library
  (name fetch)
  (modules fetch)
  (public_name blaze.fetch)
  (libraries mirage-crypto-rng-miou-unix blaze.args blaze.pop3-miou-unix))
 
-(executable
- (name mbox)
- (modules mbox)
- (public_name blaze.mbox)
+(library
+ (name blaze_mbox)
+ (modules blaze_mbox)
+ (public_name blaze.embox)
  (libraries blaze.args blaze.pack carton-miou-unix blaze.mbox blaze.email))
+
+(executable
+ (name blaze)
+ (modules blaze)
+ (public_name blaze)
+ (libraries
+  blaze.addr
+  blaze.dkim
+  blaze.srv
+  blaze.descr
+  blaze.send
+  blaze.fetch
+  blaze.submit
+  blaze.make
+  blaze.rand
+  blaze.epack
+  blaze.embox
+  blaze.crlf
+  blaze.iso
+  blaze.mdir
+  blaze.hdr
+  blaze.map
+  blaze.spf
+  blaze.recv
+  cmdliner))

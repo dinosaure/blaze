@@ -56,5 +56,3 @@ let cmd =
   let info = Cmd.info "rand" ~doc ~man in
   let term = const run $ setup_logs $ seed $ length $ output in
   Cmd.v info term
-
-let () = Cmd.(exit @@ eval cmd)

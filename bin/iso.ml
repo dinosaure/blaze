@@ -44,5 +44,3 @@ let cmd =
   let man = [] in
   let info = Cmd.info "iso" ~doc ~man in
   Cmd.v info term
-
-let () = Cmd.(exit @@ eval cmd)

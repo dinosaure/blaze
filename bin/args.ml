@@ -5,7 +5,7 @@ let src = Logs.Src.create "blaze.args"
 module Log = (val Logs.src_log src : Logs.LOG)
 
 let () = Logs_threaded.enable ()
-let ( <.> ) f g x = f (g x)
+let ( % ) f g x = f (g x)
 let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 let output_options = "OUTPUT OPTIONS"
 
@@ -290,7 +290,7 @@ let setup_dns_static = function
 
 let setup_dns_static = Term.(const setup_dns_static $ dns_static)
 
-let setup_resolver happy_eyeballs_cfg dns_cfg nameservers local =
+let setup_resolver happy_eyeballs_cfg dns_cfg nameservers local () =
   let happy_eyeballs =
     match happy_eyeballs_cfg with
     | None -> None
@@ -353,7 +353,7 @@ let seed =
     match Base64.decode str with
     | Ok seed -> Ok (string_to_int_array seed)
     | Error _ as err -> err in
-  let pp = Fmt.using (Base64.encode_exn <.> int_array_to_string) Fmt.string in
+  let pp = Fmt.using (Base64.encode_exn % int_array_to_string) Fmt.string in
   Arg.conv ~docv:"<seed>" (parser, pp)
 
 let seed =

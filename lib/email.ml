@@ -102,11 +102,11 @@ module Format = struct
         <*> c_string
         <*> rep0 (c_string <*> part))
 
-  let ctor chr value =
+  let ctor chr =
     let ctor =
       let fwd str =
-        if String.length str != 1 || str.[0] != chr then raise Bij.Bijection ;
-        value in
+        if String.length str != 1 || str.[0] != chr then raise Bij.Bijection
+      in
       let bwd _value = String.make 1 chr in
       Bij.v ~fwd ~bwd in
     ctor <$> const (String.make 1 chr)
@@ -116,14 +116,14 @@ module Format = struct
       let fwd () = Single None in
       let bwd = function Single None -> () | _ -> raise Bij.Bijection in
       Bij.v ~fwd ~bwd in
-    single_none <$> ctor '\001' ()
+    single_none <$> ctor '\001'
 
   let single_some =
     let single_some =
       let fwd hex = Single (Some hex) in
       let bwd = function Single (Some hex) -> hex | _ -> raise Bij.Bijection in
       Bij.v ~fwd ~bwd in
-    single_some <$> ctor '\002' () *> hex
+    single_some <$> ctor '\002' *> hex
 
   let multipart : 'a part t -> 'a body t =
    fun part ->
@@ -133,7 +133,7 @@ module Format = struct
         | Multipart multipart -> multipart
         | _ -> raise Bij.Bijection in
       Bij.v ~fwd ~bwd in
-    bijection <$> ctor '\003' () *> multipart part
+    bijection <$> ctor '\003' *> multipart part
 
   let body : string part t -> string body t =
    fun part ->
@@ -141,7 +141,7 @@ module Format = struct
       let fwd t = Message t in
       let bwd = function Message t -> t | _ -> raise Bij.Bijection in
       Bij.v ~fwd ~bwd in
-    let message = bijection <$> ctor '\004' () *> part in
+    let message = bijection <$> ctor '\004' *> part in
     choice [ single_none; single_some; multipart part; message ]
 
   let part =

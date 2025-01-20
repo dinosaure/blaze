@@ -75,7 +75,12 @@ let extract_received_spf ?newline ic =
   Uspf.extract_received_spf ?newline ic state (module Flow)
   |> Caml_scheduler.prj
 
-let stamp quiet hostname (daemon, _he, dns) sender helo ip input output =
+let impossible_to_stamp =
+  `Error (false, "Impossible to stamp the incoming email with Received-SPF")
+
+let stamp quiet hostname resolver sender helo ip input output =
+  Miou_unix.run ~domains:0 @@ fun () ->
+  let daemon, _he, dns = resolver () in
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let finally () =
     Happy_eyeballs_miou_unix.kill daemon ;
@@ -91,10 +96,11 @@ let stamp quiet hostname (daemon, _he, dns) sender helo ip input output =
     | None -> (stdout, ignore) in
   let ctx = ctx sender helo ip in
   match check dns ctx with
-  | Ok res when quiet -> (
+  | Ok res when quiet -> begin
       match res with
-      | `Pass _ | `None | `Neutral -> `Ok 0
-      | `Fail | `Softfail | `Permerror | `Temperror -> `Ok 1)
+      | `Pass _ | `None | `Neutral -> `Ok ()
+      | `Fail | `Softfail | `Permerror | `Temperror -> impossible_to_stamp
+    end
   | Ok res ->
       let field_name, unstrctrd = Uspf.to_field ~ctx ~receiver:hostname res in
       Fmt.pr "%a: %s\n%!" Mrmime.Field_name.pp field_name
@@ -102,11 +108,11 @@ let stamp quiet hostname (daemon, _he, dns) sender helo ip input output =
       transmit ic oc ;
       close_ic ic ;
       close_oc oc ;
-      let res =
+      begin
         match res with
-        | `Pass _ | `None | `Neutral -> 0
-        | _ (* Fail | Softfail | Permerror | Temperror *) -> 1 in
-      `Ok res
+        | `Pass _ | `None | `Neutral -> `Ok ()
+        | _ (* Fail | Softfail | Permerror | Temperror *) -> impossible_to_stamp
+      end
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
 let to_exit_code results =
@@ -123,7 +129,7 @@ let to_exit_code results =
         ()
     | _ -> res := false in
   List.iter f results ;
-  if !res then `Ok 0 else `Ok 1
+  if !res then `Ok () else `Error (false, "Invalid SPF source.")
 
 let pp_expected ppf = function
   | `Pass -> Fmt.(styled `Green string) ppf "pass"
@@ -158,10 +164,12 @@ let show_results results =
         Fmt.pr "unidentified sender: %a (expected %a)\n%!" pp_result result
           pp_expected expected in
   List.iter f results ;
-  `Ok 0
+  `Ok ()
 (* XXX(dinosaure): [to_exit_codes results]? *)
 
-let analyze quiet (daemon, _he, dns) input =
+let analyze quiet resolver input =
+  Miou_unix.run ~domains:0 @@ fun () ->
+  let daemon, _he, dns = resolver () in
   let ic, close_ic =
     match input with
     | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
@@ -188,7 +196,7 @@ let analyze quiet (daemon, _he, dns) input =
 open Cmdliner
 open Args
 
-let setup_resolver happy_eyeballs_cfg nameservers local =
+let setup_resolver happy_eyeballs_cfg nameservers local () =
   let happy_eyeballs =
     match happy_eyeballs_cfg with
     | None -> None
@@ -350,7 +358,7 @@ let analyze =
 
 let default = Term.(ret (const (`Help (`Pager, None))))
 
-let () =
+let cmd =
   let doc = "A tool to manipulate Received-SPF fields." in
   let man =
     [
@@ -362,5 +370,4 @@ let () =
         "Use $(tname) $(i,analyze) to check Received-SPF fields from the \
          incoming email.";
     ] in
-  let cmd = Cmd.group ~default (Cmd.info "spf" ~doc ~man) [ stamp; analyze ] in
-  Miou_unix.run ~domains:0 @@ fun () -> Cmd.(exit @@ eval' cmd)
+  Cmd.group ~default (Cmd.info "spf" ~doc ~man) [ stamp; analyze ]

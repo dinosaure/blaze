@@ -8,7 +8,7 @@ let caml =
   let open Caml_scheduler in
   { Colombe.Sigs.bind = (fun x f -> f (prj x)); return = inj }
 
-let ( <.> ) f g x = f (g x)
+let ( % ) f g x = f (g x)
 
 let to_msg_error =
   Result.map_error @@ function
@@ -25,7 +25,7 @@ module Sendmail_unix = struct
 
   let miou =
     let open Miou_scheduler in
-    { Sigs.bind = (fun x f -> (f <.> prj) x); return = inj }
+    { Sigs.bind = (fun x f -> (f % prj) x); return = inj }
 
   type error = [ `Msg of string | Sendmail_with_starttls.error ]
 
@@ -236,8 +236,9 @@ let to_exit_status = function
   | Ok () -> `Ok ()
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
-let run _ authenticator (daemon, happy_eyeballs) destination domain sender
-    recipients mail =
+let run _ authenticator resolver destination domain sender recipients mail =
+  Miou_unix.run ~domains:0 @@ fun () ->
+  let daemon, happy_eyeballs = resolver () in
   let authenticator = Option.map (fun (fn, _) -> fn now) authenticator in
   let finally () = Happy_eyeballs_miou_unix.kill daemon in
   Fun.protect ~finally @@ fun () ->
@@ -411,5 +412,3 @@ let cmd =
     $ recipients
     $ mail in
   Cmd.v info (ret term)
-
-let () = Miou_unix.run ~domains:0 @@ fun () -> Cmd.(exit @@ eval cmd)

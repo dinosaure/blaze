@@ -108,7 +108,9 @@ let run cfg =
 
 let now () = Some (Ptime_clock.now ())
 
-let run quiet authenticator (daemon, happy_eyeballs) (uri, _) excludes fmt =
+let run quiet authenticator resolver (uri, _) excludes fmt =
+  Miou_unix.run ~domains:0 @@ fun () ->
+  let daemon, happy_eyeballs = resolver () in
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let authenticator = Option.map (fun (fn, _) -> fn now) authenticator in
   let finally () =
@@ -218,5 +220,3 @@ let cmd =
   let man = [] in
   let info = Cmd.info "fetch" ~doc ~man in
   Cmd.v info term
-
-let () = Miou_unix.run @@ fun () -> Cmd.(exit @@ eval cmd)

@@ -171,7 +171,7 @@ let diff =
     "Instead to show the encoded email, we show the diff from the source." in
   Arg.(value & flag & info [ "diff" ] ~doc)
 
-let map =
+let cmd =
   let doc = "Try to decode and encode the given message." in
   let man =
     [
@@ -180,5 +180,3 @@ let map =
     ] in
   Cmd.v (Cmd.info "map" ~doc ~man)
     Term.(ret (const mailmap $ setup_logs $ diff $ input $ output))
-
-let () = Cmd.(exit @@ eval map)

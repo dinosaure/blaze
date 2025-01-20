@@ -1,4 +1,4 @@
-let ( $ ) f g = fun x -> f (g x)
+let ( % ) f g = fun x -> f (g x)
 
 let rec clean acc orphans =
   match Miou.care orphans with
@@ -48,17 +48,21 @@ let parallel ~fn lst =
         check acc results in
   go (Ok []) lst
 
-let delete_duplicates entriess =
+let delete_duplicates ?(quiet = true) entriess =
   let tbl = Hashtbl.create 0x100 in
+  let cnt = ref 0 in
   let rec go acc = function
     | [] -> List.rev acc
     | entry :: rest -> (
         let hash = Cartonnage.Entry.uid entry in
         match Hashtbl.find tbl hash with
-        | _ -> go acc rest
+        | _ ->
+            incr cnt ;
+            go acc rest
         | exception Not_found ->
             Hashtbl.add tbl hash () ;
             go (entry :: acc) rest) in
+  if (not quiet) && !cnt > 0 then Fmt.pr "%d duplicate entries\n%!" !cnt ;
   List.fold_left (fun acc entries -> go [] entries :: acc) [] entriess
 
 let load _uid = function
@@ -99,7 +103,7 @@ let run_make quiet progress without_progress threads mails_from_stdin
   let mails = List.rev_append mails_from_stdin mails_from_cmdline in
   let* mails = parallel ~fn:Pack.filename_to_email mails in
   let* entries = parallel ~fn:Pack.email_to_entries mails in
-  let entries = delete_duplicates entries in
+  let entries = delete_duplicates ~quiet entries in
   let with_header =
     List.fold_left (fun acc entries -> acc + List.length entries) 0 entries
   in
@@ -620,11 +624,9 @@ let verify_cmd =
 
 let default = Term.(ret (const (`Help (`Pager, None))))
 
-let () =
+let cmd =
   let doc = "A tool to manipulate PACKv2 which contains emails." in
   let man = [] in
-  let cmd =
-    Cmd.group ~default
-      (Cmd.info "pack" ~doc ~man)
-      [ make_cmd; list_cmd; index_cmd; get_cmd; verify_cmd ] in
-  Cmd.(exit @@ eval cmd)
+  Cmd.group ~default
+    (Cmd.info "pack" ~doc ~man)
+    [ make_cmd; list_cmd; index_cmd; get_cmd; verify_cmd ]
