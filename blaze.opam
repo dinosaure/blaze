@@ -43,7 +43,6 @@ depends: [
   "ipaddr" {>= "5.2.0"}
   "cstruct"
   "encore"
-  "dmarc"
   "progress"
   "carton-miou-unix"
   "ke" {>= "0.4"}
@@ -59,4 +58,6 @@ pin-depends: [
   [ "maildir.dev"            "git+https://github.com/dinosaure/ocaml-maildir.git#597823c7d2d4fd2aef26a581f6828f2b458371ea" ]
   [ "dmarc.dev"              "git+https://github.com/dinosaure/ocaml-dmarc.git#72a284cf9f08abdfaa3d8a1b2d89c669349a545f" ]
   [ "public-suffix.dev"      "git+https://github.com/dinosaure/ocaml-dmarc.git#72a284cf9f08abdfaa3d8a1b2d89c669349a545f" ]
+  [ "dkim.dev"               "git+https://github.com/mirage/ocaml-dkim.git#ccb08d1a102353c312f87df6780153695ef56219" ]
+  [ "uspf.dev"               "git+https://github.com/mirage/uspf.git#9e6657966e91286ed6f630f390274a3f79258c80" ]
 ]

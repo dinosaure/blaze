@@ -1,40 +1,8 @@
 open Rresult
 
-module Caml_scheduler = Dkim.Sigs.Make (struct
-  type +'a t = 'a
-end)
-
-module Caml_flow = struct
-  type backend = Caml_scheduler.t
-  type flow = in_channel
-
-  let input flow buf off len =
-    let res = input flow buf off len in
-    Caml_scheduler.inj res
-end
-
+let ( % ) f g = fun x -> f (g x)
+let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 let extra_servers = Hashtbl.create 0x100
-
-module DNS = struct
-  include Dns_static
-
-  type backend = Caml_scheduler.t
-
-  let gettxtrrecord t domain_name =
-    match Hashtbl.find extra_servers (Domain_name.to_string domain_name) with
-    | str -> Caml_scheduler.inj (Ok [ str ])
-    | exception Not_found ->
-    match getaddrinfo t Dns.Rr_map.Txt domain_name with
-    | Ok (_ttl, txtset) ->
-        Caml_scheduler.inj (Ok (Dns.Rr_map.Txt_set.elements txtset))
-    | Error _ as err -> Caml_scheduler.inj err
-end
-
-let caml =
-  let open Caml_scheduler in
-  { Dkim.Sigs.bind = (fun x f -> f (prj x)); return = inj }
-
-let newline = Dkim.LF
 
 let rem field_name lst =
   let fold (deleted, acc) x =
@@ -43,7 +11,7 @@ let rem field_name lst =
     else (deleted, x :: acc) in
   List.fold_left fold (false, []) lst |> fun (_, lst) -> List.rev lst
 
-let show_fields valid =
+let show_fields verified =
   let rec merge acc l0 l1 =
     match (l0, l1) with
     | [], l1 -> List.rev_append acc l1
@@ -51,12 +19,13 @@ let show_fields valid =
     | x :: r, l1 ->
         let l1 = rem x l1 in
         merge (x :: acc) r l1 in
-  let fold acc dkim = merge [] (Dkim.fields dkim) acc in
-  let fields = List.fold_left fold [] valid in
+  let fold acc (Dkim.Verify.Signature { dkim; _ }) =
+    merge [] (Dkim.fields dkim) acc in
+  let fields = List.fold_left fold [] verified in
   List.iter (Fmt.pr "%a\n%!" Mrmime.Field_name.pp) fields
 
-let show_result valid expired invalid =
-  let show_valid dkim =
+let show_result verified expired errored =
+  let show_verified (Dkim.Verify.Signature { dkim; _ }) =
     Fmt.pr "[%a]: %a\n%!"
       Fmt.(styled `Green string)
       "OK" Domain_name.pp (Dkim.domain dkim) in
@@ -64,28 +33,62 @@ let show_result valid expired invalid =
     Fmt.pr "[%a]: %a\n%!"
       Fmt.(styled `Yellow string)
       "EX" Domain_name.pp (Dkim.domain dkim) in
-  let show_invalid dkim =
-    Fmt.pr "[%a]: %a\n%!"
-      Fmt.(styled `Red string)
-      "ER" Domain_name.pp (Dkim.domain dkim) in
-  List.iter show_valid valid ;
+  let show_errored = function
+    | `Invalid_domain_name dkim
+    | `Invalid_domain_key dkim
+    | `DNS_error dkim
+    | `Invalid_DKIM_body_hash dkim ->
+        Fmt.pr "[%a]: %a\n%!"
+          Fmt.(styled `Red string)
+          "ER" Domain_name.pp (Dkim.domain dkim) in
+  List.iter show_verified verified ;
   List.iter show_expired expired ;
-  List.iter show_invalid invalid
+  List.iter show_errored errored
 
-module Infix = struct
-  let ( >>= ) = caml.bind
-  let return = caml.return
+let response_of_dns_request errored ~dkim dns =
+  match Dkim.Verify.domain_key dkim with
+  | Error (`Msg msg) ->
+      errored := `Invalid_domain_name dkim :: !errored ;
+      Logs.err (fun m -> m "Invalid domain-name to retrive domain-key: %s" msg) ;
+      `DNS_error (Fmt.str "Invalid domain-name for domain-key")
+  | Ok domain_name -> begin
+      Logs.debug (fun m -> m "DNS request to %a" Domain_name.pp domain_name) ;
+      if Hashtbl.mem extra_servers domain_name
+      then (
+        let txts = Hashtbl.find extra_servers domain_name in
+        match Dkim.domain_key_of_string txts with
+        | Ok domain_key -> `Domain_key domain_key
+        | Error (`Msg msg) ->
+            Logs.err (fun m -> m "Invalid domain-key: %s" msg) ;
+            errored := `Invalid_domain_key dkim :: !errored ;
+            `DNS_error msg)
+      else
+        match Dns_static.getaddrinfo dns Dns.Rr_map.Txt domain_name with
+        | Ok (_ttl, txts) ->
+            let fn elt acc = elt :: acc in
+            let txts = Dns.Rr_map.Txt_set.fold fn txts [] in
+            let txts =
+              List.map (String.concat "" % String.split_on_char ' ') txts in
+            let txts = String.concat "" txts in
+            begin
+              match Dkim.domain_key_of_string txts with
+              | Ok domain_key -> `Domain_key domain_key
+              | Error (`Msg msg) ->
+                  Logs.err (fun m -> m "Invalid domain-key: %s" msg) ;
+                  errored := `Invalid_domain_key dkim :: !errored ;
+                  `DNS_error msg
+            end
+        | Error (`Msg msg) ->
+            Logs.err (fun m ->
+                m "DNS error from %a: %s" Domain_name.pp domain_name msg) ;
+            errored := `DNS_error dkim :: !errored ;
+            `DNS_error msg
+    end
 
-  let ( >>? ) x f =
-    x >>= function Ok x -> f x | Error err -> return (Error err)
-end
+let now () = Int64.of_float (Unix.gettimeofday ())
 
-let epoch () = Int64.of_float (Unix.gettimeofday ())
-
-let stream_of_queue q () =
-  match Queue.pop q with
-  | v -> Caml_scheduler.inj (Some v)
-  | exception Queue.Empty -> Caml_scheduler.inj None
+let expire dkim =
+  match Dkim.expire dkim with None -> false | Some ts -> now () > ts
 
 let verify quiet newline fields dns input =
   let ic, close =
@@ -94,49 +97,64 @@ let verify quiet newline fields dns input =
     | `Stdin -> (stdin, ignore) in
   let finally () = close ic in
   Fun.protect ~finally @@ fun () ->
-  let open Caml_scheduler in
-  Dkim.extract_dkim ~newline ic caml (module Caml_flow) |> prj
-  >>= fun ({ Dkim.prelude; dkim_fields; _ } as extracted) ->
-  Logs.debug (fun m ->
-      m "Verify %d DKIM-Signature field(s)." (List.length dkim_fields)) ;
-  let s = Queue.create () in
-  let r = Queue.create () in
-  let (`Consume th) =
-    Dkim.extract_body ~newline ic caml
-      (module Caml_flow)
-      ~prelude
-      ~simple:(Option.iter (fun v -> Queue.push v s))
-      ~relaxed:(Option.iter (fun v -> Queue.push v r)) in
-  let fold (valid, expired, invalid) (dkim_field_name, dkim_field_value, m) =
-    let fiber =
-      let open Infix in
-      Dkim.post_process_dkim m |> return >>? fun dkim ->
-      Dkim.extract_server dns caml (module DNS) dkim >>? fun n ->
-      Dkim.post_process_server n |> return >>? fun server ->
-      return (Ok (dkim, server)) in
-    match Caml_scheduler.prj fiber with
-    | Error (`Msg err) ->
-        Logs.err (fun m -> m "Got an error for a DKIM-Signature field: %s" err) ;
-        (valid, expired, invalid)
-    | Ok (dkim, server) -> (
-        let verify =
-          Dkim.verify caml ~epoch extracted.Dkim.fields
-            (dkim_field_name, dkim_field_value)
-            ~simple:(stream_of_queue (Queue.copy s))
-            ~relaxed:(stream_of_queue (Queue.copy r))
-            dkim server in
-        let has_expired = Dkim.expired ~epoch dkim in
-        match (prj verify, has_expired) with
-        | true, false -> (dkim :: valid, expired, invalid)
-        | true, true -> (valid, dkim :: expired, invalid)
-        | false, _ -> (valid, expired, dkim :: invalid)) in
-  let () = prj th in
-  let valid, expired, invalid = List.fold_left fold ([], [], []) dkim_fields in
+  let expired = ref [] in
+  let errored = ref [] in
+  let buf = Bytes.create 0x7ff in
+  let rec go decoder =
+    match Dkim.Verify.decode decoder with
+    | `Malformed msg ->
+        Logs.err (fun m -> m "Invalid email: %s" msg) ;
+        error_msgf "Invalid email"
+    | `Signatures sigs ->
+        let fn (Dkim.Verify.Signature { dkim; fields; body = bh; _ } as s) =
+          let _, Dkim.Hash_value (k, bh') = Dkim.signature_and_hash dkim in
+          let bh' = Digestif.to_raw_string k bh' in
+          if fields && Eqaf.equal bh bh'
+          then Either.Left s
+          else begin
+            Logs.debug (fun m -> m "Invalid DKIM signature") ;
+            Logs.debug (fun m -> m "Expected body hash: %s" (Ohex.encode bh')) ;
+            Logs.debug (fun m -> m "Actual body hash:   %s" (Ohex.encode bh)) ;
+            Logs.debug (fun m -> m "Signature of fields: %b" fields) ;
+            Either.Right (`Invalid_DKIM_body_hash dkim)
+          end in
+        let sigs, errored' = List.partition_map fn sigs in
+        errored := List.rev_append errored' !errored ;
+        Ok sigs
+    | `Query (decoder, dkim) when not (expire dkim) ->
+        let response = response_of_dns_request errored ~dkim dns in
+        let decoder = Dkim.Verify.response decoder ~dkim ~response in
+        go decoder
+    | `Query (decoder, dkim) ->
+        let response = `Expired in
+        expired := dkim :: !expired ;
+        let decoder = Dkim.Verify.response decoder ~dkim ~response in
+        go decoder
+    | `Await decoder -> (
+        let len = Stdlib.input ic buf 0 (Bytes.length buf) in
+        match len with
+        | 0 ->
+            let decoder = Dkim.Verify.src decoder String.empty 0 0 in
+            go decoder
+        | len when newline = `CRLF ->
+            let str = Bytes.sub_string buf 0 len in
+            let decoder = Dkim.Verify.src decoder str 0 len in
+            go decoder
+        | len ->
+            let str = Bytes.sub_string buf 0 len in
+            let str = String.split_on_char '\n' str in
+            let str = String.concat "\r\n" str in
+            let decoder = Dkim.Verify.src decoder str 0 (String.length str) in
+            go decoder) in
+  let ( let* ) = Result.bind in
+  let* verified = go (Dkim.Verify.decoder ()) in
+  let expired = !expired in
+  let errored = !errored in
   if (not quiet) && not fields
-  then show_result valid expired invalid
+  then show_result verified expired errored
   else if (not quiet) && fields
-  then show_fields valid ;
-  match invalid with [] -> Ok `Ok | _ -> Ok `Error
+  then show_fields verified ;
+  match errored with [] -> Ok `Ok | _ -> Ok `Error
 
 let extra_to_string pk =
   let pk = X509.Public_key.encode_der pk in
@@ -157,7 +175,8 @@ let verify quiet newline fields extra resolver input =
           let open Domain_name in
           prepend_label v "_domainkey" >>= append selector in
         let domain_name = R.get_ok domain_name in
-        let domain_name = Domain_name.to_string domain_name in
+        Logs.debug (fun m ->
+            m "add %a as a new DNS entry" Domain_name.pp domain_name) ;
         Hashtbl.add extra_servers domain_name (extra_to_string extra))
       extra in
   match verify quiet newline fields dns input with
@@ -165,83 +184,97 @@ let verify quiet newline fields extra resolver input =
   | Ok `Error -> `Error (false, "Invalid DKIM signature.")
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
-module Keep_flow = struct
-  type backend = Caml_scheduler.t
-  type flow = in_channel * Buffer.t
-
-  let input (ic, bf) buf off len =
-    let res = input ic buf off len in
-    Buffer.add_subbytes bf buf off res ;
-    Caml_scheduler.inj res
-end
-
 let priv_of_seed seed =
   let g = Mirage_crypto_rng.(create ~seed (module Fortuna)) in
   Mirage_crypto_pk.Rsa.generate ~g ~bits:2048 ()
 
 let pub_of_seed seed = Mirage_crypto_pk.Rsa.pub_of_priv (priv_of_seed seed)
 
-module Caml_stream = struct
-  type 'a t = 'a Queue.t
-  type backend = Caml_scheduler.t
-
-  let create () =
-    let q = Queue.create () in
-    let push = Option.iter (fun v -> Queue.push v q) in
-    (q, push)
-
-  let get q =
-    match Queue.pop q with
-    | v -> Caml_scheduler.inj (Some v)
-    | exception _ -> Caml_scheduler.inj None
-end
-
-let both =
-  let open Caml_scheduler in
-  { Dkim.Sigs.f = (fun a b -> inj (prj a, prj b)) }
-
-let sign _verbose input output key selector fields hash canon domain_name =
-  let ic, length_ic, close_ic =
+let sign _verbose newline input output key selector fields hash canon
+    domain_name =
+  let ic, close_ic =
     match input with
     | `File fpath ->
         let ic = open_in (Fpath.to_string fpath) in
-        (ic, in_channel_length ic, close_in)
-    | `Stdin -> (stdin, 0x7ff, ignore) in
+        (ic, close_in)
+    | `Stdin -> (stdin, ignore) in
   let oc, close_oc =
     match output with
     | Some fpath -> (open_out (Fpath.to_string fpath), close_out)
     | None -> (stdout, ignore) in
   Fun.protect ~finally:(fun () -> close_ic ic) @@ fun () ->
   Fun.protect ~finally:(fun () -> close_oc oc) @@ fun () ->
-  let open Caml_scheduler in
-  let buffer = Buffer.create length_ic in
   let dkim =
     Dkim.v ~selector ~fields ?hash ?canonicalization:canon domain_name in
-  let dkim =
-    Dkim.sign ~key ~newline (ic, buffer) caml ~both
-      (module Keep_flow)
-      (module Caml_stream)
-      dkim
-    |> prj in
+  let buf = Bytes.create 0x7ff in
+  let rec go signer =
+    match Dkim.Sign.sign signer with
+    | `Malformed msg ->
+        Logs.err (fun m -> m "Invalid email: %s" msg) ;
+        error_msgf "Invalid email"
+    | `Signature dkim -> Ok dkim
+    | `Await signer ->
+        let len = Stdlib.input ic buf 0 (Bytes.length buf) in
+        begin
+          match len with
+          | 0 ->
+              let signer = Dkim.Sign.fill signer String.empty 0 0 in
+              go signer
+          | len when newline = `CRLF ->
+              let str = Bytes.sub_string buf 0 len in
+              let signer = Dkim.Sign.fill signer str 0 len in
+              go signer
+          | len ->
+              let str = Bytes.sub_string buf 0 len in
+              let str = String.split_on_char '\n' str in
+              let str = String.concat "\r\n" str in
+              let signer = Dkim.Sign.fill signer str 0 (String.length str) in
+              go signer
+        end in
+  let ( let* ) = Result.bind in
+  let* dkim = go (Dkim.Sign.signer ~key dkim) in
   let ppf = Format.formatter_of_out_channel oc in
-  let dkim = Prettym.to_string ~new_line:"\n" Dkim.Encoder.as_field dkim in
+  let dkim =
+    let new_line = match newline with `CRLF -> "\r\n" | `LF -> "\n" in
+    Prettym.to_string ~new_line Dkim.Encoder.as_field dkim in
   Fmt.pf ppf "%s%!" dkim ;
-  Fmt.pf ppf "%s%!" (Buffer.contents buffer) ;
-  `Ok ()
+  seek_in ic 0 ;
+  let rec go () =
+    let len = Stdlib.input ic buf 0 (Bytes.length buf) in
+    if len > 0
+    then begin
+      let str = Bytes.sub_string buf 0 len in
+      output_string oc str ;
+      go ()
+    end in
+  Ok (go ())
 
-let sign _verbose input output private_key seed selector fields hash canon
-    domain_name =
+let sign _verbose newline input output private_key seed selector fields hash
+    canon domain_name =
   Miou_unix.run ~domains:0 @@ fun () ->
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let finally () = Mirage_crypto_rng_miou_unix.kill rng in
   Fun.protect ~finally @@ fun () ->
   match (seed, private_key) with
   | None, None -> `Error (true, "A private key or a seed is required.")
-  | _, Some pk ->
-      sign _verbose input output pk selector fields hash canon domain_name
+  | _, Some pk -> begin
+      match
+        sign _verbose newline input output pk selector fields hash canon
+          domain_name
+      with
+      | Ok () -> `Ok ()
+      | Error (`Msg msg) -> `Error (false, Fmt.str "%s." msg)
+    end
   | Some (`Seed seed), None ->
-      let pk = priv_of_seed seed in
-      sign _verbose input output pk selector fields hash canon domain_name
+      let pk = `Rsa (priv_of_seed seed) in
+      begin
+        match
+          sign _verbose newline input output pk selector fields hash canon
+            domain_name
+        with
+        | Ok () -> `Ok ()
+        | Error (`Msg msg) -> `Error (false, Fmt.str "%s." msg)
+      end
 
 let gen seed output =
   Miou_unix.run ~domains:0 @@ fun () ->
@@ -283,16 +316,16 @@ open Args
 let newline =
   let parser str =
     match String.lowercase_ascii str with
-    | "crlf" -> Ok Dkim.CRLF
-    | "lf" -> Ok Dkim.LF
+    | "crlf" -> Ok `CRLF
+    | "lf" -> Ok `LF
     | _ -> error_msgf "Invalid newline" in
   let pp ppf = function
-    | Dkim.CRLF -> Fmt.string ppf "crlf"
-    | Dkim.LF -> Fmt.string ppf "lf" in
+    | `CRLF -> Fmt.string ppf "crlf"
+    | `LF -> Fmt.string ppf "lf" in
   let newline = Arg.conv (parser, pp) in
   let doc = "The newline used by the incoming email." in
   let open Arg in
-  value & opt newline Dkim.LF & info [ "newline" ] ~doc ~docv:"NEWLINE"
+  value & opt newline `LF & info [ "newline" ] ~doc ~docv:"NEWLINE"
 
 let parse_public_key str =
   match Fpath.of_string str with
@@ -407,7 +440,8 @@ let output =
 let private_key =
   let parser str =
     match Base64.decode ~pad:true str >>= X509.Private_key.decode_der with
-    | Ok (`RSA key) -> Ok key
+    | Ok (`RSA key) -> Ok (`Rsa key)
+    | Ok (`ED25519 key) -> Ok (`Ed25519 key)
     | Ok _ -> R.error_msgf "We handle only RSA key"
     | Error _ ->
     match Fpath.of_string str with
@@ -419,7 +453,8 @@ let private_key =
         really_input ic rs 0 ln ;
         let rs = Bytes.unsafe_to_string rs in
         match X509.Private_key.decode_pem rs with
-        | Ok (`RSA key) -> Ok key
+        | Ok (`RSA key) -> Ok (`Rsa key)
+        | Ok (`ED25519 key) -> Ok (`Ed25519 key)
         | Ok _ -> R.error_msgf "We handle only RSA key"
         | Error _ as err -> err)
     | Ok fpath -> R.error_msgf "%a does not exist" Fpath.pp fpath in
@@ -527,6 +562,7 @@ let sign =
   let term =
     const sign
     $ setup_logs
+    $ newline
     $ input
     $ output
     $ private_key

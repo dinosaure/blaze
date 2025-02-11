@@ -1,35 +1,5 @@
 open Rresult
 
-module Caml_scheduler = Uspf.Sigs.Make (struct
-  type 'a t = 'a
-end)
-
-let state =
-  let open Uspf.Sigs in
-  let open Caml_scheduler in
-  { return = (fun x -> inj x); bind = (fun x f -> f (prj x)) }
-
-module DNS = struct
-  type t = Dns_static.t
-  and backend = Caml_scheduler.t
-
-  and error =
-    [ `Msg of string
-    | `No_data of [ `raw ] Domain_name.t * Dns.Soa.t
-    | `No_domain of [ `raw ] Domain_name.t * Dns.Soa.t ]
-
-  let getrrecord dns response domain_name =
-    Caml_scheduler.inj
-    @@ Dns_static.get_resource_record dns response domain_name
-end
-
-module Flow = struct
-  type flow = in_channel
-  and backend = Caml_scheduler.t
-
-  let input ic tmp off len = Caml_scheduler.inj @@ input ic tmp off len
-end
-
 let ctx sender helo ip =
   Uspf.empty |> fun ctx ->
   Option.fold ~none:ctx
@@ -68,12 +38,54 @@ let unstrctrd_to_utf_8_string_with_lf l =
   Buffer.contents buf
 
 let check dns ctx =
-  Uspf.get ~ctx state dns (module DNS) |> Caml_scheduler.prj >>| fun record ->
-  Uspf.check ~ctx state dns (module DNS) record |> Caml_scheduler.prj
+  let eval : type a. dns:Dns_static.t -> a Uspf.t -> Uspf.Result.t option =
+   fun ~dns t ->
+    let rec go : type a. a Uspf.t -> a = function
+      | Request (domain_name, record, fn) ->
+          let resp = Dns_static.get_resource_record dns record domain_name in
+          go (fn resp)
+      | Return v -> v
+      | Map (x, fn) -> fn (go x)
+      | Tries lst -> List.iter (fun fn -> go (fn ())) lst
+      | Choose_on c ->
+      try go (c.fn ())
+      with Uspf.Result result ->
+        let none _ = Uspf.terminate result in
+        let some = Fun.id in
+        let fn =
+          match result with
+          | `None -> Option.fold ~none ~some c.none
+          | `Neutral -> Option.fold ~none ~some c.neutral
+          | `Fail -> Option.fold ~none ~some c.fail
+          | `Softfail -> Option.fold ~none ~some c.softfail
+          | `Temperror -> Option.fold ~none ~some c.temperror
+          | `Permerror -> Option.fold ~none ~some c.permerror
+          | `Pass m -> begin
+              fun () -> match c.pass with Some fn -> fn m | None -> none ()
+            end in
+        go (fn ()) in
+    match go t with exception Uspf.Result result -> Some result | _ -> None
+  in
+  eval ~dns (Uspf.get_and_check ctx)
 
-let extract_received_spf ?newline ic =
-  Uspf.extract_received_spf ?newline ic state (module Flow)
-  |> Caml_scheduler.prj
+let extract_received_spf ?(newline = `LF) ic =
+  let buf = Bytes.create 0x7ff in
+  let rec go extract =
+    match Uspf.Extract.extract extract with
+    | `Fields fields -> Ok fields
+    | `Malformed _ -> R.error_msgf "Invalid email"
+    | `Await extract ->
+    match input ic buf 0 (Bytes.length buf) with
+    | 0 -> go (Uspf.Extract.src extract "" 0 0)
+    | len when newline = `CRLF ->
+        go (Uspf.Extract.src extract (Bytes.sub_string buf 0 len) 0 len)
+    | len ->
+        let str = Bytes.sub_string buf 0 len in
+        let str = String.split_on_char '\n' str in
+        let str = String.concat "\r\n" str in
+        let len = String.length str in
+        go (Uspf.Extract.src extract str 0 len) in
+  go (Uspf.Extract.extractor ())
 
 let impossible_to_stamp =
   `Error (false, "Impossible to stamp the incoming email with Received-SPF")
@@ -96,12 +108,12 @@ let stamp quiet hostname resolver sender helo ip input output =
     | None -> (stdout, ignore) in
   let ctx = ctx sender helo ip in
   match check dns ctx with
-  | Ok res when quiet -> begin
+  | Some res when quiet -> begin
       match res with
       | `Pass _ | `None | `Neutral -> `Ok ()
       | `Fail | `Softfail | `Permerror | `Temperror -> impossible_to_stamp
     end
-  | Ok res ->
+  | Some res ->
       let field_name, unstrctrd = Uspf.to_field ~ctx ~receiver:hostname res in
       Fmt.pr "%a: %s\n%!" Mrmime.Field_name.pp field_name
         (unstrctrd_to_utf_8_string_with_lf unstrctrd) ;
@@ -113,7 +125,7 @@ let stamp quiet hostname resolver sender helo ip input output =
         | `Pass _ | `None | `Neutral -> `Ok ()
         | _ (* Fail | Softfail | Permerror | Temperror *) -> impossible_to_stamp
       end
-  | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
+  | None -> impossible_to_stamp
 
 let to_exit_code results =
   let res = ref true in
@@ -180,14 +192,14 @@ let analyze quiet resolver input =
     Mirage_crypto_rng_miou_unix.kill rng ;
     close_ic ic in
   Fun.protect ~finally @@ fun () ->
-  let res = extract_received_spf ~newline:Uspf.LF ic in
+  let res = extract_received_spf ~newline:`LF ic in
   match res with
   | Ok extracted ->
       let results =
         List.fold_left
-          (fun acc { Uspf.result; ctx; sender; ip; _ } ->
+          (fun acc { Uspf.Extract.result; ctx; sender; ip; _ } ->
             match check dns ctx with
-            | Ok v -> (sender, ip, result, v) :: acc
+            | Some v -> (sender, ip, result, v) :: acc
             | _ -> acc)
           [] extracted in
       if quiet then to_exit_code results else show_results results
