@@ -1,6 +1,6 @@
 Tests on DMARC fields
   $ export BLAZE_DNS_STATIC=cache
-  $ blaze dmarc verify 001.mail -o 001.dmarc
+  $ blaze dmarc verify --hostname omelet 001.mail -o 001.dmarc
   $ head -n8 001.dmarc
   Authentication-Results: omelet;
    spf=pass (omelet: domain of
@@ -10,7 +10,7 @@ Tests on DMARC fields
    dkim=pass header.i=@sendgrid.info header.s=smtpapi header.b=iIicLeoJ;
    dmarc=pass (p=REJECT sp=REJECT) header.from=github.com;
    
-  $ blaze dmarc verify 002.mail -o 002.dmarc
+  $ blaze dmarc verify --hostname omelet 002.mail -o 002.dmarc
   $ head -n6 002.dmarc
   Authentication-Results: omelet;
    spf=pass (omelet: domain of noreply@github.com designates 192.30.252.192 as
@@ -18,7 +18,7 @@ Tests on DMARC fields
    dkim=pass header.i=@github.com header.s=pf2014 header.b=1crXUDuJ;
    dmarc=pass (p=REJECT sp=REJECT) header.from=github.com;
    
-  $ blaze dmarc verify 003.mail -o 003.dmarc
+  $ blaze dmarc verify --hostname omelet 003.mail -o 003.dmarc
   $ head -n6 003.dmarc
   Authentication-Results: omelet;
    spf=fail (omelet: domain of tbraibant@janestreet.com does not designates
@@ -26,7 +26,7 @@ Tests on DMARC fields
    dkim=pass header.i=@janestreet.com header.s=google header.b=MglJGvGH;
    dmarc=pass (p=QUARANTINE sp=QUARANTINE) header.from=janestreet.com;
    
-  $ blaze dmarc verify 004.mail -o 004.dmarc
+  $ blaze dmarc verify --hostname omelet 004.mail -o 004.dmarc
   $ head -n7 004.dmarc
   Authentication-Results: omelet;
    spf=pass (omelet: domain of
