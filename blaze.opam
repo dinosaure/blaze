@@ -60,5 +60,5 @@ pin-depends: [
   [ "dmarc.dev"              "git+https://github.com/dinosaure/ocaml-dmarc.git#48bec0b9e8dac83c4390da3e89794707d6613ac9" ]
   [ "public-suffix.dev"      "git+https://github.com/dinosaure/ocaml-dmarc.git#48bec0b9e8dac83c4390da3e89794707d6613ac9" ]
   [ "dkim.dev"               "git+https://github.com/mirage/ocaml-dkim.git#ccb08d1a102353c312f87df6780153695ef56219" ]
-  [ "uspf.dev"               "git+https://github.com/mirage/uspf.git#9e6657966e91286ed6f630f390274a3f79258c80" ]
+  [ "uspf.dev"               "git+https://github.com/mirage/uspf.git#8e829f5dd624d0c05f57e8970d98230ec049fb50" ]
 ]
