@@ -1,4 +1,50 @@
 (library
  (name dns_static)
  (public_name blaze.dns-static)
+ (modules dns_static)
  (libraries bos logs rresult dns dns-client-miou-unix fpath astring))
+
+(library
+ (name email)
+ (public_name blaze.email)
+ (modules email)
+ (libraries logs unix fpath encore mrmime))
+
+(library
+ (name protocol)
+ (public_name blaze.protocol)
+ (modules protocol)
+ (libraries hxd.core hxd.string logs fmt))
+
+(library
+ (name pop3)
+ (public_name blaze.pop3)
+ (modules pop3)
+ (libraries astring blaze.protocol))
+
+(library
+ (name pop3_miou_unix)
+ (public_name blaze.pop3-miou-unix)
+ (modules pop3_miou_unix)
+ (libraries
+  hxd.core
+  hxd.string
+  tls-miou-unix
+  happy-eyeballs-miou-unix
+  ca-certs
+  blaze.pop3
+  miou.unix))
+
+(library
+ (name mbox)
+ (public_name blaze.mbox)
+ (modules mbox mbox_lexer)
+ (libraries hxd.core hxd.string logs))
+
+(ocamllex mbox_lexer)
+
+(library
+ (name pack)
+ (public_name blaze.pack)
+ (modules pack)
+ (libraries digestif carton-miou-unix blaze.email))

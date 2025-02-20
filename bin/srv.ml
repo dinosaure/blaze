@@ -1,6 +1,6 @@
 open Rresult
 
-let ( <.> ) f g x = f (g x)
+let ( % ) f g x = f (g x)
 let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 
 let add_sub str ~start ~stop acc =
@@ -120,17 +120,16 @@ let run : Unix.file_descr -> ('a, 'err) Colombe.State.t -> ('a, 'err) result =
   let rec go = function
     | Colombe.State.Read { buffer; off; len; k } -> (
         match Unix.read flow buffer off len with
-        | 0 -> (go <.> k) `End
-        | len -> (go <.> k) (`Len len))
+        | 0 -> (go % k) `End
+        | len -> (go % k) (`Len len))
     | Colombe.State.Write { buffer; off; len; k } ->
         let len = Unix.write flow (Bytes.unsafe_of_string buffer) off len in
-        (go <.> k) len
+        (go % k) len
     | Colombe.State.Return v -> Ok v
     | Colombe.State.Error err -> Error err in
   go state
 
-let receive :
-    type ctx error.
+let receive : type ctx error.
     (module MONAD with type context = ctx and type error = error) ->
     sockaddr:Unix.sockaddr ->
     domain:'host Domain_name.t ->
@@ -213,8 +212,8 @@ let handle ~sockaddr ~domain flow =
     type decoder = Decoder.decoder
     type encoder = Encoder.encoder
 
-    let encode :
-        type a. encoder -> a send -> a -> (unit, [> Encoder.error ]) State.t =
+    let encode : type a.
+        encoder -> a send -> a -> (unit, [> Encoder.error ]) State.t =
      fun encoder w v ->
       let fiber : a send -> [> Encoder.error ] Encoder.state = function
         | Payload ->
@@ -234,9 +233,9 @@ let handle ~sockaddr ~domain flow =
       let rec go = function
         | Encoder.Done -> State.Return ()
         | Encoder.Write { continue; buffer; off; len } ->
-            State.Write { k = go <.> continue; buffer; off; len }
+            State.Write { k = go % continue; buffer; off; len }
         | Encoder.Error err -> State.Error err in
-      (go <.> fiber) w
+      (go % fiber) w
 
     let decode : type a. decoder -> a recv -> (a, [> Decoder.error ]) State.t =
      fun decoder w ->
@@ -255,7 +254,7 @@ let handle ~sockaddr ~domain flow =
       let rec go = function
         | Decoder.Done v -> k v
         | Decoder.Read { buffer; off; len; continue } ->
-            State.Read { k = go <.> continue; buffer; off; len }
+            State.Read { k = go % continue; buffer; off; len }
         | Decoder.Error { error; _ } -> State.Error error in
       go (Request.Decoder.request ~relax:true decoder)
   end in
@@ -276,8 +275,8 @@ let handle_with_starttls ~tls ~sockaddr ~domain flow =
     type decoder = Decoder.decoder
     type encoder = Encoder.encoder
 
-    let encode :
-        type a. encoder -> a send -> a -> (unit, [> Encoder.error ]) State.t =
+    let encode : type a.
+        encoder -> a send -> a -> (unit, [> Encoder.error ]) State.t =
      fun encoder w v ->
       let fiber : a send -> [> Encoder.error ] Encoder.state = function
         | Payload ->
@@ -297,9 +296,9 @@ let handle_with_starttls ~tls ~sockaddr ~domain flow =
       let rec go = function
         | Encoder.Done -> State.Return ()
         | Encoder.Write { continue; buffer; off; len } ->
-            State.Write { k = go <.> continue; buffer; off; len }
+            State.Write { k = go % continue; buffer; off; len }
         | Encoder.Error err -> State.Error err in
-      (go <.> fiber) w
+      (go % fiber) w
 
     let decode : type a. decoder -> a recv -> (a, [> Decoder.error ]) State.t =
      fun decoder w ->
@@ -318,16 +317,16 @@ let handle_with_starttls ~tls ~sockaddr ~domain flow =
       let rec go = function
         | Decoder.Done v -> k v
         | Decoder.Read { buffer; off; len; continue } ->
-            State.Read { k = go <.> continue; buffer; off; len }
+            State.Read { k = go % continue; buffer; off; len }
         | Decoder.Error { error; _ } -> State.Error error in
       go (Request.Decoder.request ~relax:true decoder)
 
     let encode_without_tls ctx v w =
       let rec go = function
         | State.Read { k; buffer; off; len } ->
-            State.Read { k = go <.> k; buffer; off; len }
+            State.Read { k = go % k; buffer; off; len }
         | State.Write { k; buffer; off; len } ->
-            State.Write { k = go <.> k; buffer; off; len }
+            State.Write { k = go % k; buffer; off; len }
         | State.Return v -> Return v
         | State.Error err -> Error err in
       go (encode ctx v w)
@@ -335,9 +334,9 @@ let handle_with_starttls ~tls ~sockaddr ~domain flow =
     let decode_without_tls ctx w =
       let rec go = function
         | State.Read { k; buffer; off; len } ->
-            State.Read { k = go <.> k; buffer; off; len }
+            State.Read { k = go % k; buffer; off; len }
         | State.Write { k; buffer; off; len } ->
-            State.Write { k = go <.> k; buffer; off; len }
+            State.Write { k = go % k; buffer; off; len }
         | State.Return v -> Return v
         | State.Error err -> Error err in
       go (decode ctx w)
@@ -346,7 +345,8 @@ let handle_with_starttls ~tls ~sockaddr ~domain flow =
   let module Monad = struct
     type context = Sendmail_with_starttls.Context_with_tls.t
 
-    include State.Scheduler (Sendmail_with_starttls.Context_with_tls) (Value_with_tls)
+    include
+      State.Scheduler (Sendmail_with_starttls.Context_with_tls) (Value_with_tls)
   end in
   let ctx = Sendmail_with_starttls.Context_with_tls.make () in
   let res =
@@ -397,21 +397,22 @@ let show ~with_metadata ~domain_from ~from:(from, _) ~recipients mail output =
   | `Simple path ->
       let oc = open_out (Fpath.to_string path) in
       output_string oc mail
-  | `Multiple (dir, fmt) ->
+  | `Multiple (dir, fmt) -> (
       let ( let* ) = Result.bind in
-      begin let* path = Bos.OS.File.tmp ~dir fmt in
-      let oc = open_out (Fpath.to_string path) in
-      output_string oc mail;
-      close_out oc; Ok () end |> function
+      (let* path = Bos.OS.File.tmp ~dir fmt in
+       let oc = open_out (Fpath.to_string path) in
+       output_string oc mail ;
+       close_out oc ;
+       Ok ())
+      |> function
       | Ok () -> ()
-      | Error (`Msg msg) -> Fmt.epr "%s.\n%!" msg
+      | Error (`Msg msg) -> Fmt.epr "%s.\n%!" msg)
 
-let is_simple = function
-  | `Simple _ -> true
-  | `Multiple _ -> false
+let is_simple = function `Simple _ -> true | `Multiple _ -> false
 
 let serve with_metadata kind sockaddr domain output =
-  let socket = Unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0 in
+  let socket =
+    Unix.socket (Unix.domain_of_sockaddr sockaddr) Unix.SOCK_STREAM 0 in
   Unix.setsockopt socket SO_REUSEPORT true ;
   let lift = function
     | Ok v -> Ok v
@@ -433,9 +434,7 @@ let serve with_metadata kind sockaddr domain output =
     | Ok `Quit -> go socket
     | Ok (`Mail (domain_from, from, recipients, mail)) ->
         show ~with_metadata ~domain_from ~from ~recipients mail output ;
-        if is_simple output
-        then Ok (Unix.close socket)
-        else go socket
+        if is_simple output then Ok (Unix.close socket) else go socket
     | Error err ->
         Fmt.epr "[%a][%a]: %a.\n%!"
           Fmt.(styled `Red string)
@@ -467,25 +466,25 @@ let sockaddr_of_bind_name = function
   | `Unix path -> Ok (Unix.ADDR_UNIX (Fpath.to_string path))
   | `Host (host, port) ->
   match Unix.gethostbyname (Domain_name.to_string host) with
-  | { Unix.h_addr_list= [||]; _ } -> R.error_msgf "Unknown domain-name %a" Domain_name.pp host
+  | { Unix.h_addr_list = [||]; _ } ->
+      R.error_msgf "Unknown domain-name %a" Domain_name.pp host
   | { Unix.h_addr_list; _ } -> Ok (Unix.ADDR_INET (h_addr_list.(0), port))
 
 type output =
-  [ `Simple of Fpath.t
-  | `Multiple of Fpath.t * Bos.OS.File.tmp_name_pat ]
+  [ `Simple of Fpath.t | `Multiple of Fpath.t * Bos.OS.File.tmp_name_pat ]
 
 let run with_metadata pk cert bind_name domain (output : output) =
   let ( let* ) = Result.bind in
   let* sockaddr = sockaddr_of_bind_name bind_name in
   match (pk, cert) with
   | None, None -> serve with_metadata `Clear sockaddr domain output
-  | Some pk, Some cert -> begin
-      match private_key_of_file pk, certificate_of_file cert with
+  | Some pk, Some cert -> (
+      match (private_key_of_file pk, certificate_of_file cert) with
       | Ok pk, Ok cert ->
-          let* tls = Tls.Config.server ~certificates:(`Single ([ cert ], pk)) () in
+          let* tls =
+            Tls.Config.server ~certificates:(`Single ([ cert ], pk)) () in
           serve with_metadata (`Tls tls) sockaddr domain output
-      | Error (`Msg _) as err, _
-      | _, (Error (`Msg _) as err) -> err end
+      | (Error (`Msg _) as err), _ | _, (Error (`Msg _) as err) -> err)
   | Some _, None | None, Some _ ->
       error_msgf "Missing elements to initiate a STARTTLS server."
 
@@ -537,53 +536,58 @@ let bind_name =
   let open Arg in
   value & pos 0 bind_name default_bind_name & info [] ~docv:"ADDRESS" ~doc
 
-let fmt : (string -> string, Format.formatter, unit, string) format4 option Term.t =
+let fmt :
+    (string -> string, Format.formatter, unit, string) format4 option Term.t =
   let doc = "The format of incoming emails saved into the given directory." in
   let parser str =
     let proof = CamlinternalFormatBasics.(String_ty End_of_fmtty) in
     try Ok (CamlinternalFormat.format_of_string_fmtty str proof)
     with _ -> error_msgf "Invalid format: %S" str in
-  let pp ppf (CamlinternalFormatBasics.Format (_, str)) =
-    Fmt.pf ppf "%S" str in
+  let pp ppf (CamlinternalFormatBasics.Format (_, str)) = Fmt.pf ppf "%S" str in
   let fmt = Arg.conv (parser, pp) in
   let open Arg in
   value & opt (some fmt) None & info [ "format" ] ~doc
 
 let output =
   let doc = "The path of the received email." in
-  let parser str = match Fpath.of_string str with
+  let parser str =
+    match Fpath.of_string str with
     | Ok v ->
-      if Sys.file_exists str && Sys.is_directory str
-      then Ok (Fpath.to_dir_path v)
-      else if Sys.file_exists str
-      then error_msgf "%a already exists" Fpath.pp v
-      else Ok v
+        if Sys.file_exists str && Sys.is_directory str
+        then Ok (Fpath.to_dir_path v)
+        else if Sys.file_exists str
+        then error_msgf "%a already exists" Fpath.pp v
+        else Ok v
     | Error _ as err -> err in
   let output = Arg.conv (parser, Fpath.pp) in
   Arg.(value & opt (some output) None & info [ "o"; "output" ] ~doc)
 
-let default_fmt : (string -> string, Format.formatter, unit, string) format4 = "blaze-%s.eml"
+let default_fmt : (string -> string, Format.formatter, unit, string) format4 =
+  "blaze-%s.eml"
 
 let setup_output output fmt : (output, [> `Msg of string ]) result =
   let ( let* ) = Result.bind in
-  match output, fmt with
+  match (output, fmt) with
   | None, Some _ ->
-    Result.error (`Msg "A directory is required to store incoming emails.")
+      Result.error (`Msg "A directory is required to store incoming emails.")
   | Some output, fmt ->
-    if Fpath.is_dir_path output
-    then
-      let* _ = Bos.OS.Dir.create ~path:true output in
-      let fmt = Option.value ~default:default_fmt fmt in
-      Ok (`Multiple (output, fmt))
-    else begin
-      if Option.is_some fmt
-      then Log.warn (fun m -> m "The format argument is useless, we will handle only one incoming email");
-      Ok (`Simple output)
-    end
+      if Fpath.is_dir_path output
+      then
+        let* _ = Bos.OS.Dir.create ~path:true output in
+        let fmt = Option.value ~default:default_fmt fmt in
+        Ok (`Multiple (output, fmt))
+      else (
+        if Option.is_some fmt
+        then
+          Log.warn (fun m ->
+              m
+                "The format argument is useless, we will handle only one \
+                 incoming email") ;
+        Ok (`Simple output))
   | None, None ->
-    let* tmp = Bos.OS.File.tmp "blaze-%s.eml" in
-    Fmt.pr "The incoming email will be saved into: %a\n%!" Fpath.pp tmp;
-    Ok (`Simple tmp)
+      let* tmp = Bos.OS.File.tmp "blaze-%s.eml" in
+      Fmt.pr "The incoming email will be saved into: %a\n%!" Fpath.pp tmp ;
+      Ok (`Simple tmp)
 
 let setup_output =
   let open Term in
@@ -595,14 +599,6 @@ let domain = Arg.conv (Domain_name.of_string, Domain_name.pp)
 let domain =
   let doc = "Hostname of the machine." in
   Arg.(value & opt domain default_domain & info [ "h"; "hostname" ] ~doc)
-
-let existing_file =
-  let parser str =
-    match Fpath.of_string str with
-    | Ok _ as v when Sys.file_exists str -> v
-    | Ok v -> R.error_msgf "%a does not exist" Fpath.pp v
-    | Error _ as err -> err in
-  Arg.conv (parser, Fpath.pp)
 
 let private_key =
   let doc = "Private key to initiate the STARTTLS extension." in
@@ -626,16 +622,15 @@ let cmd =
       `S Manpage.s_description;
       `P "$(tname) launches a SMTP server to receive an email.";
     ] in
-  Cmd.v (Cmd.info "srv" ~doc ~man)
-    Term.(
-      ret
-        (const run
-        $ setup_logs
-        $ with_metadata
-        $ private_key
-        $ certificate
-        $ bind_name
-        $ domain
-        $ setup_output))
-
-let () = Cmd.(exit @@ eval cmd)
+  let term =
+    let open Term in
+    ret
+      (const run
+      $ setup_logs
+      $ with_metadata
+      $ private_key
+      $ certificate
+      $ bind_name
+      $ domain
+      $ setup_output) in
+  Cmd.v (Cmd.info "srv" ~doc ~man) term

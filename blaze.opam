@@ -42,6 +42,9 @@ depends: [
   "uri" {>= "4.2.0"}
   "ipaddr" {>= "5.2.0"}
   "cstruct"
+  "encore"
+  "progress"
+  "carton-miou-unix"
   "dmarc"
   "ke" {>= "0.4"}
   "mirage-crypto-rng-miou-unix"
@@ -54,6 +57,8 @@ build: [
 dev-repo: "git+https://github.com/dinosaure/blaze.git"
 pin-depends: [
   [ "maildir.dev"            "git+https://github.com/dinosaure/ocaml-maildir.git#597823c7d2d4fd2aef26a581f6828f2b458371ea" ]
-  [ "dmarc.dev"              "git+https://github.com/dinosaure/ocaml-dmarc.git#72a284cf9f08abdfaa3d8a1b2d89c669349a545f" ]
-  [ "public-suffix.dev"      "git+https://github.com/dinosaure/ocaml-dmarc.git#72a284cf9f08abdfaa3d8a1b2d89c669349a545f" ]
+  [ "dmarc.dev"              "git+https://github.com/dinosaure/ocaml-dmarc.git#48bec0b9e8dac83c4390da3e89794707d6613ac9" ]
+  [ "public-suffix.dev"      "git+https://github.com/dinosaure/ocaml-dmarc.git#48bec0b9e8dac83c4390da3e89794707d6613ac9" ]
+  [ "dkim.dev"               "git+https://github.com/mirage/ocaml-dkim.git#0219f01db7f77926150311a97ca2cf7901de948c" ]
+  [ "uspf.dev"               "git+https://github.com/mirage/uspf.git#8e829f5dd624d0c05f57e8970d98230ec049fb50" ]
 ]

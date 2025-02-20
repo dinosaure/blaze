@@ -1,4 +1,4 @@
-version = 0.24.1
+version = 0.27.0
 break-infix = fit-or-vertical
 parse-docstrings = true
 indicate-multiline-delimiters=no
@@ -6,3 +6,4 @@ nested-match=align
 sequence-style=separator
 break-before-in=auto
 if-then-else=keyword-first
+exp-grouping=preserve

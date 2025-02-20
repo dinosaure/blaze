@@ -1,6 +1,6 @@
 Tests on put
   $ echo "J'adore le concombre salé." > text
-  $ blaze.make --date none --encoding quoted-printable <<EOF | blaze.make wrap --boundary foobar | blaze.make put --encoding quoted-printable text
+  $ blaze make --date none --encoding quoted-printable <<EOF | blaze make wrap --boundary foobar | blaze make put --encoding quoted-printable text
   > Волим слани краставац.
   > EOF
   Content-Type: multipart/mixed; boundary=foobar
@@ -20,7 +20,7 @@ Tests on put
   J'adore=20le=20concombre=20sal=C3=A9.
   
   --foobar--
-  $ blaze.make --date none <<EOF | blaze.make wrap --boundary foobar | blaze.make put --encoding base64 text
+  $ blaze make --date none <<EOF | blaze make wrap --boundary foobar | blaze make put --encoding base64 text
   > EOF
   Content-Type: multipart/mixed; boundary=foobar
   MIME-Version: 1.0

@@ -1,0 +1,1 @@
+txt:v=DMARC1; p=reject; pct=100; rua=mailto:dmarc@github.com

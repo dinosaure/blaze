@@ -1,5 +1,5 @@
 Test on send command
-  $ blaze.send --verbosity=error -h omelet --sender admin@blaze.org -r romain.calascibetta@gmail.com - - <<EOF
+  $ blaze send --verbosity=error -h omelet --sender admin@blaze.org -r romain.calascibetta@gmail.com - - <<EOF
   > From: admin@blaze.org
   > To: romain.calascibetta@gmail.com
   > Subject: Hello Blaze!
@@ -17,7 +17,7 @@ Test on send command
   Hello fellow!
   .
   QUIT
-  $ blaze.send --verbosity=error -h omelet --sender foo@bar -r a@foo -r b@foo - - <<EOF
+  $ blaze send --verbosity=error -h omelet --sender foo@bar -r a@foo -r b@foo - - <<EOF
   > EOF
   EHLO omelet
   MAIL FROM:<foo@bar>

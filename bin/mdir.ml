@@ -129,17 +129,18 @@ let flags =
 let get =
   let doc = "Load and store the given message to the $(i,output)." in
   let man = [] in
-  Cmd.v (Cmd.info "get" ~doc ~man)
-    Term.(
-      ret
-        (const get
-        $ setup_logs
-        $ setup_random
-        $ hostname
-        $ maildir
-        $ new_message
-        $ message
-        $ output))
+  let term =
+    let open Term in
+    ret
+      (const get
+      $ setup_logs
+      $ setup_random
+      $ hostname
+      $ maildir
+      $ new_message
+      $ message
+      $ output) in
+  Cmd.v (Cmd.info "get" ~doc ~man) term
 
 let new_messages =
   let doc = "Scan and show new messages from the given $(i,maildir)." in
@@ -148,9 +149,11 @@ let new_messages =
       `S Manpage.s_description;
       `P "From the given $(i,maildir), $(b,new) shows new messages.";
     ] in
-  Cmd.v (Cmd.info "new" ~doc ~man)
-    Term.(
-      ret (const new_messages $ setup_logs $ setup_random $ hostname $ maildir))
+  let term =
+    let open Term in
+    ret (const new_messages $ setup_logs $ setup_random $ hostname $ maildir)
+  in
+  Cmd.v (Cmd.info "new" ~doc ~man) term
 
 let commit =
   let doc =
@@ -161,22 +164,22 @@ let commit =
       `S Manpage.s_description;
       `P "Tag and move the specified message from the given $(i,maildir).";
     ] in
-  Cmd.v
-    (Cmd.info "commit" ~doc ~man)
-    Term.(
-      ret
-        (const commit
-        $ setup_logs
-        $ setup_random
-        $ hostname
-        $ maildir
-        $ flags
-        $ new_message
-        $ message))
+  let term =
+    let open Term in
+    ret
+      (const commit
+      $ setup_logs
+      $ setup_random
+      $ hostname
+      $ maildir
+      $ flags
+      $ new_message
+      $ message) in
+  Cmd.v (Cmd.info "commit" ~doc ~man) term
 
 let default = Term.(ret (const (`Help (`Pager, None))))
 
-let () =
+let cmd =
   let doc = "A tool to manipulate a $(i,maildir) directory." in
   let man =
     [
@@ -185,7 +188,4 @@ let () =
         "From the given $(i,maildir) and the message $(i,id), $(b,get) loads \
          and shows the entire message.";
     ] in
-  let cmd =
-    Cmd.group ~default (Cmd.info "mdir" ~doc ~man) [ get; new_messages; commit ]
-  in
-  Cmd.(exit @@ eval cmd)
+  Cmd.group ~default (Cmd.info "mdir" ~doc ~man) [ get; new_messages; commit ]

@@ -8,45 +8,52 @@ let caml =
   let open Caml_scheduler in
   { Colombe.Sigs.bind = (fun x f -> f (prj x)); return = inj }
 
-let ( <.> ) f g = fun x -> f (g x)
+let ( % ) f g x = f (g x)
 
-let to_msg_error = Result.map_error @@ function
+let to_msg_error =
+  Result.map_error @@ function
   | `Msg _ as msg -> msg
   | #Sendmail_with_starttls.error as err ->
-    R.msgf "%a" Sendmail_with_starttls.pp_error err
+      R.msgf "%a" Sendmail_with_starttls.pp_error err
 
 module Sendmail_unix = struct
   open Colombe
 
-  module Miou_scheduler = Sigs.Make (struct type 'a t = 'a end)
-  
+  module Miou_scheduler = Sigs.Make (struct
+    type 'a t = 'a
+  end)
+
   let miou =
     let open Miou_scheduler in
-    { Sigs.bind = (fun x f -> (f <.> prj) x); return = inj }
-  
+    { Sigs.bind = (fun x f -> (f % prj) x); return = inj }
+
   type error = [ `Msg of string | Sendmail_with_starttls.error ]
-  
+
   let open_sendmail_error = function
     | Ok _ as v -> v
     | Error (#Sendmail.error as err) -> Error err
-  
+
   let open_sendmail_with_starttls_error = function
     | Ok _ as v -> v
     | Error (#Sendmail_with_starttls.error as err) -> Error err
-  
-  let open_error = function Ok _ as v -> v | Error (#error as err) -> Error err
-  
+
+  let open_error = function
+    | Ok _ as v -> v
+    | Error (#error as err) -> Error err
+
   let tcp =
     let open Miou_scheduler in
-    let rd flow buf off len = match Miou_unix.read flow buf ~off ~len with
-      | 0 -> inj `End | len -> inj (`Len len)
+    let rd flow buf off len =
+      match Miou_unix.read flow buf ~off ~len with
+      | 0 -> inj `End
+      | len -> inj (`Len len)
     and wr flow buf off len = inj (Miou_unix.write flow buf ~off ~len) in
-    { Colombe.Sigs.rd; wr; }
+    { Colombe.Sigs.rd; wr }
 
-  let authenticator
-    : (X509.Authenticator.t, [ `Msg of string ]) result Miou.Lazy.t
-    = Miou.Lazy.from_fun Ca_certs.authenticator
-  
+  let authenticator :
+      (X509.Authenticator.t, [ `Msg of string ]) result Miou.Lazy.t =
+    Miou.Lazy.from_fun Ca_certs.authenticator
+
   let tls_config user's_tls_config user's_authenticator =
     match user's_tls_config with
     | Some cfg -> Ok cfg
@@ -56,21 +63,23 @@ module Sendmail_unix = struct
           match (Miou.Lazy.force authenticator, user's_authenticator) with
           | Ok authenticator, None -> Ok authenticator
           | _, Some authenticator -> Ok authenticator
-          | (Error (`Msg msg)), None -> Error (`Msg msg) in
+          | Error (`Msg msg), None -> Error (`Msg msg) in
         Tls.Config.client ~authenticator ()
 
-  let sendmail ?encoder ?decoder ?queue unix ~domain
-      ?cfg:user's_tls_config ?authenticator:user's_authenticator ?authentication
-      sender recipients mail =
+  let sendmail ?encoder ?decoder ?queue unix ~domain ?cfg:user's_tls_config
+      ?authenticator:user's_authenticator ?authentication sender recipients mail
+      =
     let ( let* ) = Result.bind in
     let mail () = Miou_scheduler.inj (mail ()) in
     let* tls_cfg = tls_config user's_tls_config user's_authenticator in
     let socket = Unix.socket ~cloexec:true Unix.PF_UNIX Unix.SOCK_STREAM 0 in
-    Unix.connect socket (Unix.ADDR_UNIX (Fpath.to_string unix));
+    Unix.connect socket (Unix.ADDR_UNIX (Fpath.to_string unix)) ;
     let socket = Miou_unix.of_file_descr ~non_blocking:true socket in
     let finally () = Miou_unix.close socket in
     Fun.protect ~finally @@ fun () ->
-    let ctx = Sendmail_with_starttls.Context_with_tls.make ?encoder ?decoder ?queue () in
+    let ctx =
+      Sendmail_with_starttls.Context_with_tls.make ?encoder ?decoder ?queue ()
+    in
     Sendmail_with_starttls.sendmail miou tcp socket ctx tls_cfg ?authentication
       ~domain sender recipients mail
     |> Miou_scheduler.prj
@@ -82,14 +91,16 @@ let send authenticator he peer domain sender recipients mail =
   | `Host (domain_name, port) ->
       let destination = Domain_name.to_string domain_name in
       Sendmail_miou_unix.sendmail he ~destination ?port ~domain ?authenticator
-        sender recipients mail |> to_msg_error
+        sender recipients mail
+      |> to_msg_error
   | `Inet_addr (ipaddr, port) ->
       let destination = Ipaddr.to_string ipaddr in
       Sendmail_miou_unix.sendmail he ~destination ~port ~domain ?authenticator
-        sender recipients mail |> to_msg_error
+        sender recipients mail
+      |> to_msg_error
   | `Unix path ->
-      Sendmail_unix.sendmail path ~domain ?authenticator
-        sender recipients mail |> to_msg_error
+      Sendmail_unix.sendmail path ~domain ?authenticator sender recipients mail
+      |> to_msg_error
 
 let make_rdwr_from_strings lst =
   let lst = ref (List.map (fun str -> str ^ "\r\n") lst) in
@@ -143,9 +154,9 @@ let stream_of_fpath fpath =
         else Some (line ^ "\r\n", 0, String.length line + 2)
     | exception End_of_file ->
         if not !closed
-        then begin
+        then (
           close_in ic ;
-          closed := true end;
+          closed := true) ;
         None
 
 let has_at_least_one_domain =
@@ -157,9 +168,7 @@ let has_at_least_one_domain =
 let first_domain lst =
   let open Colombe.Forward_path in
   List.find
-    (function
-      | Postmaster -> false
-      | Domain _ | Forward_path _ -> true)
+    (function Postmaster -> false | Domain _ | Forward_path _ -> true)
     lst
   |> function
   | Domain domain -> domain
@@ -171,27 +180,29 @@ type peer_name =
   | `Host of [ `host ] Domain_name.t * int option
   | `Unix of Fpath.t ]
 
-type destination =
-  [ `Dry_run
-  | `Send of peer_name ]
+type destination = [ `Dry_run | `Send of peer_name ]
 
-type cfg =
-  { authenticator : X509.Authenticator.t option
-  ; happy_eyeballs : Happy_eyeballs_miou_unix.t
-  ; destination : destination option
-  ; domain : Colombe.Domain.t
-  ; sender : Colombe.Path.t
-  ; recipients : Colombe.Forward_path.t list
-  ; mail : Fpath.t option }
+type cfg = {
+  authenticator : X509.Authenticator.t option;
+  happy_eyeballs : Happy_eyeballs_miou_unix.t;
+  destination : destination option;
+  domain : Colombe.Domain.t;
+  sender : Colombe.Path.t;
+  recipients : Colombe.Forward_path.t list;
+  mail : Fpath.t option;
+}
 
 let run cfg =
-  let { authenticator
-      ; happy_eyeballs= he
-      ; destination
-      ; domain
-      ; sender
-      ; recipients
-      ; mail } = cfg in
+  let {
+    authenticator;
+    happy_eyeballs = he;
+    destination;
+    domain;
+    sender;
+    recipients;
+    mail;
+  } =
+    cfg in
   let sender = Some sender in
   let mail =
     match mail with
@@ -205,7 +216,8 @@ let run cfg =
       send authenticator he destination domain sender recipients mail
   | None, _ :: _ when has_at_least_one_domain recipients ->
       let ( let* ) = Result.bind in
-      let* destination = match first_domain recipients with
+      let* destination =
+        match first_domain recipients with
         | Colombe.Domain.IPv4 ipv4 -> Ok (`Inet_addr (Ipaddr.V4 ipv4, 25))
         | Colombe.Domain.IPv6 ipv6 -> Ok (`Inet_addr (Ipaddr.V6 ipv6, 25))
         | Colombe.Domain.Domain ds ->
@@ -213,7 +225,8 @@ let run cfg =
             let* domain_name = Domain_name.host domain_name in
             Ok (`Host (domain_name, None))
         | Colombe.Domain.Extension (k, v) ->
-            R.error_msgf "We don't support extensible domains: [%s:%s]" k v in
+            R.error_msgf "We don't support extensible domains: [%s:%s]" k v
+      in
       send authenticator he destination domain sender recipients mail
   | None, _ -> assert false
 
@@ -223,18 +236,22 @@ let to_exit_status = function
   | Ok () -> `Ok ()
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
-let run _ authenticator (daemon, happy_eyeballs) destination domain sender recipients mail =
+let run _ authenticator resolver destination domain sender recipients mail =
+  Miou_unix.run ~domains:0 @@ fun () ->
+  let daemon, happy_eyeballs = resolver () in
   let authenticator = Option.map (fun (fn, _) -> fn now) authenticator in
   let finally () = Happy_eyeballs_miou_unix.kill daemon in
   Fun.protect ~finally @@ fun () ->
   let cfg =
-    { authenticator
-    ; happy_eyeballs
-    ; destination
-    ; domain
-    ; sender
-    ; recipients
-    ; mail } in
+    {
+      authenticator;
+      happy_eyeballs;
+      destination;
+      domain;
+      sender;
+      recipients;
+      mail;
+    } in
   run cfg |> to_exit_status
 
 open Cmdliner
@@ -243,7 +260,8 @@ open Args
 let docs_tls = "TRANSPORT LAYER SECURITY"
 
 let authenticator =
-  let parser str = match X509.Authenticator.of_string str with
+  let parser str =
+    match X509.Authenticator.of_string str with
     | Ok authenticator -> Ok (authenticator, str)
     | Error _ as err -> err in
   let pp ppf (_, str) = Fmt.string ppf str in
@@ -254,7 +272,9 @@ let authenticator =
   let open Arg in
   value
   & opt (some authenticator) None
-  & info [ "a"; "auth"; "authenticator" ] ~doc ~docs:docs_tls ~docv:"AUTHENTICATOR"
+  & info
+      [ "a"; "auth"; "authenticator" ]
+      ~doc ~docs:docs_tls ~docv:"AUTHENTICATOR"
 
 let sender =
   let parser str =
@@ -267,46 +287,43 @@ let sender =
 let sender =
   let doc = "The sender of the given email." in
   let open Arg in
-  required
-  & opt (some sender) None
-  & info [ "s"; "sender" ] ~docv:"SENDER" ~doc
+  required & opt (some sender) None & info [ "s"; "sender" ] ~docv:"SENDER" ~doc
 
-let ( <$> ) f g = fun x -> match g x with
-  | Ok x -> f x | Error _ as err -> err
+let ( <$> ) f g x = match g x with Ok x -> f x | Error _ as err -> err
 
 let mx =
   let parser str =
     match str with
     | "-" -> Ok `Dry_run
-    | str ->
+    | str -> (
         let ( let* ) = Result.bind in
-        let as_domain = match String.split_on_char ':' str with
-          | [ str'; port ] ->
-              begin match int_of_string_opt port with
+        let as_domain =
+          match String.split_on_char ':' str with
+          | [ str'; port ] -> (
+              match int_of_string_opt port with
               | Some port ->
-                let* v = Domain_name.(host <$> of_string) str' in
-                Ok (v, Some port)
+                  let* v = Domain_name.(host <$> of_string) str' in
+                  Ok (v, Some port)
               | None ->
-                let* v = Domain_name.(host <$> of_string) str in
-                Ok (v, None) end
+                  let* v = Domain_name.(host <$> of_string) str in
+                  Ok (v, None))
           | _ ->
-            let* v = Domain_name.(host <$> of_string) str in
-            Ok (v, None) in
+              let* v = Domain_name.(host <$> of_string) str in
+              Ok (v, None) in
         let as_ipaddr = Ipaddr.with_port_of_string ~default:25 str in
         let as_file = Fpath.of_string str in
-        match as_domain, as_ipaddr, as_file with
+        match (as_domain, as_ipaddr, as_file) with
         | _, _, Ok v when Sys.file_exists str -> Ok (`Send (`Unix v))
         | Ok v, _, _ -> Ok (`Send (`Host v))
         | _, Ok (v, port), _ -> Ok (`Send (`Inet_addr (v, port)))
-        | _ -> R.error_msgf "Invalid mail exchange server: %S" str in
+        | _ -> R.error_msgf "Invalid mail exchange server: %S" str) in
   let pp ppf = function
     | `Dry_run -> Fmt.string ppf "-"
     | `Send (`Host (peer, (Some 25 | None))) ->
         Fmt.pf ppf "%a" Domain_name.pp peer
     | `Send (`Host (peer, Some port)) ->
         Fmt.pf ppf "%a:%d" Domain_name.pp peer port
-    | `Send (`Inet_addr (v, port)) ->
-        Fmt.pf ppf "%a:%d" Ipaddr.pp v port
+    | `Send (`Inet_addr (v, port)) -> Fmt.pf ppf "%a:%d" Ipaddr.pp v port
     | `Send (`Unix path) -> Fpath.pp ppf path in
   Arg.conv (parser, pp)
 
@@ -322,28 +339,30 @@ let hostname =
 let generate ~len =
   let res = Bytes.make len '\000' in
   for i = 0 to len - 1 do
-    let chr = match Random.int (26 + 26 + 10) with
+    let chr =
+      match Random.int (26 + 26 + 10) with
       | n when n < 26 -> Char.unsafe_chr (65 + n)
       | n when n < 26 + 26 -> Char.unsafe_chr (97 + n - 26)
       | n -> Char.unsafe_chr (48 + n - 26 - 26) in
     Bytes.set res i chr
-  done; Bytes.unsafe_to_string res
+  done ;
+  Bytes.unsafe_to_string res
 
 let default_hostname =
   let hostname = Unix.gethostname () in
   match Colombe.Domain.of_string hostname with
   | Ok domain -> domain
   | Error (`Msg _) ->
-    let random_hostname = Colombe.Domain.of_string_exn (generate ~len:16) in
-    Logs.warn (fun m -> m "Invalid default hostname: %S, use %a as the default hostname" hostname Colombe.Domain.pp random_hostname);
-    random_hostname
+      let random_hostname = Colombe.Domain.of_string_exn (generate ~len:16) in
+      Logs.warn (fun m ->
+          m "Invalid default hostname: %S, use %a as the default hostname"
+            hostname Colombe.Domain.pp random_hostname) ;
+      random_hostname
 
 let hostname =
   let doc = "Domain name of the machine." in
   let open Arg in
-  value
-  & opt hostname default_hostname
-  & info [ "h"; "hostname" ] ~doc
+  value & opt hostname default_hostname & info [ "h"; "hostname" ] ~doc
 
 let recipient =
   let parser str =
@@ -378,9 +397,7 @@ let cmd =
   let man =
     [
       `S Manpage.s_description;
-      `P
-        "$(tname) sends the given email to the specified mail exchange \
-         server.";
+      `P "$(tname) sends the given email to the specified mail exchange server.";
     ] in
   let open Term in
   let info = Cmd.info "send" ~doc ~man in
@@ -395,7 +412,3 @@ let cmd =
     $ recipients
     $ mail in
   Cmd.v info (ret term)
-
-let () = 
-  Miou_unix.run ~domains:0 @@ fun () ->
-  Cmd.(exit @@ eval cmd)

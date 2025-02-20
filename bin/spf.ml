@@ -1,34 +1,5 @@
 open Rresult
 
-module Caml_scheduler = Uspf.Sigs.Make (struct
-  type 'a t = 'a
-end)
-
-let state =
-  let open Uspf.Sigs in
-  let open Caml_scheduler in
-  { return = (fun x -> inj x); bind = (fun x f -> f (prj x)) }
-
-module DNS = struct
-  type t = Dns_static.t
-  and backend = Caml_scheduler.t
-
-  and error =
-    [ `Msg of string
-    | `No_data of [ `raw ] Domain_name.t * Dns.Soa.t
-    | `No_domain of [ `raw ] Domain_name.t * Dns.Soa.t ]
-
-  let getrrecord dns response domain_name =
-    Caml_scheduler.inj @@ Dns_static.get_resource_record dns response domain_name
-end
-
-module Flow = struct
-  type flow = in_channel
-  and backend = Caml_scheduler.t
-
-  let input ic tmp off len = Caml_scheduler.inj @@ input ic tmp off len
-end
-
 let ctx sender helo ip =
   Uspf.empty |> fun ctx ->
   Option.fold ~none:ctx
@@ -67,17 +38,64 @@ let unstrctrd_to_utf_8_string_with_lf l =
   Buffer.contents buf
 
 let check dns ctx =
-  Uspf.get ~ctx state dns (module DNS) |> Caml_scheduler.prj >>| fun record ->
-  Uspf.check ~ctx state dns (module DNS) record |> Caml_scheduler.prj
+  let eval : type a. dns:Dns_static.t -> a Uspf.t -> Uspf.Result.t option =
+   fun ~dns t ->
+    let rec go : type a. a Uspf.t -> a = function
+      | Request (domain_name, record, fn) ->
+          let resp = Dns_static.get_resource_record dns record domain_name in
+          go (fn resp)
+      | Return v -> v
+      | Map (x, fn) -> fn (go x)
+      | Tries lst -> List.iter (fun fn -> go (fn ())) lst
+      | Choose_on c ->
+      try go (c.fn ())
+      with Uspf.Result result ->
+        let none _ = Uspf.terminate result in
+        let some = Fun.id in
+        let fn =
+          match result with
+          | `None -> Option.fold ~none ~some c.none
+          | `Neutral -> Option.fold ~none ~some c.neutral
+          | `Fail -> Option.fold ~none ~some c.fail
+          | `Softfail -> Option.fold ~none ~some c.softfail
+          | `Temperror -> Option.fold ~none ~some c.temperror
+          | `Permerror -> Option.fold ~none ~some c.permerror
+          | `Pass m -> begin
+              fun () -> match c.pass with Some fn -> fn m | None -> none ()
+            end in
+        go (fn ()) in
+    match go t with exception Uspf.Result result -> Some result | _ -> None
+  in
+  eval ~dns (Uspf.get_and_check ctx)
 
-let extract_received_spf ?newline ic =
-  Uspf.extract_received_spf ?newline ic state (module Flow)
-  |> Caml_scheduler.prj
+let extract_received_spf ?(newline = `LF) ic =
+  let buf = Bytes.create 0x7ff in
+  let rec go extract =
+    match Uspf.Extract.extract extract with
+    | `Fields fields -> Ok fields
+    | `Malformed _ -> R.error_msgf "Invalid email"
+    | `Await extract ->
+    match input ic buf 0 (Bytes.length buf) with
+    | 0 -> go (Uspf.Extract.src extract "" 0 0)
+    | len when newline = `CRLF ->
+        go (Uspf.Extract.src extract (Bytes.sub_string buf 0 len) 0 len)
+    | len ->
+        let str = Bytes.sub_string buf 0 len in
+        let str = String.split_on_char '\n' str in
+        let str = String.concat "\r\n" str in
+        let len = String.length str in
+        go (Uspf.Extract.src extract str 0 len) in
+  go (Uspf.Extract.extractor ())
 
-let stamp quiet hostname (daemon, _he, dns) sender helo ip input output =
+let impossible_to_stamp =
+  `Error (false, "Impossible to stamp the incoming email with Received-SPF")
+
+let stamp quiet hostname resolver sender helo ip input output =
+  Miou_unix.run ~domains:0 @@ fun () ->
+  let daemon, _he, dns = resolver () in
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let finally () =
-    Happy_eyeballs_miou_unix.kill daemon;
+    Happy_eyeballs_miou_unix.kill daemon ;
     Mirage_crypto_rng_miou_unix.kill rng in
   Fun.protect ~finally @@ fun () ->
   let ic, close_ic =
@@ -90,23 +108,24 @@ let stamp quiet hostname (daemon, _he, dns) sender helo ip input output =
     | None -> (stdout, ignore) in
   let ctx = ctx sender helo ip in
   match check dns ctx with
-  | Ok res when quiet -> (
+  | Some res when quiet -> begin
       match res with
-      | `Pass _ | `None | `Neutral -> `Ok 0
-      | `Fail | `Softfail | `Permerror | `Temperror -> `Ok 1)
-  | Ok res ->
+      | `Pass _ | `None | `Neutral -> `Ok ()
+      | `Fail | `Softfail | `Permerror | `Temperror -> impossible_to_stamp
+    end
+  | Some res ->
       let field_name, unstrctrd = Uspf.to_field ~ctx ~receiver:hostname res in
       Fmt.pr "%a: %s\n%!" Mrmime.Field_name.pp field_name
         (unstrctrd_to_utf_8_string_with_lf unstrctrd) ;
       transmit ic oc ;
       close_ic ic ;
       close_oc oc ;
-      let res =
+      begin
         match res with
-        | `Pass _ | `None | `Neutral -> 0
-        | _ (* Fail | Softfail | Permerror | Temperror *) -> 1 in
-      `Ok res
-  | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
+        | `Pass _ | `None | `Neutral -> `Ok ()
+        | _ (* Fail | Softfail | Permerror | Temperror *) -> impossible_to_stamp
+      end
+  | None -> impossible_to_stamp
 
 let to_exit_code results =
   let res = ref true in
@@ -122,7 +141,7 @@ let to_exit_code results =
         ()
     | _ -> res := false in
   List.iter f results ;
-  if !res then `Ok 0 else `Ok 1
+  if !res then `Ok () else `Error (false, "Invalid SPF source.")
 
 let pp_expected ppf = function
   | `Pass -> Fmt.(styled `Green string) ppf "pass"
@@ -157,28 +176,30 @@ let show_results results =
         Fmt.pr "unidentified sender: %a (expected %a)\n%!" pp_result result
           pp_expected expected in
   List.iter f results ;
-  `Ok 0
+  `Ok ()
 (* XXX(dinosaure): [to_exit_codes results]? *)
 
-let analyze quiet (daemon, _he, dns) input =
+let analyze quiet newline resolver input =
+  Miou_unix.run ~domains:0 @@ fun () ->
+  let daemon, _he, dns = resolver () in
   let ic, close_ic =
     match input with
     | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
     | None -> (stdin, ignore) in
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let finally () =
-    Happy_eyeballs_miou_unix.kill daemon;
-    Mirage_crypto_rng_miou_unix.kill rng;
+    Happy_eyeballs_miou_unix.kill daemon ;
+    Mirage_crypto_rng_miou_unix.kill rng ;
     close_ic ic in
   Fun.protect ~finally @@ fun () ->
-  let res = extract_received_spf ~newline:Uspf.LF ic in
+  let res = extract_received_spf ~newline ic in
   match res with
   | Ok extracted ->
       let results =
         List.fold_left
-          (fun acc { Uspf.result; ctx; sender; ip; _ } ->
+          (fun acc { Uspf.Extract.result; ctx; sender; ip; _ } ->
             match check dns ctx with
-            | Ok v -> (sender, ip, result, v) :: acc
+            | Some v -> (sender, ip, result, v) :: acc
             | _ -> acc)
           [] extracted in
       if quiet then to_exit_code results else show_results results
@@ -187,31 +208,35 @@ let analyze quiet (daemon, _he, dns) input =
 open Cmdliner
 open Args
 
-let setup_resolver happy_eyeballs_cfg nameservers local =
-  let happy_eyeballs = match happy_eyeballs_cfg with
+let setup_resolver happy_eyeballs_cfg nameservers local () =
+  let happy_eyeballs =
+    match happy_eyeballs_cfg with
     | None -> None
-    | Some { aaaa_timeout
-           ; connect_delay
-           ; connect_timeout
-           ; resolve_timeout
-           ; resolve_retries } ->
-      Happy_eyeballs.create
-        ?aaaa_timeout ?connect_delay ?connect_timeout
-        ?resolve_timeout ?resolve_retries (Mtime_clock.elapsed_ns ())
-      |> Option.some in
+    | Some
+        {
+          aaaa_timeout;
+          connect_delay;
+          connect_timeout;
+          resolve_timeout;
+          resolve_retries;
+        } ->
+        Happy_eyeballs.create ?aaaa_timeout ?connect_delay ?connect_timeout
+          ?resolve_timeout ?resolve_retries
+          (Mtime_clock.elapsed_ns ())
+        |> Option.some in
   let ( let* ) = Result.bind in
   let daemon, he = Happy_eyeballs_miou_unix.create ?happy_eyeballs () in
   let dns = Dns_static.create ~nameservers ~local he in
   let getaddrinfo dns record domain_name =
     match record with
     | `A ->
-      let* ipaddr = Dns_static.gethostbyname dns domain_name in
-      Ok Ipaddr.(Set.singleton (V4 ipaddr))
+        let* ipaddr = Dns_static.gethostbyname dns domain_name in
+        Ok Ipaddr.(Set.singleton (V4 ipaddr))
     | `AAAA ->
-      let* ipaddr = Dns_static.gethostbyname6 dns domain_name in
-      Ok Ipaddr.(Set.singleton (V6 ipaddr)) in
-  Happy_eyeballs_miou_unix.inject he (getaddrinfo dns);
-  daemon, he, dns
+        let* ipaddr = Dns_static.gethostbyname6 dns domain_name in
+        Ok Ipaddr.(Set.singleton (V6 ipaddr)) in
+  Happy_eyeballs_miou_unix.inject he (getaddrinfo dns) ;
+  (daemon, he, dns)
 
 let setup_resolver =
   let open Term in
@@ -234,15 +259,16 @@ let input =
   let doc = "The email to check." in
   Arg.(value & pos 0 existing_file None & info [] ~doc)
 
-let new_file = Arg.conv (Fpath.of_string, Fpath.pp)
-
 let output =
   let doc = "The path of the produced email with the new Received-SPF field." in
+  let new_file = Arg.conv (Fpath.of_string, Fpath.pp) in
   Arg.(value & opt (some new_file) None & info [ "o"; "output" ] ~doc)
 
 let hostname =
-  let parser = Angstrom.(parse_string ~consume:Consume.All) Emile.Parser.domain in
-  let parser str = match parser str with
+  let parser =
+    Angstrom.(parse_string ~consume:Consume.All) Emile.Parser.domain in
+  let parser str =
+    match parser str with
     | Ok _ as value -> value
     | Error _ -> error_msgf "Invalid domain: %S" str in
   let pp = Emile.pp_domain in
@@ -251,30 +277,31 @@ let hostname =
 let generate ~len =
   let res = Bytes.make len '\000' in
   for i = 0 to len - 1 do
-    let chr = match Random.int (26 + 26 + 10) with
+    let chr =
+      match Random.int (26 + 26 + 10) with
       | n when n < 26 -> Char.unsafe_chr (65 + n)
       | n when n < 26 + 26 -> Char.unsafe_chr (97 + n - 26)
       | n -> Char.unsafe_chr (48 + n - 26 - 26) in
     Bytes.set res i chr
-  done; Bytes.unsafe_to_string res
+  done ;
+  Bytes.unsafe_to_string res
 
 let default_hostname =
   let str = Unix.gethostname () in
   match (fst hostname) str with
   | `Ok domain -> domain
   | `Error _ ->
-    let[@warning "-8"] ((`Ok random_hostname) : [ `Ok of _ | `Error of _ ]) =
-      (fst hostname) (generate ~len:16) in
-    Logs.warn (fun m -> m "Invalid default hostname: %S, use %a as the default hostname"
-      str Emile.pp_domain random_hostname);
-    random_hostname
+      let[@warning "-8"] (`Ok random_hostname : [ `Ok of _ | `Error of _ ]) =
+        (fst hostname) (generate ~len:16) in
+      Logs.warn (fun m ->
+          m "Invalid default hostname: %S, use %a as the default hostname" str
+            Emile.pp_domain random_hostname) ;
+      random_hostname
 
 let hostname =
   let doc = "Domain name of the machine." in
   let open Arg in
-  value
-  & opt hostname default_hostname
-  & info [ "h"; "hostname" ] ~doc
+  value & opt hostname default_hostname & info [ "h"; "hostname" ] ~doc
 
 let sender =
   let parser str =
@@ -337,16 +364,12 @@ let analyze =
     ] in
   let open Term in
   let info = Cmd.info "analyze" ~doc ~man in
-  let term =
-    const analyze
-    $ setup_logs
-    $ setup_resolver
-    $ input in
+  let term = const analyze $ setup_logs $ newline $ setup_resolver $ input in
   Cmd.v info (ret term)
-    
+
 let default = Term.(ret (const (`Help (`Pager, None))))
 
-let () =
+let cmd =
   let doc = "A tool to manipulate Received-SPF fields." in
   let man =
     [
@@ -358,6 +381,4 @@ let () =
         "Use $(tname) $(i,analyze) to check Received-SPF fields from the \
          incoming email.";
     ] in
-  let cmd = Cmd.group ~default (Cmd.info "spf" ~doc ~man) [ stamp; analyze ] in
-  Miou_unix.run ~domains:0 @@ fun () ->
-  Cmd.(exit @@ eval' cmd)
+  Cmd.group ~default (Cmd.info "spf" ~doc ~man) [ stamp; analyze ]

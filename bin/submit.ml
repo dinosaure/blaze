@@ -9,20 +9,22 @@ let caml =
   { Colombe.Sigs.bind = (fun x f -> f (prj x)); return = inj }
 
 let open_sendmail_with_starttls_error = function
-  | Ok _ as v -> v | Error #Sendmail_with_starttls.error as err -> err
+  | Ok _ as v -> v
+  | Error #Sendmail_with_starttls.error as err -> err
 
 let submit authenticator he
     (peer : [ `Host of 'a Domain_name.t | `Inet_addr of Ipaddr.t ] * int option)
     authentication domain sender recipients mail =
-  let destination = match fst peer with
+  let destination =
+    match fst peer with
     | `Host domain_name -> Domain_name.to_string domain_name
     | `Inet_addr ipaddr -> Ipaddr.to_string ipaddr in
   Sendmail_miou_unix.submit he ~destination ?port:(snd peer) ~domain
     ?authenticator ?authentication sender recipients mail
   |> Result.map_error @@ function
-  | `Msg _ as msg -> msg
-  | #Sendmail_with_starttls.error as err ->
-    R.msgf "%a" Sendmail_with_starttls.pp_error err
+     | `Msg _ as msg -> msg
+     | #Sendmail_with_starttls.error as err ->
+         R.msgf "%a" Sendmail_with_starttls.pp_error err
 
 let make_rdwr_from_strings lst =
   let lst = ref (List.map (fun str -> str ^ "\r\n") lst) in
@@ -90,38 +92,39 @@ let stream_of_fpath fpath =
         else Some (line ^ "\r\n", 0, String.length line + 2)
     | exception End_of_file ->
         if not !closed
-        then begin
+        then (
           close_in ic ;
-          closed := true
-        end;
+          closed := true) ;
         None
 
 type peer_name =
   [ `Inet_addr of Ipaddr.t | `Host of [ `host ] Domain_name.t ] * int option
 
-type destination =
-  [ `Dry_run
-  | `Submission of peer_name ]
+type destination = [ `Dry_run | `Submission of peer_name ]
 
-type cfg =
-  { authenticator : X509.Authenticator.t option
-  ; happy_eyeballs : Happy_eyeballs_miou_unix.t
-  ; destination : destination
-  ; authentication : string option
-  ; domain : Colombe.Domain.t
-  ; sender : Colombe.Path.t
-  ; recipients : Colombe.Forward_path.t list
-  ; mail : Fpath.t option }
+type cfg = {
+  authenticator : X509.Authenticator.t option;
+  happy_eyeballs : Happy_eyeballs_miou_unix.t;
+  destination : destination;
+  authentication : string option;
+  domain : Colombe.Domain.t;
+  sender : Colombe.Path.t;
+  recipients : Colombe.Forward_path.t list;
+  mail : Fpath.t option;
+}
 
 let run cfg =
-  let { authenticator
-      ; happy_eyeballs= he
-      ; destination
-      ; authentication
-      ; domain
-      ; sender
-      ; recipients
-      ; mail } = cfg in
+  let {
+    authenticator;
+    happy_eyeballs = he;
+    destination;
+    authentication;
+    domain;
+    sender;
+    recipients;
+    mail;
+  } =
+    cfg in
   let authentication =
     match authentication with
     | Some password ->
@@ -142,8 +145,8 @@ let run cfg =
       let mail () = Caml_scheduler.inj (mail ()) in
       dry_run authentication domain sender recipients mail
   | `Submission peer_name ->
-      submit authenticator he peer_name authentication domain sender
-        recipients mail
+      submit authenticator he peer_name authentication domain sender recipients
+        mail
 
 let now () = Some (Ptime_clock.now ())
 
@@ -151,23 +154,27 @@ let to_exit_status = function
   | Ok () -> `Ok ()
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
-let run _ authenticator (daemon, happy_eyeballs) destination authentication domain
-    sender recipients mail =
+let run _ authenticator resolver destination authentication domain sender
+    recipients mail =
+  Miou_unix.run ~domains:0 @@ fun () ->
+  let daemon, happy_eyeballs = resolver () in
   let authenticator = Option.map (fun (fn, _) -> fn now) authenticator in
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let finally () =
-    Happy_eyeballs_miou_unix.kill daemon;
+    Happy_eyeballs_miou_unix.kill daemon ;
     Mirage_crypto_rng_miou_unix.kill rng in
   Fun.protect ~finally @@ fun () ->
   let cfg =
-    { authenticator
-    ; happy_eyeballs
-    ; destination
-    ; authentication
-    ; domain
-    ; sender
-    ; recipients
-    ; mail } in
+    {
+      authenticator;
+      happy_eyeballs;
+      destination;
+      authentication;
+      domain;
+      sender;
+      recipients;
+      mail;
+    } in
   run cfg |> to_exit_status
 
 open Cmdliner
@@ -176,7 +183,8 @@ open Args
 let docs_tls = "TRANSPORT LAYER SECURITY"
 
 let authenticator =
-  let parser str = match X509.Authenticator.of_string str with
+  let parser str =
+    match X509.Authenticator.of_string str with
     | Ok authenticator -> Ok (authenticator, str)
     | Error _ as err -> err in
   let pp ppf (_, str) = Fmt.string ppf str in
@@ -187,7 +195,9 @@ let authenticator =
   let open Arg in
   value
   & opt (some authenticator) None
-  & info [ "a"; "auth"; "authenticator" ] ~doc ~docs:docs_tls ~docv:"AUTHENTICATOR"
+  & info
+      [ "a"; "auth"; "authenticator" ]
+      ~doc ~docs:docs_tls ~docv:"AUTHENTICATOR"
 
 let sender =
   let parser str =
@@ -208,7 +218,7 @@ let submission =
   let parser str =
     match str with
     | "-" -> Ok `Dry_run
-    | str ->
+    | str -> (
         let str, port =
           match String.split_on_char ':' str with
           | [ str'; port ] -> (
@@ -222,7 +232,7 @@ let submission =
         with
         | Ok v, _ -> Ok (`Submission (`Host v, port))
         | _, Ok v -> Ok (`Submission (`Inet_addr v, port))
-        | _ -> R.error_msgf "Invalid submission server: %S" str in
+        | _ -> R.error_msgf "Invalid submission server: %S" str) in
   let pp ppf = function
     | `Dry_run -> Fmt.string ppf "-"
     | `Submission (`Host peer, Some port) ->
@@ -235,7 +245,8 @@ let submission =
 
 let submission =
   let doc = "Domain name of the SMTP submission server." in
-  Arg.(required & pos 1 (some submission) None & info [] ~docv:"SUBMISSION" ~doc)
+  Arg.(
+    required & pos 1 (some submission) None & info [] ~docv:"SUBMISSION" ~doc)
 
 let authentication =
   let doc = "Password (if needed) of the sender." in
@@ -249,28 +260,30 @@ let hostname =
 let generate ~len =
   let res = Bytes.make len '\000' in
   for i = 0 to len - 1 do
-    let chr = match Random.int (26 + 26 + 10) with
+    let chr =
+      match Random.int (26 + 26 + 10) with
       | n when n < 26 -> Char.unsafe_chr (65 + n)
       | n when n < 26 + 26 -> Char.unsafe_chr (97 + n - 26)
       | n -> Char.unsafe_chr (48 + n - 26 - 26) in
     Bytes.set res i chr
-  done; Bytes.unsafe_to_string res
+  done ;
+  Bytes.unsafe_to_string res
 
 let default_hostname =
   let hostname = Unix.gethostname () in
   match Colombe.Domain.of_string hostname with
   | Ok domain -> domain
   | Error (`Msg _) ->
-    let random_hostname = Colombe.Domain.of_string_exn (generate ~len:16) in
-    Logs.warn (fun m -> m "Invalid default hostname: %S, use %a as the default hostname" hostname Colombe.Domain.pp random_hostname);
-    random_hostname
+      let random_hostname = Colombe.Domain.of_string_exn (generate ~len:16) in
+      Logs.warn (fun m ->
+          m "Invalid default hostname: %S, use %a as the default hostname"
+            hostname Colombe.Domain.pp random_hostname) ;
+      random_hostname
 
 let hostname =
   let doc = "Domain name of the machine." in
   let open Arg in
-  value
-  & opt hostname default_hostname
-  & info [ "h"; "hostname" ] ~doc
+  value & opt hostname default_hostname & info [ "h"; "hostname" ] ~doc
 
 let recipient =
   let parser str =
@@ -303,20 +316,22 @@ let mail =
 let cmd =
   let doc = "Send an email to a SMTP submission server." in
   let man =
-    [ `S Manpage.s_description
-    ; `P
+    [
+      `S Manpage.s_description;
+      `P
         "$(tname) $(b,submit) the given email to the specified SMTP submission \
          server under its identity. Indeed, this tool does not want to \
          $(i,send) an email to someone else but it $(i,submits) an email to an \
          authority which then can send the email to the given recipients under \
-         its identity."
-    ; `P
+         its identity.";
+      `P
         "For instance, if the user wants to take advantage of some security \
          frameworks such as $(b,S)ender $(b,Policy) $(b,F)ramework, \
          $(b,D)omain$(b,K)eys $(b,I)dentified $(b,M)ail or $(b,D)omain-based \
          $(b,M)essage $(b,A)uthentication $(i,via) a service, he/she should \
          use $(tname). Otherwise, if the user wants to send an email to a \
-         recipient directly, he/she should use $(b,blaze.send)." ] in
+         recipient directly, he/she should use $(b,blaze.send).";
+    ] in
   let open Term in
   let info = Cmd.info "submit" ~doc ~man in
   let term =
@@ -331,7 +346,3 @@ let cmd =
     $ recipients
     $ mail in
   Cmd.v info (ret term)
-
-let () =
-  Miou_unix.run ~domains:0 @@ fun () ->
-  Cmd.(exit @@ eval cmd)

@@ -1,6 +1,6 @@
 open Mrmime
 
-let ( <.> ) f g x = f (g x)
+let ( % ) f g x = f (g x)
 
 let default =
   let open Field_name in
@@ -60,8 +60,7 @@ let pp_mailbox ~without_name =
   | true -> pp_mailbox_without_name
   | false -> pp_mailbox
 
-let parse_header p ic =
-  let open Rresult in
+let parse_header newline p ic =
   let decoder = Hd.decoder p in
   let rec go (addresses : Emile.mailbox list) =
     match Hd.decode decoder with
@@ -82,37 +81,37 @@ let parse_header p ic =
     | `Await ->
     match input_line ic with
     | line ->
-        Hd.src decoder (line ^ "\r\n") 0 (String.length line + 2) ;
+        let line =
+          match newline with `CRLF -> line ^ "\n" | `LF -> line ^ "\r\n" in
+        Hd.src decoder line 0 (String.length line) ;
         go addresses
     | exception End_of_file ->
         Hd.src decoder "" 0 0 ;
         go addresses in
   go []
 
-let run want_to_decode_rfc2047 without_name fields input =
+let run want_to_decode_rfc2047 newline without_name fields input =
   decode_rfc2047 := want_to_decode_rfc2047 ;
   let ic, close =
     match input with
     | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
     | None -> (stdin, ignore) in
-  let open Rresult in
+  let finally () = close ic in
+  Fun.protect ~finally @@ fun () ->
   let p =
     List.fold_left
       (fun p v -> Field_name.Map.add v Field.(Witness Addresses) p)
       default fields in
-  match
-    parse_header p ic >>| fun res ->
-    close ic ;
-    res
-  with
+  match parse_header newline p ic with
   | Ok addresses ->
       List.iter
-        (print_endline <.> Fmt.str "%a" (pp_mailbox ~without_name))
+        (print_endline % Fmt.str "%a" (pp_mailbox ~without_name))
         addresses ;
       `Ok ()
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
 open Cmdliner
+open Args
 
 let existing_file =
   let parser = function
@@ -148,8 +147,9 @@ let cmd =
     [
       `S Manpage.s_description; `P "$(tname) extracts addresses from an email.";
     ] in
-  Cmd.v
-    (Cmd.info "addr" ~doc ~man)
-    Term.(ret (const run $ decode_rfc2047 $ without_name $ fields $ input))
-
-let () = Cmd.(exit @@ eval cmd)
+  let info = Cmd.info "addr" ~doc ~man in
+  let term =
+    let open Term in
+    ret (const run $ decode_rfc2047 $ newline $ without_name $ fields $ input)
+  in
+  Cmd.v info term
