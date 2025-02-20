@@ -79,7 +79,7 @@ let sha1_with_ctx (ctx : Digestif.SHA1.ctx) =
     {
       Carton.First_pass.feed_bytes;
       feed_bigstring;
-      serialize = Fun.compose Hash.to_raw_string Hash.get;
+      serialize = Hash.to_raw_string % Hash.get;
       length = Hash.digest_size;
     } in
   Carton.First_pass.Digest (hash, ctx)

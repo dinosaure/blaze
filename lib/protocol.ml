@@ -197,7 +197,7 @@ type (+'a, 'err) t =
   | Return of 'a
   | Error of 'err
 
-let ( % ) = Fun.compose
+let ( % ) f g = fun x -> f (g x)
 
 let rec reword_error fn = function
   | Error err -> Error (fn err)
