@@ -1,0 +1,1 @@
+txt:v=DMARC1;p=quarantine;rua=mailto:dmarc-reports-aggregate@janestreet.com; ruf=mailto:dmarc-reports-failure@janestreet.com;

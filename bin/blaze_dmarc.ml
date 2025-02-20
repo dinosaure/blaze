@@ -35,8 +35,8 @@ let verify _quiet newline domain dns fpath output =
     match Dmarc.Verify.decode decoder with
     | #Dmarc.Verify.error as err -> error_msgf "%a" Dmarc.Verify.pp_error err
     | `Info value -> Ok value
-    | `Query (decoder, dn, (Dns.Rr_map.K r  as k)) ->
-        Logs.debug (fun m -> m "ask %a:%a" Dns.Rr_map.ppk k Domain_name.pp dn);
+    | `Query (decoder, dn, (Dns.Rr_map.K r as k)) ->
+        Logs.debug (fun m -> m "ask %a:%a" Dns.Rr_map.ppk k Domain_name.pp dn) ;
         let resp = Dns_static.get_resource_record dns r dn in
         let decoder = Dmarc.Verify.response decoder r resp in
         go decoder

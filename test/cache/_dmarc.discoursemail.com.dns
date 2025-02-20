@@ -1,0 +1,1 @@
+txt:v=DMARC1;p=quarantine;fo=1;rua=mailto:dmarc-reports@discourse.org;ruf=mailto:dmarc@discourse.org

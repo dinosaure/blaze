@@ -9,7 +9,7 @@ Tests on SPF fields
   $ blaze spf stamp -h blaze --ip 38.105.200.78 --sender tbraibant@janestreet.com < 003.mail > 003.diff
   $ head -n4 003.diff
   Received-SPF: pass (blaze: domain of tbraibant@janestreet.com designates 38.105.200.78 as
-   permitted sender) client-ip=38.105.200.78; envelope-from=
+    permitted sender) client-ip=38.105.200.78; envelope-from=
    tbraibant@janestreet.com; identity=mailfrom; receiver=blaze; mechanism=
    ip4:38.105.200.78/32;
   $ blaze spf analyze 004.mail
