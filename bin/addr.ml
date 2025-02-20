@@ -113,20 +113,6 @@ let run want_to_decode_rfc2047 newline without_name fields input =
 open Cmdliner
 open Args
 
-let newline =
-  let parser str =
-    match String.lowercase_ascii str with
-    | "crlf" -> Ok `CRLF
-    | "lf" -> Ok `LF
-    | _ -> error_msgf "Invalid newline" in
-  let pp ppf = function
-    | `CRLF -> Fmt.string ppf "crlf"
-    | `LF -> Fmt.string ppf "lf" in
-  let newline = Arg.conv (parser, pp) in
-  let doc = "The newline used by the incoming email." in
-  let open Arg in
-  value & opt newline `LF & info [ "newline" ] ~doc ~docv:"NEWLINE"
-
 let existing_file =
   let parser = function
     | "-" -> Ok None

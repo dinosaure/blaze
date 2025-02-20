@@ -313,20 +313,6 @@ let gen seed output =
 open Cmdliner
 open Args
 
-let newline =
-  let parser str =
-    match String.lowercase_ascii str with
-    | "crlf" -> Ok `CRLF
-    | "lf" -> Ok `LF
-    | _ -> error_msgf "Invalid newline" in
-  let pp ppf = function
-    | `CRLF -> Fmt.string ppf "crlf"
-    | `LF -> Fmt.string ppf "lf" in
-  let newline = Arg.conv (parser, pp) in
-  let doc = "The newline used by the incoming email." in
-  let open Arg in
-  value & opt newline `LF & info [ "newline" ] ~doc ~docv:"NEWLINE"
-
 let parse_public_key str =
   match Fpath.of_string str with
   | Ok _ when Sys.file_exists str ->

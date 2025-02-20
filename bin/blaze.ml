@@ -29,5 +29,6 @@ let () =
         Map.cmd;
         Spf.cmd;
         Recv.cmd;
+        Blaze_dmarc.cmd;
       ] in
   Cmd.(exit (eval cmd))

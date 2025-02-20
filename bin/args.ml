@@ -379,3 +379,17 @@ let setup_progress = Term.(const setup_progress $ width)
 let without_progress =
   let doc = "Don't print progress bar." in
   Arg.(value & flag & info [ "without-progress" ] ~doc)
+
+let newline =
+  let parser str =
+    match String.lowercase_ascii str with
+    | "crlf" -> Ok `CRLF
+    | "lf" -> Ok `LF
+    | _ -> error_msgf "Invalid newline" in
+  let pp ppf = function
+    | `CRLF -> Fmt.string ppf "crlf"
+    | `LF -> Fmt.string ppf "lf" in
+  let newline = Arg.conv (parser, pp) in
+  let doc = "The newline used by emails." in
+  let open Arg in
+  value & opt newline `LF & info [ "newline" ] ~doc ~docv:"NEWLINE"

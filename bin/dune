@@ -203,6 +203,12 @@
  (public_name blaze.embox)
  (libraries blaze.args blaze.pack carton-miou-unix blaze.mbox blaze.email))
 
+(library
+ (name blaze_dmarc)
+ (modules blaze_dmarc)
+ (public_name blaze.dmarc)
+ (libraries blaze.args mirage-crypto-rng-miou-unix dmarc))
+
 (executable
  (name blaze)
  (modules blaze)
@@ -226,4 +232,5 @@
   blaze.map
   blaze.spf
   blaze.recv
+  blaze.dmarc
   cmdliner))

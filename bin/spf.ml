@@ -179,7 +179,7 @@ let show_results results =
   `Ok ()
 (* XXX(dinosaure): [to_exit_codes results]? *)
 
-let analyze quiet resolver input =
+let analyze quiet newline resolver input =
   Miou_unix.run ~domains:0 @@ fun () ->
   let daemon, _he, dns = resolver () in
   let ic, close_ic =
@@ -192,7 +192,7 @@ let analyze quiet resolver input =
     Mirage_crypto_rng_miou_unix.kill rng ;
     close_ic ic in
   Fun.protect ~finally @@ fun () ->
-  let res = extract_received_spf ~newline:`LF ic in
+  let res = extract_received_spf ~newline ic in
   match res with
   | Ok extracted ->
       let results =
@@ -259,10 +259,9 @@ let input =
   let doc = "The email to check." in
   Arg.(value & pos 0 existing_file None & info [] ~doc)
 
-let new_file = Arg.conv (Fpath.of_string, Fpath.pp)
-
 let output =
   let doc = "The path of the produced email with the new Received-SPF field." in
+  let new_file = Arg.conv (Fpath.of_string, Fpath.pp) in
   Arg.(value & opt (some new_file) None & info [ "o"; "output" ] ~doc)
 
 let hostname =
@@ -365,7 +364,7 @@ let analyze =
     ] in
   let open Term in
   let info = Cmd.info "analyze" ~doc ~man in
-  let term = const analyze $ setup_logs $ setup_resolver $ input in
+  let term = const analyze $ setup_logs $ newline $ setup_resolver $ input in
   Cmd.v info (ret term)
 
 let default = Term.(ret (const (`Help (`Pager, None))))
