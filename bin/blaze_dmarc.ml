@@ -62,6 +62,147 @@ let verify _quiet newline domain dns fpath output =
   stamp newline domain fpath info output ;
   Ok ()
 
+let p =
+  let open Mrmime in
+  let unstructured = Field.(Witness Unstructured) in
+  let open Field_name in
+  Map.empty
+  |> Map.add date unstructured
+  |> Map.add from unstructured
+  |> Map.add sender unstructured
+  |> Map.add reply_to unstructured
+  |> Map.add (v "To") unstructured
+  |> Map.add cc unstructured
+  |> Map.add bcc unstructured
+  |> Map.add subject unstructured
+  |> Map.add message_id unstructured
+  |> Map.add comments unstructured
+  |> Map.add content_type unstructured
+  |> Map.add content_encoding unstructured
+
+let to_unstrctrd unstructured =
+  let fold acc = function #Unstrctrd.elt as elt -> elt :: acc | _ -> acc in
+  let unstrctrd = List.fold_left fold [] unstructured in
+  Result.get_ok (Unstrctrd.of_list (List.rev unstrctrd))
+
+let pp_version ppf = function
+  | Some version -> Fmt.pf ppf "/%d" version
+  | None -> ()
+
+let pp_versionned ?longest_uid ppf (str, version) =
+  match longest_uid with
+  | Some len -> Fmt.pf ppf "%*s%a" len str pp_version version
+  | None -> Fmt.pf ppf "%s%a" str pp_version version
+
+let pp_property ppf (t : Dmarc.Authentication_results.property) =
+  match t.value with
+  | `Value str -> Fmt.pf ppf "%s.%s=%S" t.ty t.property str
+  | `Mailbox (None, domain) ->
+      Fmt.pf ppf "%s.%s=@%a" t.ty t.property Emile.pp_domain domain
+  | `Mailbox (Some local, domain) ->
+      let local = String.concat "." local in
+      Fmt.pf ppf "%s.%s=%s@%a" t.ty t.property local Emile.pp_domain domain
+
+let pp_properties ppf = function
+  | [] -> ()
+  | properties ->
+      Fmt.pf ppf " @[<hov>(@[%a@])@]"
+        Fmt.(list ~sep:(any "@ ") pp_property)
+        properties
+
+let show_result ppf (t : Dmarc.Authentication_results.result) =
+  let open Dmarc.Authentication_results in
+  match (String.lowercase_ascii t.value, Fmt.style_renderer ppf) with
+  | "pass", `Ansi_tty ->
+      Fmt.pf ppf "%a%a"
+        Fmt.(styled `Green pp_versionned)
+        (t.meth, t.version) pp_properties t.properties
+  | "pass", `None ->
+      Fmt.pf ppf "✓ %a%a"
+        (pp_versionned ?longest_uid:None)
+        (t.meth, t.version) pp_properties t.properties
+  | "fail", `Ansi_tty ->
+      Fmt.pf ppf "%a%a"
+        Fmt.(styled `Red pp_versionned)
+        (t.meth, t.version) pp_properties t.properties
+  | "fail", `None ->
+      Fmt.pf ppf "🞩 %a%a"
+        (pp_versionned ?longest_uid:None)
+        (t.meth, t.version) pp_properties t.properties
+  | str, _ ->
+      Fmt.pf ppf "%a=%s%a"
+        Fmt.(styled `Yellow pp_versionned)
+        (t.meth, t.version) str pp_properties t.properties
+
+let show_results ~longest_uid ppf (t : Dmarc.Authentication_results.t) =
+  let open Dmarc.Authentication_results in
+  Fmt.pf ppf "%a: @[<v>%a@]\n%!"
+    Fmt.(styled `Bold (pp_versionned ~longest_uid))
+    (t.servid, t.version)
+    Fmt.(list ~sep:(any "@\n") show_result)
+    t.results
+
+let collect _quiet newline input =
+  let ic, ic_close =
+    match input with
+    | None -> (stdin, ignore)
+    | Some fpath ->
+        let ic = open_in (Fpath.to_string fpath) in
+        (ic, close_in) in
+  let finally () = ic_close ic in
+  Fun.protect ~finally @@ fun () ->
+  let open Mrmime in
+  let decoder = Hd.decoder p in
+  let buf = Bytes.create 0x7ff in
+  let rec go results =
+    match Hd.decode decoder with
+    | `Field field ->
+        let (Field.Field (fn, w, v)) = Location.prj field in
+        let is_authentication_results =
+          Field_name.equal Dmarc.field_authentication_results fn in
+        begin
+          match (is_authentication_results, w) with
+          | true, Field.Unstructured ->
+              let v = to_unstrctrd v in
+              begin
+                match Dmarc.Authentication_results.of_unstrctrd v with
+                | Ok t -> go (t :: results)
+                | Error _ ->
+                    Logs.warn (fun m ->
+                        m "Invalid Authentication-Results field, ignore it") ;
+                    go results
+              end
+          | _ -> go results
+        end
+    | `Malformed _ -> error_msgf "Invalid email"
+    | `End _ -> Ok (List.rev results)
+    | `Await when newline = `CRLF ->
+        let len = Stdlib.input ic buf 0 (Bytes.length buf) in
+        let str = Bytes.sub_string buf 0 len in
+        Hd.src decoder str 0 len ;
+        go results
+    | `Await ->
+        let len = Stdlib.input ic buf 0 (Bytes.length buf) in
+        let str = Bytes.sub_string buf 0 len in
+        let str = String.split_on_char '\n' str in
+        let str = String.concat "\r\n" str in
+        let len = String.length str in
+        Hd.src decoder str 0 len ;
+        go results in
+  match go [] with
+  | Ok results ->
+      let longest_uid =
+        let fn acc t =
+          let open Dmarc.Authentication_results in
+          let str =
+            Fmt.str "%a" (pp_versionned ?longest_uid:None) (t.servid, t.version)
+          in
+          Int.max acc (String.length str) in
+        List.fold_left fn 0 results in
+      List.iter (show_results ~longest_uid Fmt.stdout) results ;
+      `Ok ()
+  | Error (`Msg msg) -> `Error (false, Fmt.str "%s." msg)
+
 let verify quiet newline domain resolver fpath output =
   Miou_unix.run ~domains:0 @@ fun () ->
   let daemon, _he, dns = resolver () in
@@ -185,9 +326,31 @@ let verify =
     $ output in
   Cmd.v info (ret term)
 
+let existing_file =
+  let parser = function
+    | "-" -> Ok None
+    | str ->
+    match Fpath.of_string str with
+    | Ok v when Sys.file_exists str -> Ok (Some v)
+    | Ok v -> error_msgf "%a not found" Fpath.pp v
+    | Error _ as err -> err in
+  Arg.conv (parser, Fmt.option ~none:(Fmt.any "-") Fpath.pp)
+
+let input =
+  let doc = "The email to analyze." in
+  Arg.(value & pos 0 existing_file None & info [] ~doc)
+
+let collect =
+  let doc = "Collect Authentication-Results fields and show them." in
+  let man = [ `S Manpage.s_description ] in
+  let open Term in
+  let info = Cmd.info "collect" ~doc ~man in
+  let term = const collect $ setup_logs $ newline $ input in
+  Cmd.v info (ret term)
+
 let default = Term.(ret (const (`Help (`Pager, None))))
 
 let cmd =
   let doc = "A DMARC tool." in
   let man = [ `S Manpage.s_description ] in
-  Cmd.group ~default (Cmd.info "dmarc" ~doc ~man) [ verify ]
+  Cmd.group ~default (Cmd.info "dmarc" ~doc ~man) [ verify; collect ]
