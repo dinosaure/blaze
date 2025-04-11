@@ -220,7 +220,8 @@ open Args
 
 let input =
   let doc = "The email to check." in
-  Arg.(required & pos 0 (some existing_file) None & info [] ~doc)
+  let open Arg in
+  required & pos 0 (some existing_file) None & info [] ~doc ~docv:"FILENAME"
 
 let setup_resolver happy_eyeballs_cfg nameservers local () =
   let happy_eyeballs =
@@ -264,7 +265,8 @@ let output =
     "The path of the produced email with the new Authentication-Results field."
   in
   let new_file = Arg.conv (Fpath.of_string, Fpath.pp) in
-  Arg.(value & opt (some new_file) None & info [ "o"; "output" ] ~doc)
+  let open Arg in
+  value & opt (some new_file) None & info [ "o"; "output" ] ~doc ~docv:"FILENAME"
 
 let hostname =
   let parser =
@@ -303,7 +305,7 @@ let default_hostname =
 let hostname =
   let doc = "Domain name of the machine." in
   let open Arg in
-  value & opt hostname default_hostname & info [ "h"; "hostname" ] ~doc
+  value & opt hostname default_hostname & info [ "h"; "hostname" ] ~doc ~docv:"DOMAIN"
 
 let verify =
   let doc = "Verify DMARC informations & stamp an email with results." in

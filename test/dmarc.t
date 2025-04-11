@@ -40,3 +40,20 @@ Tests on DMARC fields
                            header.b="VmvuZ8wM")
                  ✓ spf (smtp.mailfrom=ocaml+verp-cdef9eaa098cd788943a4314c682b75a@discoursemail.com)
                  ✓ dmarc (header.from="discoursemail.com")
+  $ blaze dmarc collect 005.mail
+  smtp.subspace.kernel.org: ✓ arc (smtp.client-ip="141.138.168.70")
+  smtp.subspace.kernel.org: 🞩 dmarc (header.from="gmail.com")
+  smtp.subspace.kernel.org: 🞩 spf (smtp.mailfrom="gmail.com")
+       webhostingserver.nl: ✓ iprev (smtp.remote-ip="178.250.146.69")
+                            ✓ auth (smtp.auth=ferry.toth@elsinga.info)
+                            spf=softfail (smtp.mailfrom="gmail.com")
+                            dmarc=skipped (header.from="gmail.com")
+                            arc=none
+  $ blaze dmarc collect 006.mail
+  smtp.subspace.kernel.org: 🞩 arc (smtp.client-ip="40.107.21.84")
+  smtp.subspace.kernel.org: ✓ dmarc (header.from="arm.com")
+  smtp.subspace.kernel.org: ✓ spf (smtp.mailfrom="arm.com")
+  smtp.subspace.kernel.org: ✓ dkim (header.d="arm.com" header.i=@arm.com
+                                      header.b="KoxoQrPZ")
+                            ✓ dkim (header.d="arm.com" header.i=@arm.com
+                                      header.b="KoxoQrPZ")

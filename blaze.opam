@@ -13,7 +13,7 @@ bug-reports: "https://github.com/dinosaure/blaze/issues"
 depends: [
   "ocaml" {>= "4.12.0"}
   "mrmime" {>= "0.5.0"}
-  "bigstringaf"
+  "bstr"
   "emile"
   "domain-name"
   "maildir"
@@ -41,11 +41,11 @@ depends: [
   "uspf" {>= "0.0.2"}
   "uri" {>= "4.2.0"}
   "ipaddr" {>= "5.2.0"}
-  "cstruct"
   "encore"
   "progress"
   "carton-miou-unix"
   "dmarc"
+  "arc"
   "ke" {>= "0.4"}
   "mirage-crypto-rng-miou-unix"
   "sendmail-miou-unix"
@@ -61,4 +61,5 @@ pin-depends: [
   [ "public-suffix.dev"      "git+https://github.com/dinosaure/ocaml-dmarc.git#48bec0b9e8dac83c4390da3e89794707d6613ac9" ]
   [ "dkim.dev"               "git+https://github.com/mirage/ocaml-dkim.git#0219f01db7f77926150311a97ca2cf7901de948c" ]
   [ "uspf.dev"               "git+https://github.com/mirage/uspf.git#8e829f5dd624d0c05f57e8970d98230ec049fb50" ]
+  [ "bstr.dev"               "git+https://git.robur.coop/robur/bstr.git#42a68a453f0eb890efd2b2583ae76bb6f20057b9" ]
 ]

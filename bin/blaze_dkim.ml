@@ -113,8 +113,8 @@ let verify quiet newline fields dns input =
           then Either.Left s
           else begin
             Logs.debug (fun m -> m "Invalid DKIM signature") ;
-            Logs.debug (fun m -> m "Expected body hash: %s" (Ohex.encode bh')) ;
-            Logs.debug (fun m -> m "Actual body hash:   %s" (Ohex.encode bh)) ;
+            Logs.debug (fun m -> m "Expected body hash: %s" (Base64.encode_exn bh')) ;
+            Logs.debug (fun m -> m "Actual body hash:   %s" (Base64.encode_exn bh)) ;
             Logs.debug (fun m -> m "Signature of fields: %b" fields) ;
             Either.Right (`Invalid_DKIM_body_hash dkim)
           end in

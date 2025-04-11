@@ -30,5 +30,6 @@ let () =
         Spf.cmd;
         Recv.cmd;
         Blaze_dmarc.cmd;
+        Blaze_arc.cmd;
       ] in
   Cmd.(exit (eval cmd))

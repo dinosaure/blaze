@@ -35,7 +35,7 @@
  (name map)
  (modules map)
  (public_name blaze.map)
- (libraries cmdliner blaze.args fpath mrmime))
+ (libraries bstr cmdliner blaze.args fpath mrmime))
 
 (library
  (name mdir)
@@ -165,7 +165,7 @@
  (name descr)
  (modules descr)
  (public_name blaze.descr)
- (libraries blaze.args cmdliner mrmime fpath))
+ (libraries bstr blaze.args cmdliner mrmime fpath))
 
 (library
  (name rand)
@@ -209,6 +209,12 @@
  (public_name blaze.dmarc)
  (libraries blaze.args mirage-crypto-rng-miou-unix dmarc))
 
+(library
+ (name blaze_arc)
+ (modules blaze_arc)
+ (public_name blaze.arc)
+ (libraries blaze.args mirage-crypto-rng-miou-unix arc))
+
 (executable
  (name blaze)
  (modules blaze)
@@ -233,4 +239,5 @@
   blaze.spf
   blaze.recv
   blaze.dmarc
+  blaze.arc
   cmdliner))

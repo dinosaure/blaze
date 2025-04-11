@@ -10,7 +10,7 @@ let stream_of_queue q () =
   | exception Queue.Empty -> None
 
 let blit src src_off dst dst_off len =
-  Bigstringaf.blit_from_string src ~src_off dst ~dst_off ~len
+  Bstr.blit_from_string src ~src_off dst ~dst_off ~len
 
 let empty_part ~header = Mrmime.Mt.part ~header (const None)
 
@@ -38,16 +38,16 @@ let parser ic =
             Ke.Rke.push ke '\n' ;
             let[@warning "-8"] (slice :: _) = Ke.Rke.N.peek ke in
             loop ic ke
-              (continue slice ~off:0 ~len:(Bigstringaf.length slice) Incomplete)
+              (continue slice ~off:0 ~len:(Bstr.length slice) Incomplete)
         | exception End_of_file ->
             let buf =
               match Ke.Rke.length ke with
-              | 0 -> Bigstringaf.empty
+              | 0 -> Bstr.empty
               | _ ->
                   Ke.Rke.compress ke ;
                   List.hd (Ke.Rke.N.peek ke) in
             loop ic ke
-              (continue buf ~off:0 ~len:(Bigstringaf.length buf) Complete))
+              (continue buf ~off:0 ~len:(Bstr.length buf) Complete))
   in
   let ke = Ke.Rke.create ~capacity:0x1000 Bigarray.char in
   loop ic ke (Angstrom.Unbuffered.parse parser)
