@@ -107,14 +107,17 @@ let verify quiet newline fields dns input =
         error_msgf "Invalid email"
     | `Signatures sigs ->
         let fn (Dkim.Verify.Signature { dkim; fields; body = bh; _ } as s) =
-          let _, Dkim.Hash_value (k, bh') = Dkim.signature_and_hash dkim in
+          let _, Dkim.Hash_value (k, bh') =
+            (Dkim.signature_and_hash dkim :> string * Dkim.hash_value) in
           let bh' = Digestif.to_raw_string k bh' in
           if fields && Eqaf.equal bh bh'
           then Either.Left s
           else begin
             Logs.debug (fun m -> m "Invalid DKIM signature") ;
-            Logs.debug (fun m -> m "Expected body hash: %s" (Base64.encode_exn bh')) ;
-            Logs.debug (fun m -> m "Actual body hash:   %s" (Base64.encode_exn bh)) ;
+            Logs.debug (fun m ->
+                m "Expected body hash: %s" (Base64.encode_exn bh')) ;
+            Logs.debug (fun m ->
+                m "Actual body hash:   %s" (Base64.encode_exn bh)) ;
             Logs.debug (fun m -> m "Signature of fields: %b" fields) ;
             Either.Right (`Invalid_DKIM_body_hash dkim)
           end in
@@ -236,6 +239,8 @@ let sign _verbose newline input output key selector fields hash canon
   let ppf = Format.formatter_of_out_channel oc in
   let dkim =
     let new_line = match newline with `CRLF -> "\r\n" | `LF -> "\n" in
+    let bbh = (Dkim.signature_and_hash dkim :> string * Dkim.hash_value) in
+    let dkim = Dkim.with_signature_and_hash dkim bbh in
     Prettym.to_string ~new_line Dkim.Encoder.as_field dkim in
   Fmt.pf ppf "%s%!" dkim ;
   seek_in ic 0 ;
