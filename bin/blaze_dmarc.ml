@@ -266,7 +266,9 @@ let output =
   in
   let new_file = Arg.conv (Fpath.of_string, Fpath.pp) in
   let open Arg in
-  value & opt (some new_file) None & info [ "o"; "output" ] ~doc ~docv:"FILENAME"
+  value
+  & opt (some new_file) None
+  & info [ "o"; "output" ] ~doc ~docv:"FILENAME"
 
 let hostname =
   let parser =
@@ -305,7 +307,9 @@ let default_hostname =
 let hostname =
   let doc = "Domain name of the machine." in
   let open Arg in
-  value & opt hostname default_hostname & info [ "h"; "hostname" ] ~doc ~docv:"DOMAIN"
+  value
+  & opt hostname default_hostname
+  & info [ "h"; "hostname" ] ~doc ~docv:"DOMAIN"
 
 let verify =
   let doc = "Verify DMARC informations & stamp an email with results." in

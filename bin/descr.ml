@@ -76,8 +76,7 @@ let parser ic =
               | _ ->
                   Ke.Rke.compress ke ;
                   List.hd (Ke.Rke.N.peek ke) in
-            loop ic ke
-              (continue buf ~off:0 ~len:(Bstr.length buf) Complete))
+            loop ic ke (continue buf ~off:0 ~len:(Bstr.length buf) Complete))
   in
   let ke = Ke.Rke.create ~capacity:0x1000 Bigarray.char in
   loop ic ke (Angstrom.Unbuffered.parse parser)
