@@ -45,6 +45,16 @@ let setup_logs utf_8 style_renderer level =
   Option.is_none level
 
 let setup_logs = Term.(const setup_logs $ utf_8 $ renderer $ verbosity)
+
+let file =
+  let parser str =
+    if str = "-"
+    then Ok str
+    else if Sys.file_exists str && Sys.is_directory str = false
+    then Ok str
+    else error_msgf "%s does not exist" str in
+  Arg.conv (parser, Fmt.string)
+
 let docs_dns = "DOMAIN NAME SERVICE"
 
 let timeout =
@@ -233,36 +243,13 @@ let existing_directory =
     | Error _ as err -> err in
   Arg.conv (parser, Fpath.pp)
 
-let existing_file =
-  let parser str =
-    match Fpath.of_string str with
-    | Ok _ as v when Sys.file_exists str && not (Sys.is_directory str) -> v
-    | Ok v -> error_msgf "%a does not exist" Fpath.pp v
-    | Error _ as err -> err in
-  Arg.conv (parser, Fpath.pp)
-
-let existing_file_or_stdin =
-  let parser = function
-    | "-" -> Ok `Stdin
-    | str ->
-    match Fpath.of_string str with
-    | Ok v when Sys.file_exists str -> Ok (`File v)
-    | Ok v -> error_msgf "%a not found" Fpath.pp v
-    | Error _ as err -> err in
-  let pp ppf = function
-    | `Stdin -> Fmt.string ppf "-"
-    | `File filename -> Fpath.pp ppf filename in
-  Arg.conv (parser, pp)
-
 let non_existing_file =
   let parser str =
-    match Fpath.of_string str with
-    | Ok value ->
-        if Sys.file_exists str
-        then error_msgf "%a already exists" Fpath.pp value
-        else Ok value
-    | Error _ as err -> err in
-  Arg.conv (parser, Fpath.pp)
+    let normalized = Fpath.of_string str in
+    if Result.is_ok normalized && Sys.file_exists str = false
+    then Ok str
+    else error_msgf "Invalid path: %S" str in
+  Arg.conv (parser, Fmt.string)
 
 let default_threads = Int.min 4 (Stdlib.Domain.recommended_domain_count () - 1)
 
@@ -393,3 +380,94 @@ let newline =
   let doc = "The newline used by emails." in
   let open Arg in
   value & opt newline `LF & info [ "newline" ] ~doc ~docv:"NEWLINE"
+
+type key =
+  [ `RSA of Mirage_crypto_pk.Rsa.priv
+  | `ED25519 of Mirage_crypto_ec.Ed25519.priv ]
+
+let private_key : key Arg.conv =
+  let parser str =
+    let ( let* ) = Result.bind in
+    let key =
+      let* key = Base64.decode ~pad:true str in
+      match X509.Private_key.decode_der key with
+      | Ok #key as key -> key
+      | Ok _ -> error_msgf "Invalid algorithm used for DKIM signature"
+      | Error _ as err -> err in
+    match (key, Fpath.of_string str) with
+    | (Ok _ as v), _ -> v
+    | Error _, Ok filename
+      when Sys.file_exists str && not (Sys.is_directory str) ->
+        let ic = open_in (Fpath.to_string filename) in
+        let len = in_channel_length ic in
+        let buf = Bytes.create len in
+        really_input ic buf 0 len ;
+        close_in ic ;
+        let str = Bytes.unsafe_to_string buf in
+        begin
+          match X509.Private_key.decode_pem str with
+          | Ok #key as key -> key
+          | Ok _ -> error_msgf "Invalid algorithm used for DKIM signature"
+          | Error _ as err -> err
+        end
+    | (Error _ as err), _ -> err in
+  let pp ppf (pk : key) =
+    Fmt.string ppf (X509.Private_key.encode_der (pk :> X509.Private_key.t))
+  in
+  Arg.conv (parser, pp)
+
+let hash =
+  let parser str =
+    match String.(trim (lowercase_ascii str)) with
+    | "sha1" -> Ok `SHA1
+    | "sha256" -> Ok `SHA256
+    | _ -> error_msgf "Invalid hash: %S" str in
+  let pp ppf = function
+    | `SHA1 -> Fmt.string ppf "sha1"
+    | `SHA256 -> Fmt.string ppf "sha256" in
+  Arg.conv (parser, pp)
+
+let algorithm =
+  let parser str =
+    match String.trim (String.lowercase_ascii str) with
+    | "rsa" -> Ok `RSA
+    | "ed25519" -> Ok `ED25519
+    | _ -> error_msgf "Invalid algorithm: %S" str in
+  let pp ppf = function
+    | `RSA -> Fmt.string ppf "rsa"
+    | `ED25519 -> Fmt.string ppf "ed25519" in
+  Arg.conv (parser, pp)
+
+let pot x = x land (x - 1) == 0 && x != 0
+
+let bits =
+  let parser str =
+    try
+      let v = int_of_string str in
+      if pot v then Ok v else error_msgf "The given value is not a power of two"
+    with _ -> error_msgf "Invalid number" in
+  Arg.conv (parser, Fmt.int)
+
+let base64 =
+  let parser str = Base64.decode ~pad:true str in
+  let pp ppf seed = Fmt.string ppf (Base64.encode_exn ~pad:true seed) in
+  Arg.conv (parser, pp)
+
+let canon =
+  let parser str =
+    let v = String.trim str in
+    let v = String.lowercase_ascii v in
+    match String.split_on_char '/' v with
+    | [ "simple"; "simple" ] | [] | [ "simple" ] -> Ok (`Simple, `Simple)
+    | [ "simple"; "relaxed" ] -> Ok (`Simple, `Relaxed)
+    | [ "relaxed"; "simple" ] -> Ok (`Relaxed, `Simple)
+    | [ "relaxed"; "relaxed" ] | [ "relaxed" ] -> Ok (`Relaxed, `Relaxed)
+    | _ -> error_msgf "Invalid canonicalization specification: %S" str in
+  let pp ppf = function
+    | `Simple, `Simple -> Fmt.string ppf "simple"
+    | `Relaxed, `Relaxed -> Fmt.string ppf "relaxed"
+    | `Simple, `Relaxed -> Fmt.string ppf "simple/relaxed"
+    | `Relaxed, `Simple -> Fmt.string ppf "relaxed/simple" in
+  Arg.conv (parser, pp)
+
+let domain_name = Arg.conv (Domain_name.of_string, Domain_name.pp)

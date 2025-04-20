@@ -104,9 +104,9 @@ let run_pack quiet progress without_progress threads mbox output =
   let ( let* ) = Result.bind in
   let ic, ic_finally =
     match mbox with
-    | `Stdin -> (stdin, ignore)
-    | `File filename ->
-        let ic = open_in (Fpath.to_string filename) in
+    | "-" -> (stdin, ignore)
+    | filename ->
+        let ic = open_in filename in
         let finally () = close_in ic in
         (ic, finally) in
   Fun.protect ~finally:ic_finally @@ fun () ->
@@ -137,7 +137,7 @@ let run_pack quiet progress without_progress threads mbox output =
   let oc, oc_finally =
     match output with
     | Some filename ->
-        let oc = open_out (Fpath.to_string filename) in
+        let oc = open_out filename in
         let finally () = close_out oc in
         (oc, finally)
     | None -> (stdout, ignore) in
@@ -151,7 +151,7 @@ open Args
 let mbox =
   let doc = "The mbox file to manipulate." in
   let open Arg in
-  value & pos 0 existing_file_or_stdin `Stdin & info [] ~doc ~docv:"FILE"
+  value & pos 0 Args.file "-" & info [] ~doc ~docv:"FILE"
 
 let output =
   let doc = "The output file where to save the PACK file." in

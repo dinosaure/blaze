@@ -93,8 +93,8 @@ let expire dkim =
 let verify quiet newline fields dns input =
   let ic, close =
     match input with
-    | `File fpath -> (open_in (Fpath.to_string fpath), close_in)
-    | `Stdin -> (stdin, ignore) in
+    | "-" -> (stdin, ignore)
+    | filename -> (open_in filename, close_in) in
   let finally () = close ic in
   Fun.protect ~finally @@ fun () ->
   let expired = ref [] in
@@ -187,28 +187,25 @@ let verify quiet newline fields extra resolver input =
   | Ok `Error -> `Error (false, "Invalid DKIM signature.")
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
-let priv_of_seed seed =
+let priv_of_seed ?(bits = 4096) seed =
   let g = Mirage_crypto_rng.(create ~seed (module Fortuna)) in
-  Mirage_crypto_pk.Rsa.generate ~g ~bits:2048 ()
+  Mirage_crypto_pk.Rsa.generate ~g ~bits ()
 
 let pub_of_seed seed = Mirage_crypto_pk.Rsa.pub_of_priv (priv_of_seed seed)
 
-let sign _verbose newline input output key selector fields hash canon
-    domain_name =
+let sign _verbose newline input output key dkim =
   let ic, close_ic =
     match input with
-    | `File fpath ->
-        let ic = open_in (Fpath.to_string fpath) in
-        (ic, close_in)
-    | `Stdin -> (stdin, ignore) in
+    | "-" -> (stdin, ignore)
+    | filename ->
+        let ic = open_in filename in
+        (ic, close_in) in
   let oc, close_oc =
     match output with
     | Some fpath -> (open_out (Fpath.to_string fpath), close_out)
     | None -> (stdout, ignore) in
   Fun.protect ~finally:(fun () -> close_ic ic) @@ fun () ->
   Fun.protect ~finally:(fun () -> close_oc oc) @@ fun () ->
-  let dkim =
-    Dkim.v ~selector ~fields ?hash ?canonicalization:canon domain_name in
   let buf = Bytes.create 0x7ff in
   let rec go signer =
     match Dkim.Sign.sign signer with
@@ -254,34 +251,16 @@ let sign _verbose newline input output key selector fields hash canon
     end in
   Ok (go ())
 
-let sign _verbose newline input output private_key seed selector fields hash
-    canon domain_name =
+let sign _verbose newline input output pk dkim =
   Miou_unix.run ~domains:0 @@ fun () ->
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let finally () = Mirage_crypto_rng_miou_unix.kill rng in
   Fun.protect ~finally @@ fun () ->
-  match (seed, private_key) with
-  | None, None -> `Error (true, "A private key or a seed is required.")
-  | _, Some pk -> begin
-      match
-        sign _verbose newline input output pk selector fields hash canon
-          domain_name
-      with
-      | Ok () -> `Ok ()
-      | Error (`Msg msg) -> `Error (false, Fmt.str "%s." msg)
-    end
-  | Some (`Seed seed), None ->
-      let pk = `Rsa (priv_of_seed seed) in
-      begin
-        match
-          sign _verbose newline input output pk selector fields hash canon
-            domain_name
-        with
-        | Ok () -> `Ok ()
-        | Error (`Msg msg) -> `Error (false, Fmt.str "%s." msg)
-      end
+  match sign _verbose newline input output pk dkim with
+  | Ok () -> `Ok ()
+  | Error (`Msg msg) -> `Error (false, Fmt.str "%s." msg)
 
-let gen seed output =
+let gen bits seed output =
   Miou_unix.run ~domains:0 @@ fun () ->
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let oc, close =
@@ -298,7 +277,7 @@ let gen seed output =
     | None ->
         let str = Mirage_crypto_rng.generate 30 in
         Base64.encode_string ~pad:true str in
-  let key = priv_of_seed seed in
+  let key = priv_of_seed ?bits seed in
   let pub = Mirage_crypto_pk.Rsa.pub_of_priv key in
   if oc == stdout
   then begin
@@ -360,7 +339,7 @@ let fields =
 
 let input =
   let doc = "The email to verify." in
-  Arg.(value & pos 0 existing_file_or_stdin `Stdin & info [] ~doc)
+  Arg.(value & pos 0 Args.file "-" & info [] ~doc)
 
 let setup_resolver happy_eyeballs_cfg nameservers local () =
   let happy_eyeballs =
@@ -418,99 +397,77 @@ let verify =
     $ input in
   Cmd.v info (ret term)
 
+let priv_of_seed ?(bits = 4096) (alg : Dkim.algorithm) seed : Dkim.key =
+  match X509.Private_key.generate ~seed ~bits (alg :> X509.Key_type.t) with
+  | #Dkim.key as key -> key
+  | _ -> assert false
+
+let setup_key bits alg seed key =
+  match (seed, key) with
+  | None, Some key -> `Ok key
+  | Some seed, None -> `Ok (priv_of_seed ?bits alg seed)
+  | _, Some key -> `Ok key
+  | None, None ->
+      `Error (true, "A private key or a seed is required to sign an email.")
+
 let input =
   let doc = "The email to sign." in
-  Arg.(value & pos 0 existing_file_or_stdin `Stdin & info [] ~doc)
+  Arg.(value & pos 0 Args.file "-" & info [] ~doc)
 
 let new_file = Arg.conv (Fpath.of_string, Fpath.pp)
 
 let output =
   let doc = "The path of the produced email with the new DKIM field." in
-  Arg.(value & opt (some new_file) None & info [ "o"; "output" ] ~doc)
-
-let private_key =
-  let parser str =
-    match Base64.decode ~pad:true str >>= X509.Private_key.decode_der with
-    | Ok (`RSA key) -> Ok (`Rsa key)
-    | Ok (`ED25519 key) -> Ok (`Ed25519 key)
-    | Ok _ -> R.error_msgf "We handle only RSA key"
-    | Error _ ->
-    match Fpath.of_string str with
-    | Error _ as err -> err
-    | Ok _ when Sys.file_exists str -> (
-        let ic = open_in str in
-        let ln = in_channel_length ic in
-        let rs = Bytes.create ln in
-        really_input ic rs 0 ln ;
-        let rs = Bytes.unsafe_to_string rs in
-        match X509.Private_key.decode_pem rs with
-        | Ok (`RSA key) -> Ok (`Rsa key)
-        | Ok (`ED25519 key) -> Ok (`Ed25519 key)
-        | Ok _ -> R.error_msgf "We handle only RSA key"
-        | Error _ as err -> err)
-    | Ok fpath -> R.error_msgf "%a does not exist" Fpath.pp fpath in
-  let pp ppf _pk = Fmt.pf ppf "<private-key>" in
-  Arg.conv (parser, pp)
-
-let domain_name = Arg.conv (Domain_name.of_string, Domain_name.pp)
-
-let hash =
-  let parser str =
-    match String.(trim (lowercase_ascii str)) with
-    | "sha1" -> Ok `SHA1
-    | "sha256" -> Ok `SHA256
-    | _ -> R.error_msgf "Invalid hash: %S" str in
-  let pp ppf = function
-    | `SHA1 -> Fmt.string ppf "sha1"
-    | `SHA256 -> Fmt.string ppf "sha256" in
-  Arg.conv (parser, pp)
-
-let canon =
-  let parser str =
-    let v = String.trim str in
-    let v = String.lowercase_ascii v in
-    match String.split_on_char '/' v with
-    | [ "simple"; "simple" ] | [] | [ "simple" ] -> Ok (`Simple, `Simple)
-    | [ "simple"; "relaxed" ] -> Ok (`Simple, `Relaxed)
-    | [ "relaxed"; "simple" ] -> Ok (`Relaxed, `Simple)
-    | [ "relaxed"; "relaxed" ] | [ "relaxed" ] -> Ok (`Relaxed, `Relaxed)
-    | _ -> Rresult.R.error_msgf "Invalid canonicalization specification: %S" str
-  in
-  let pp ppf = function
-    | `Simple, `Simple -> Fmt.string ppf "simple"
-    | `Relaxed, `Relaxed -> Fmt.string ppf "relaxed"
-    | `Simple, `Relaxed -> Fmt.string ppf "simple/relaxed"
-    | `Relaxed, `Simple -> Fmt.string ppf "relaxed/simple" in
-  Arg.conv (parser, pp)
+  let open Arg in
+  value
+  & opt (some new_file) None
+  & info [ "o"; "output" ] ~doc ~docv:"FILENAME"
 
 let seed =
-  let parser str =
-    match Base64.decode ~pad:true str with
-    | Ok v -> Ok (`Seed v)
-    | Error _ as err -> err in
-  let pp ppf (`Seed v) = Fmt.string ppf (Base64.encode_string ~pad:true v) in
+  let parser str = Base64.decode ~pad:true str in
+  let pp ppf str = Fmt.string ppf (Base64.encode_string ~pad:true str) in
   Arg.conv (parser, pp)
 
-let field_name = Arg.conv (Mrmime.Field_name.of_string, Mrmime.Field_name.pp)
-
-let private_key =
-  let doc = "The X.509 PEM encoded private key used to sign the email." in
-  Arg.(value & opt (some private_key) None & info [ "p" ] ~doc)
+let hash =
+  let doc =
+    "Hash algorithm to digest header's fields and body. User can digest with \
+     SHA1 or SHA256 algorithm." in
+  Arg.(value & opt (some hash) None & info [ "hash" ] ~doc ~docv:"HASH")
 
 let seed =
   let doc =
     "Seed to generate a private key. Instead to pass a private-key, the user \
      can give a seed used then by a Fortuna random number generator to \
      generate a RSA private-key. From the seed, the user is able to reproduce \
-     the same RSA private-key (and the public-key). " in
-  Arg.(value & opt (some seed) None & info [ "seed" ] ~doc)
+     the same RSA private-key (and the public-key). The seed is a \
+     $(b,base64-encoded) string." in
+  Arg.(value & opt (some seed) None & info [ "seed" ] ~doc ~docv:"SEED")
+
+let private_key =
+  let doc = "The X.509 PEM encoded private key used to sign the email." in
+  Arg.(value & opt (some private_key) None & info [ "p" ] ~doc)
+
+let bits =
+  let doc = "Size of key in bits." in
+  Arg.(value & opt (some bits) None & info [ "b"; "bits" ] ~doc ~docv:"NUMBER")
+
+let algorithm =
+  let doc = "The algorithm use to encrypt/decrypt signatures." in
+  let open Arg in
+  value & opt algorithm `RSA & info [ "a"; "algorithm" ] ~doc ~docv:"ALGORITHM"
+
+let setup_key =
+  let open Term in
+  const setup_key $ bits $ algorithm $ seed $ private_key |> ret
+
+let field_name = Arg.conv (Mrmime.Field_name.of_string, Mrmime.Field_name.pp)
 
 let fields =
   let doc = "Fields which will be used to generate the DKIM signature." in
   let open Arg in
   value
   & opt_all field_name [ Mrmime.Field_name.from ]
-  & info [ "f"; "field" ] ~doc
+  & info [ "f"; "field" ] ~doc ~docv:"FIELD-NAME"
 
 let selector =
   let doc =
@@ -520,26 +477,55 @@ let selector =
      a location or an user." in
   Arg.(required & opt (some domain_name) None & info [ "s"; "selector" ] ~doc)
 
-let hash =
-  let doc =
-    "Hash algorithm to digest header's fields and body. User can digest with \
-     SHA1 or SHA256 algorithm." in
-  Arg.(value & opt (some hash) None & info [ "hash" ] ~doc)
-
 let canon =
   let doc =
     "Canonicalization algorithm used to digest header's fields and body. \
      Default value is $(i,relaxed/relaxed). A $(i,simple) canonicalization can \
-     be used. The format of the argument is: $(i,canon)/$(i,canon) or \
-     $(i,canon) to use the same canonicalization for both header's fields and \
+     be used. The format of the argument is: $(i,CANON)/$(i,CANON) or \
+     $(i,CANON) to use the same canonicalization for both header's fields and \
      body." in
-  Arg.(value & opt (some canon) None & info [ "c" ] ~doc)
+  let open Arg in
+  value & opt (some canon) None & info [ "c" ] ~doc ~docv:"CANON"
+
+let default_hostname =
+  let str = Unix.gethostname () in
+  match Domain_name.of_string str with
+  | Ok domain_name -> domain_name
+  | Error (`Msg msg) -> Fmt.failwith "%s." msg
 
 let hostname =
   let doc =
     "The domain where the DNS TXT record is available (which contains the \
      public-key)." in
-  Arg.(required & opt (some domain_name) None & info [ "h"; "hostname" ] ~doc)
+  let open Arg in
+  value
+  & opt domain_name default_hostname
+  & info [ "h"; "hostname" ] ~doc ~docv:"DOMAIN"
+
+let setup_dkim selector fields algorithm hash key canon domain_name =
+  match (algorithm, key) with
+  | `RSA, `RSA _ | `ED25519, `ED25519 _ ->
+      let dkim =
+        Dkim.v ~selector ~fields ~algorithm ?hash ?canonicalization:canon
+          domain_name in
+      `Ok dkim
+  | _ ->
+      let msg =
+        "The algorithm used by the key is different from the one specified for \
+         DKIM." in
+      `Error (true, msg)
+
+let setup_dkim =
+  let open Term in
+  const setup_dkim
+  $ selector
+  $ fields
+  $ algorithm
+  $ hash
+  $ setup_key
+  $ canon
+  $ hostname
+  |> ret
 
 let sign =
   let doc = "Sign the given email and put a new DKIM field." in
@@ -551,18 +537,8 @@ let sign =
   let open Term in
   let info = Cmd.info "sign" ~doc ~man in
   let term =
-    const sign
-    $ setup_logs
-    $ newline
-    $ input
-    $ output
-    $ private_key
-    $ seed
-    $ selector
-    $ fields
-    $ hash
-    $ canon
-    $ hostname in
+    const sign $ setup_logs $ newline $ input $ output $ setup_key $ setup_dkim
+  in
   Cmd.v info (ret term)
 
 let output =
@@ -589,7 +565,7 @@ let gen =
       `S Manpage.s_description;
       `P "$(tname) generates a new RSA key from a seed (optional).";
     ] in
-  Cmd.v (Cmd.info "gen" ~doc ~man) Term.(ret (const gen $ seed $ output))
+  Cmd.v (Cmd.info "gen" ~doc ~man) Term.(ret (const gen $ bits $ seed $ output))
 
 let default = Term.(ret (const (`Help (`Pager, None))))
 

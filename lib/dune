@@ -48,3 +48,9 @@
  (public_name blaze.pack)
  (modules pack)
  (libraries digestif carton-miou-unix blaze.email))
+
+(library
+ (name bqueue)
+ (public_name blaze.bqueue)
+ (modules bqueue)
+ (libraries miou))

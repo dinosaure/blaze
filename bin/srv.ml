@@ -449,8 +449,8 @@ let serve with_metadata kind sockaddr domain output =
   with Unix.Unix_error (err, f, arg) ->
     error_msgf "%s(%s): %s." f arg (Unix.error_message err)
 
-let load_file path =
-  let ic = open_in (Fpath.to_string path) in
+let load_file filename =
+  let ic = open_in filename in
   let ln = in_channel_length ic in
   let rs = Bytes.create ln in
   really_input ic rs 0 ln ;
@@ -602,11 +602,11 @@ let domain =
 
 let private_key =
   let doc = "Private key to initiate the STARTTLS extension." in
-  Arg.(value & opt (some existing_file) None & info [ "k"; "key" ] ~doc)
+  Arg.(value & opt (some file) None & info [ "k"; "key" ] ~doc)
 
 let certificate =
   let doc = "Certificate to initiate the STARTTLS extension." in
-  Arg.(value & opt (some existing_file) None & info [ "c"; "certificate" ] ~doc)
+  Arg.(value & opt (some file) None & info [ "c"; "certificate" ] ~doc)
 
 let with_metadata =
   let doc =

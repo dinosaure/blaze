@@ -2,7 +2,7 @@ open Mrmime
 open Rresult
 
 let stream_of_filename_with_crlf filename =
-  let ic = open_in (Fpath.to_string filename) in
+  let ic = open_in filename in
   fun () ->
     match input_line ic with
     | line -> Some (line ^ "\r\n", 0, String.length line + 2)
@@ -26,7 +26,7 @@ let stream_of_ic ic =
 let stream_of_stdin = stream_of_ic stdin
 
 let stream_of_filename filename =
-  let ic = open_in (Fpath.to_string filename) in
+  let ic = open_in filename in
   let stream = stream_of_ic ic in
   fun () ->
     match stream () with
@@ -41,7 +41,7 @@ let stream_of_stdin_as_lines () =
   | exception End_of_file -> None
 
 let stream_of_filename_as_lines filename =
-  let ic = open_in (Fpath.to_string filename) in
+  let ic = open_in filename in
   fun () ->
     match input_line ic with
     | line -> Some (line, 0, String.length line)
@@ -50,7 +50,7 @@ let stream_of_filename_as_lines filename =
         None
 
 let rec stream_to_filename stream filename =
-  let oc = open_out (Fpath.to_string filename) in
+  let oc = open_out filename in
   go stream oc
 
 and go stream oc =
@@ -127,20 +127,19 @@ let make _ headers content_encoding mime_type content_parameters from _to cc bcc
     | `None -> hdrs in
   let body =
     match (body, content_encoding) with
-    | `Stdin, (`Bit7 | `Bit8 | `Binary | `Ietf_token _ | `X_token _) ->
+    | "-", (`Bit7 | `Bit8 | `Binary | `Ietf_token _ | `X_token _) ->
         stream_of_stdin_with_crlf
-    | `File filename, (`Bit7 | `Bit8 | `Binary | `Ietf_token _ | `X_token _) ->
+    | filename, (`Bit7 | `Bit8 | `Binary | `Ietf_token _ | `X_token _) ->
         stream_of_filename_with_crlf filename
-    | `Stdin, `Base64 -> stream_of_stdin
-    | `File filename, `Base64 -> stream_of_filename filename
-    | `Stdin, `Quoted_printable -> stream_of_stdin_as_lines
-    | `File filename, `Quoted_printable -> stream_of_filename_as_lines filename
-  in
+    | "-", `Base64 -> stream_of_stdin
+    | filename, `Base64 -> stream_of_filename filename
+    | "-", `Quoted_printable -> stream_of_stdin_as_lines
+    | filename, `Quoted_printable -> stream_of_filename_as_lines filename in
   let part = Mt.part ~header:hdrs body in
   let mail = Mt.make Header.empty Mt.simple part in
   let stream = Mt.to_stream mail in
   (match output with
-  | Some filename -> stream_to_filename stream filename
+  | Some filename -> stream_to_filename stream (Fpath.to_string filename)
   | None -> stream_to_stdout stream) ;
   `Ok ()
 
@@ -198,8 +197,8 @@ let stream_of_in_channel ic () =
 let wrap fields g boundary subty input output =
   let ic, ic_close =
     match input with
-    | `Stdin -> (stdin, ignore)
-    | `File fpath -> (open_in (Fpath.to_string fpath), close_in) in
+    | "-" -> (stdin, ignore)
+    | filename -> (open_in filename, close_in) in
   let decoder = Hd.decoder default in
   let rec go hdr =
     match Hd.decode decoder with
@@ -270,7 +269,7 @@ let wrap fields g boundary subty input output =
   let mail = Mt.multipart ~header:hdr ~rng:Mt.rng ~boundary [ part ] in
   let stream = Mt.to_stream (Mt.make Header.empty Mt.multi mail) in
   (match output with
-  | Some filename -> stream_to_filename stream filename
+  | Some filename -> stream_to_filename stream (Fpath.to_string filename)
   | None -> stream_to_stdout stream) ;
   ic_close ic ;
   Ok ()
@@ -311,8 +310,8 @@ let put headers content_encoding mime_type content_parameters body input output
     =
   let ic, ic_close =
     match input with
-    | `Stdin -> (stdin, ignore)
-    | `File fpath -> (open_in (Fpath.to_string fpath), close_in) in
+    | "-" -> (stdin, ignore)
+    | filename -> (open_in filename, close_in) in
   let decoder = Hd.decoder Field_name.Map.empty in
   let queue = Queue.create () in
   let rec go () =
@@ -381,7 +380,7 @@ let put headers content_encoding mime_type content_parameters body input output
     concat_stream stream2 (stream_of_string ("\r\n--" ^ boundary ^ "--\r\n"))
   in
   (match output with
-  | Some filename -> stream_to_filename stream filename
+  | Some filename -> stream_to_filename stream (Fpath.to_string filename)
   | None -> stream_to_stdout stream) ;
   ic_close ic ;
   Ok ()
@@ -464,11 +463,10 @@ let add_field _ headers content_encoding mime_type content_parameters from _to
         | None -> None in
       let stream =
         match input with
-        | `Stdin -> concat_stream stream stream_of_stdin
-        | `File filename -> concat_stream stream (stream_of_filename filename)
-      in
+        | "-" -> concat_stream stream stream_of_stdin
+        | filename -> concat_stream stream (stream_of_filename filename) in
       (match output with
-      | Some filename -> stream_to_filename stream filename
+      | Some filename -> stream_to_filename stream (Fpath.to_string filename)
       | None -> stream_to_stdout stream) ;
       `Ok ()
 
@@ -637,14 +635,14 @@ let date =
   Arg.(value & opt date `Now & info [ "date" ] ~doc)
 
 let body =
-  let doc = "Body of the email." in
-  Arg.(value & pos ~rev:true 0 existing_file_or_stdin `Stdin & info [] ~doc)
+  let doc = "Body of the email. Use $(b,-) for $(b,stdin)." in
+  Arg.(value & pos ~rev:true 0 Args.file "-" & info [] ~doc)
 
 let output =
   let doc = "The filename where you want to save the email." in
   Arg.(value & opt filename None & info [ "o"; "output" ] ~doc)
 
-let make_term, make_info =
+let make_info, make_term =
   let content_encoding =
     let doc = "Encoding of the body." in
     Arg.(value & opt content_encoding `Bit7 & info [ "encoding" ] ~doc) in
@@ -660,27 +658,28 @@ let make_term, make_info =
       `S Manpage.s_description;
       `P "Craft an email with an header given by the user.";
     ] in
-  ( Term.(
-      ret
-        (const make
-        $ setup_logs
-        $ headers
-        $ content_encoding
-        $ mime_type
-        $ content_parameters
-        $ from
-        $ _to
-        $ cc
-        $ bcc
-        $ setup_zone
-        $ date
-        $ body
-        $ output)),
-    Cmd.info "make" ~doc ~man )
+  let term =
+    let open Term in
+    const make
+    $ setup_logs
+    $ headers
+    $ content_encoding
+    $ mime_type
+    $ content_parameters
+    $ from
+    $ _to
+    $ cc
+    $ bcc
+    $ setup_zone
+    $ date
+    $ body
+    $ output
+    |> ret in
+  (Cmd.info "make" ~doc ~man, term)
 
 let input =
-  let doc = "The email to be modified." in
-  Arg.(value & pos ~rev:true 0 existing_file_or_stdin `Stdin & info [] ~doc)
+  let doc = "The email to be modified. Use $(b,-) for $(b,stdin)." in
+  Arg.(value & pos ~rev:true 0 Args.file "-" & info [] ~doc)
 
 let add_field =
   let content_encoding =
@@ -698,28 +697,29 @@ let add_field =
   let man =
     [ `S Manpage.s_description; `P "Prepend the given email with some fields." ]
   in
-  Cmd.v
-    (Cmd.info "add-field" ~doc ~man)
-    Term.(
-      ret
-        (const add_field
-        $ setup_logs
-        $ headers
-        $ content_encoding
-        $ mime_type
-        $ content_parameters
-        $ from
-        $ _to
-        $ cc
-        $ bcc
-        $ setup_zone
-        $ date
-        $ input
-        $ output))
+  let term =
+    let open Term in
+    const add_field
+    $ setup_logs
+    $ headers
+    $ content_encoding
+    $ mime_type
+    $ content_parameters
+    $ from
+    $ _to
+    $ cc
+    $ bcc
+    $ setup_zone
+    $ date
+    $ input
+    $ output
+    |> ret in
+  Cmd.v (Cmd.info "add-field" ~doc ~man) term
 
 let input =
-  let doc = "The email to wrap into a multipart one." in
-  Arg.(value & pos ~rev:true 0 existing_file_or_stdin `Stdin & info [] ~doc)
+  let doc =
+    "The email to wrap into a multipart one. Use $(b,-) for $(b,stdin)." in
+  Arg.(value & pos ~rev:true 0 Args.file "-" & info [] ~doc)
 
 let seed =
   let doc = "Seed used by the random number generator." in
@@ -761,26 +761,27 @@ let wrap =
          the same old $(i,Content-Type) and $(i,Content-Transfer-Encoding) \
          value.";
     ] in
-  Cmd.v
-    (Cmd.info "wrap" ~doc ~man)
-    Term.(
-      ret
-        (const wrap
-        $ setup_logs
-        $ headers
-        $ seed
-        $ boundary
-        $ subty
-        $ input
-        $ output))
+  let term =
+    let open Term in
+    const wrap
+    $ setup_logs
+    $ headers
+    $ seed
+    $ boundary
+    $ subty
+    $ input
+    $ output
+    |> ret in
+  Cmd.v (Cmd.info "wrap" ~doc ~man) term
 
 let input =
-  let doc = "The email to wrap into a multipart one." in
-  Arg.(value & pos 1 existing_file_or_stdin `Stdin & info [] ~doc)
+  let doc =
+    "The email to wrap into a multipart one. Use $(b,-) for $(b,stdin)." in
+  Arg.(value & pos 1 Args.file "-" & info [] ~doc)
 
 let body =
   let doc = "Body of the email." in
-  Arg.(required & pos 0 (some existing_file) None & info [] ~doc)
+  Arg.(value & pos 0 Args.file "-" & info [] ~doc)
 
 let put =
   let content_encoding =
@@ -800,16 +801,16 @@ let put =
     ] in
   let term =
     let open Term in
-    ret
-      (const put
-      $ setup_logs
-      $ headers
-      $ content_encoding
-      $ mime_type
-      $ content_parameters
-      $ body
-      $ input
-      $ output) in
+    const put
+    $ setup_logs
+    $ headers
+    $ content_encoding
+    $ mime_type
+    $ content_parameters
+    $ body
+    $ input
+    $ output
+    |> ret in
   Cmd.v (Cmd.info "put" ~doc ~man) term
 
 let cmd = Cmd.group ~default:make_term make_info [ add_field; wrap; put ]

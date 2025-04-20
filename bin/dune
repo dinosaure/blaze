@@ -213,7 +213,7 @@
  (name blaze_arc)
  (modules blaze_arc)
  (public_name blaze.arc)
- (libraries blaze.args mirage-crypto-rng-miou-unix arc))
+ (libraries blaze.args blaze.bqueue mirage-crypto-rng-miou-unix arc))
 
 (executable
  (name blaze)

@@ -3,7 +3,7 @@ Test about the PACK file
   $ blaze crlf 002.mail > 02.eml
   $ blaze crlf 003.mail > 03.eml
   $ blaze crlf 004.mail > 04.eml
-  $ blaze pack make -o pack.pack - <<EOF
+  $ blaze pack make -o pack.pack <<EOF
   > 01.eml
   > 02.eml
   > 03.eml

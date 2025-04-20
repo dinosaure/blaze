@@ -100,6 +100,7 @@ let run_make quiet progress without_progress threads mails_from_stdin
     mails_from_cmdline output =
   Miou_unix.run ~domains:threads @@ fun () ->
   let ( let* ) = Result.bind in
+  let mails_from_cmdline = List.map Fpath.v mails_from_cmdline in
   let mails = List.rev_append mails_from_stdin mails_from_cmdline in
   let* mails = parallel ~fn:Pack.filename_to_email mails in
   let* entries = parallel ~fn:Pack.email_to_entries mails in
@@ -126,7 +127,7 @@ let run_make quiet progress without_progress threads mails_from_stdin
   let oc, finally =
     match output with
     | Some filename ->
-        let oc = open_out (Fpath.to_string filename) in
+        let oc = open_out filename in
         let finally () = close_out oc in
         (oc, finally)
     | None -> (stdout, ignore) in
@@ -135,7 +136,7 @@ let run_make quiet progress without_progress threads mails_from_stdin
   Ok ()
 
 let seq_of_filename filename =
-  let ic = open_in (Fpath.to_string filename) in
+  let ic = open_in filename in
   let buf = Bytes.create 0x7ff in
   let dispenser () =
     match input ic buf 0 (Bytes.length buf) with
@@ -156,7 +157,7 @@ let run_list _quit filename =
     let allocate bits = De.make_window ~bits in
     Carton.First_pass.of_seq ~output ~allocate ~ref_length ~digest:Pack.sha1
       ~identify:Pack.mail_identify seq in
-  let pack = Carton_miou_unix.make ~ref_length filename in
+  let pack = Carton_miou_unix.make ~ref_length (Fpath.v filename) in
   let mails_by_offsets = Hashtbl.create 0x100 in
   let mails_by_refs = Hashtbl.create 0x100 in
   let is_a_mail ?offset ?ref () =
@@ -224,16 +225,16 @@ let entries_of_pack cfg pack =
         Classeur.Encoder.{ uid; crc; offset = Int64.of_int cursor } in
   (Array.mapi fn matrix, hash)
 
-let run_index _quiet threads pack =
+let run_index _quiet threads filename =
   Miou_unix.run ~domains:threads @@ fun () ->
   let cfg = Pack.config ~threads () in
-  let entries, hash = entries_of_pack cfg pack in
+  let entries, hash = entries_of_pack cfg (Fpath.v filename) in
   let encoder =
     let digest = Pack.sha1 in
     let ref_length = Digestif.SHA1.digest_size in
     Classeur.Encoder.encoder `Manual ~digest ~pack:hash ~ref_length entries
   in
-  let output = Fpath.set_ext ".idx" pack in
+  let output = Fpath.set_ext ".idx" (Fpath.v filename) in
   let oc = open_out (Fpath.to_string output) in
   let finally () = close_out oc in
   Fun.protect ~finally @@ fun () ->
@@ -417,45 +418,20 @@ let setup_mails_from_in_channel ic =
         go mails in
   go []
 
-let existing_file =
-  let parser str =
-    match Fpath.of_string str with
-    | Ok value ->
-        if Sys.file_exists str && Sys.is_directory str = false
-        then Ok value
-        else error_msgf "%a does not exists" Fpath.pp value
-    | Error _ as err -> err in
-  Arg.conv ~docv:"MAIL" (parser, Fpath.pp)
-
 let mails =
   let doc = "Emails to encode into a PACK file." in
   let open Arg in
-  value & opt_all existing_file [] & info [ "m"; "mail" ] ~doc ~docv:"MAIL"
+  value & opt_all Args.file [] & info [ "m"; "mail" ] ~doc ~docv:"MAIL"
 
 let list_of_mails =
   let doc = "A file (or $(i,stdin)) containing a list of emails." in
-  let parser = function
-    | "-" -> Ok None
-    | str ->
-    match Fpath.of_string str with
-    | Ok value ->
-        if Sys.file_exists str && Sys.is_directory str = false
-        then Ok (Some value)
-        else error_msgf "%a does not exists" Fpath.pp value
-    | Error _ as err -> err in
-  let existing_file =
-    let pp ppf = function
-      | None -> Fmt.string ppf "-"
-      | Some filename -> Fpath.pp ppf filename in
-    Arg.conv ~docv:"FILE" (parser, pp) in
   let open Arg in
-  value & pos 0 (some existing_file) None & info [] ~doc ~docv:"FILE"
+  value & pos 0 Args.file "-" & info [] ~doc ~docv:"FILE"
 
 let setup_mails_from_in_channel = function
-  | None -> []
-  | Some None -> setup_mails_from_in_channel stdin
-  | Some (Some filename) ->
-      let ic = open_in (Fpath.to_string filename) in
+  | "-" -> setup_mails_from_in_channel stdin
+  | filename ->
+      let ic = open_in filename in
       let finally () = close_in ic in
       Fun.protect ~finally @@ fun () -> setup_mails_from_in_channel ic
 
@@ -473,7 +449,7 @@ let output =
 let pack =
   let doc = "The PACKv2 file." in
   let open Arg in
-  required & pos 0 (some existing_file) None & info [] ~doc ~docv:"PACK"
+  required & pos 0 (some file) None & info [] ~doc ~docv:"PACK"
 
 let uid_of_string_opt str =
   match Ohex.decode ~skip_whitespace:true str with
@@ -501,16 +477,17 @@ let make_term =
   let to_ret = function
     | Ok () -> `Ok ()
     | Error exn -> `Error (false, Printexc.to_string exn) in
-  ret
-    (app (const to_ret)
-       (const run_make
-       $ setup_logs
-       $ setup_progress
-       $ without_progress
-       $ threads ~min:2 ()
-       $ setup_mails_from_in_channel
-       $ mails
-       $ output))
+  let term =
+    const run_make
+    $ setup_logs
+    $ setup_progress
+    $ without_progress
+    $ threads ~min:2 ()
+    $ setup_mails_from_in_channel
+    $ mails
+    $ output in
+  let term = map to_ret term in
+  ret term
 
 let list_term =
   let open Term in

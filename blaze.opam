@@ -57,10 +57,10 @@ build: [
 dev-repo: "git+https://github.com/dinosaure/blaze.git"
 pin-depends: [
   [ "maildir.dev"            "git+https://github.com/dinosaure/ocaml-maildir.git#597823c7d2d4fd2aef26a581f6828f2b458371ea" ]
-  [ "dmarc.dev"              "git+https://github.com/dinosaure/ocaml-dmarc.git#b3922bcd916701b225e71338f4208c4a37406623" ]
+  [ "dmarc.dev"              "git+https://github.com/dinosaure/ocaml-dmarc.git#537f7101ca891accfac9f67e5ccae5bcf0bfa10f" ]
   [ "public-suffix.dev"      "git+https://github.com/dinosaure/ocaml-dmarc.git#48bec0b9e8dac83c4390da3e89794707d6613ac9" ]
   [ "dkim.dev"               "git+https://github.com/mirage/ocaml-dkim.git#44519def48fc0ecd55d51c316c19ea43c951e1d4" ]
   [ "uspf.dev"               "git+https://github.com/mirage/uspf.git#8e829f5dd624d0c05f57e8970d98230ec049fb50" ]
   [ "bstr.dev"               "git+https://git.robur.coop/robur/bstr.git#42a68a453f0eb890efd2b2583ae76bb6f20057b9" ]
-  [ "arc.dev"                "git+https://git.robur.coop/robur/ocaml-arc.git#4babbaee3c2e01693eb2e834f0d1a26b1efa5cdb" ]
+  [ "arc.dev"                "git+https://git.robur.coop/robur/ocaml-arc.git#9bf4ddbf5da78f58a672609e794c395c1f406a77" ]
 ]

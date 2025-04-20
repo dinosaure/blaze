@@ -8,8 +8,8 @@ Tests on DKIM fields
   $ blaze dkim verify 003.mail
   [OK]: janestreet.com
   $ blaze dkim verify -q 001.mail
-  $ cat 002.mail | blaze dkim verify -q -
-  $ cat 002.mail | blaze dkim verify -q -
+  $ cat 002.mail | blaze dkim verify -q
+  $ cat 002.mail | blaze dkim verify -q
   $ blaze rand --seed foo= 16 > seed
   $ blaze dkim gen --seed $(cat seed) key.pem | cut -d' ' -f3 > seed.out
   $ diff seed seed.out

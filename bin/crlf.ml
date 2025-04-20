@@ -7,7 +7,7 @@ let run _quiet filename output =
         (oc, finally)
     | None -> (stdout, ignore) in
   Fun.protect ~finally @@ fun () ->
-  let ic = open_in (Fpath.to_string filename) in
+  let ic = open_in filename in
   let finally () = close_in ic in
   Fun.protect ~finally @@ fun () ->
   let rec go () =
@@ -26,7 +26,7 @@ open Args
 let input =
   let doc = "The email uses the system line feed." in
   let open Arg in
-  required & pos 0 (some existing_file) None & info [] ~doc ~docv:"FILE"
+  required & pos 0 (some file) None & info [] ~doc ~docv:"FILE"
 
 let output =
   let doc = "The output of the $(tname) program." in

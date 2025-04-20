@@ -91,8 +91,8 @@ let show_graph g =
 let extract dot input =
   let ic, close =
     match input with
-    | `File fpath -> (open_in (Fpath.to_string fpath), close_in)
-    | `Stdin -> (stdin, ignore) in
+    | "-" -> (stdin, ignore)
+    | filename -> (open_in filename, close_in) in
   let stream = stream_of_in_channel ic in
   match
     Received.of_stream stream >>| fun res ->
@@ -140,17 +140,16 @@ let stamp hostname zone from _for input =
   Fmt.pr "%s%!"
     (Prettym.to_string ~new_line:"\n" Received.Encoder.as_field stamp) ;
   match input with
-  | `File fpath ->
-      let ic = open_in (Fpath.to_string fpath) in
+  | "-" ->
+      pipe stdin stdout ;
+      `Ok ()
+  | filename ->
+      let ic = open_in filename in
       pipe ic stdout ;
       close_in ic ;
       `Ok ()
-  | `Stdin ->
-      pipe stdin stdout ;
-      `Ok ()
 
 open Cmdliner
-open Args
 
 let hostname =
   let parser str =
@@ -170,8 +169,8 @@ let path =
   Arg.conv (parser, Colombe.Path.pp)
 
 let input =
-  let doc = "The email to analyze." in
-  Arg.(value & pos ~rev:true 0 existing_file_or_stdin `Stdin & info [] ~doc)
+  let doc = "The email to analyze. Use $(b,-) for $(b,stdin)." in
+  Arg.(value & pos 1 Args.file "-" & info [] ~doc)
 
 let dot =
   let doc = "Print a $(i,dot) graph." in
@@ -204,6 +203,10 @@ let stamp =
   Cmd.v
     (Cmd.info "stamp" ~doc ~man)
     Term.(ret (const stamp $ hostname $ zone $ from $ _for $ input))
+
+let input =
+  let doc = "The email to analyze. Use $(b,-) for $(b,stdin)." in
+  Arg.(value & pos 0 Args.file "-" & info [] ~doc)
 
 let extract =
   let doc = "Extract Received fields" in

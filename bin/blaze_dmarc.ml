@@ -1,6 +1,6 @@
 let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 
-let stamp newline domain fpath value output =
+let stamp newline domain filename value output =
   let oc, oc_close =
     match output with
     | None -> (stdout, ignore)
@@ -16,7 +16,7 @@ let stamp newline domain fpath value output =
   output_string oc (Dmarc.field_authentication_results :> string) ;
   output_string oc ": " ;
   output_string oc value ;
-  let ic = open_in (Fpath.to_string fpath) in
+  let ic = open_in filename in
   let finally () = close_in ic in
   Fun.protect ~finally @@ fun () ->
   let rec go buf =
@@ -26,8 +26,8 @@ let stamp newline domain fpath value output =
     if len > 0 then go buf in
   go (Bytes.create 0x7ff)
 
-let verify _quiet newline domain dns fpath output =
-  let ic = open_in (Fpath.to_string fpath) in
+let verify _quiet newline domain dns filename output =
+  let ic = open_in filename in
   let finally () = close_in ic in
   Fun.protect ~finally @@ fun () ->
   let buf = Bytes.create 0x7ff in
@@ -59,7 +59,7 @@ let verify _quiet newline domain dns fpath output =
             go decoder) in
   let ( let* ) = Result.bind in
   let* info = go (Dmarc.Verify.decoder ()) in
-  stamp newline domain fpath info output ;
+  stamp newline domain filename info output ;
   Ok ()
 
 let p =
@@ -221,7 +221,7 @@ open Args
 let input =
   let doc = "The email to check." in
   let open Arg in
-  required & pos 0 (some existing_file) None & info [] ~doc ~docv:"FILENAME"
+  required & pos 0 (some file) None & info [] ~doc ~docv:"FILENAME"
 
 let setup_resolver happy_eyeballs_cfg nameservers local () =
   let happy_eyeballs =

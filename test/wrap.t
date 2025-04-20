@@ -1,5 +1,5 @@
 Tests on wrap
-  $ blaze make --date 2009-07-12T12:00:00Z <<EOF | blaze make wrap --boundary foo -
+  $ blaze make --date 2009-07-12T12:00:00Z <<EOF | blaze make wrap --boundary foo
   > Hello World!
   > EOF
   Content-Type: multipart/mixed; boundary=foo

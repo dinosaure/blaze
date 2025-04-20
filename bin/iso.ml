@@ -1,4 +1,5 @@
 let run _quiet filename output =
+  let filename = Fpath.v filename in
   match Email.of_filename filename with
   | Ok t ->
       let oc, finally =
@@ -19,7 +20,7 @@ open Args
 let input =
   let doc = "The incoming email." in
   let open Arg in
-  required & pos 0 (some existing_file) None & info [] ~doc ~docv:"FILE"
+  required & pos 0 (some file) None & info [] ~doc ~docv:"FILE"
 
 let output =
   let doc = "The output of the $(tname) program." in
