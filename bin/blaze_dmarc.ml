@@ -26,7 +26,7 @@ let stamp newline domain filename value output =
     if len > 0 then go buf in
   go (Bytes.create 0x7ff)
 
-let verify _quiet newline domain dns filename output =
+let verify _quiet ctx newline domain dns filename output =
   let ic = open_in filename in
   let finally () = close_in ic in
   Fun.protect ~finally @@ fun () ->
@@ -58,7 +58,7 @@ let verify _quiet newline domain dns filename output =
             let decoder = Dmarc.Verify.src decoder str 0 len in
             go decoder) in
   let ( let* ) = Result.bind in
-  let* info = go (Dmarc.Verify.decoder ()) in
+  let* info = go (Dmarc.Verify.decoder ?ctx ()) in
   stamp newline domain filename info output ;
   Ok ()
 
@@ -203,7 +203,7 @@ let collect _quiet newline input =
       `Ok ()
   | Error (`Msg msg) -> `Error (false, Fmt.str "%s." msg)
 
-let verify quiet newline domain resolver fpath output =
+let verify quiet newline ctx domain resolver fpath output =
   Miou_unix.run ~domains:0 @@ fun () ->
   let daemon, _he, dns = resolver () in
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
@@ -211,7 +211,7 @@ let verify quiet newline domain resolver fpath output =
     Happy_eyeballs_miou_unix.kill daemon ;
     Mirage_crypto_rng_miou_unix.kill rng in
   Fun.protect ~finally @@ fun () ->
-  match verify quiet newline domain dns fpath output with
+  match verify quiet newline ctx domain dns fpath output with
   | Ok () -> `Ok ()
   | Error (`Msg msg) -> `Error (false, Fmt.str "%s." msg)
 
@@ -311,6 +311,53 @@ let hostname =
   & opt hostname default_hostname
   & info [ "h"; "hostname" ] ~doc ~docv:"DOMAIN"
 
+let sender =
+  let parser str =
+    let path =
+      let ( let* ) = Result.bind in
+      let* email = Emile.of_string str in
+      Colombe_emile.to_path email in
+    match path with
+    | Ok v -> Ok v
+    | Error _ -> error_msgf "Invalid sender: %S" str in
+  let pp = Colombe.Path.pp in
+  Arg.conv (parser, pp)
+
+let setup_ctx sender helo ip =
+  match (sender, helo, ip) with
+  | None, None, None -> None
+  | _ ->
+      let none = Uspf.empty in
+      let none =
+        Option.fold ~none
+          ~some:(fun helo -> Uspf.with_sender (`HELO helo) none)
+          helo in
+      let none =
+        Option.fold ~none
+          ~some:(fun sender -> Uspf.with_sender (`MAILFROM sender) none)
+          sender in
+      let none = Option.fold ~none ~some:(fun ip -> Uspf.with_ip ip none) ip in
+      Some none
+
+let sender =
+  let doc = "The sender of the given email." in
+  Arg.(value & opt (some sender) None & info [ "s"; "sender" ] ~doc)
+
+let domain_name = Arg.conv (Domain_name.of_string, Domain_name.pp)
+
+let helo =
+  let doc = "HELO/EHLO name used by the SMTP client." in
+  Arg.(value & opt (some domain_name) None & info [ "helo" ] ~doc)
+
+let ip =
+  let doc = "The IP address of the client." in
+  let ipaddr = Arg.conv (Ipaddr.of_string, Ipaddr.pp) in
+  Arg.(value & opt (some ipaddr) None & info [ "ip" ] ~doc)
+
+let setup_ctx =
+  let open Term in
+  const setup_ctx $ sender $ helo $ ip
+
 let verify =
   let doc = "Verify DMARC informations & stamp an email with results." in
   let man =
@@ -325,6 +372,7 @@ let verify =
   let term =
     const verify
     $ setup_logs
+    $ setup_ctx
     $ newline
     $ hostname
     $ setup_resolver

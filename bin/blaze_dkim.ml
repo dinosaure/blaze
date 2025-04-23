@@ -1,5 +1,3 @@
-open Rresult
-
 let ( % ) f g = fun x -> f (g x)
 let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 let extra_servers = Hashtbl.create 0x100
@@ -162,8 +160,9 @@ let verify quiet newline fields dns input =
 let extra_to_string pk =
   let pk = X509.Public_key.encode_der pk in
   Fmt.str "v=DKIM1; k=rsa; p=%s" (Base64.encode_string ~pad:true pk)
+(* TODO(dinosaure): k=ed25519? *)
 
-let verify quiet newline fields extra resolver input =
+let verify quiet newline fields () resolver input =
   Miou_unix.run ~domains:0 @@ fun () ->
   let daemon, _, dns = resolver () in
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
@@ -171,17 +170,6 @@ let verify quiet newline fields extra resolver input =
     Happy_eyeballs_miou_unix.kill daemon ;
     Mirage_crypto_rng_miou_unix.kill rng in
   Fun.protect ~finally @@ fun () ->
-  let () =
-    List.iter
-      (fun (selector, v, extra) ->
-        let domain_name =
-          let open Domain_name in
-          prepend_label v "_domainkey" >>= append selector in
-        let domain_name = R.get_ok domain_name in
-        Logs.debug (fun m ->
-            m "add %a as a new DNS entry" Domain_name.pp domain_name) ;
-        Hashtbl.add extra_servers domain_name (extra_to_string extra))
-      extra in
   match verify quiet newline fields dns input with
   | Ok `Ok -> `Ok ()
   | Ok `Error -> `Error (false, "Invalid DKIM signature.")
@@ -306,7 +294,10 @@ let parse_public_key str =
       really_input ic rs 0 ln ;
       close_in ic ;
       X509.Public_key.decode_pem (Bytes.unsafe_to_string rs)
-  | _ -> Base64.decode str >>= X509.Public_key.decode_der
+  | _ ->
+      let ( let* ) = Result.bind in
+      let* str = Base64.decode str in
+      X509.Public_key.decode_der str
 
 let extra =
   let parser str =
@@ -314,7 +305,9 @@ let extra =
     | [ selector; domain_name; pk ] -> (
         let selector = Domain_name.of_string selector in
         let domain_name =
-          Domain_name.of_string domain_name >>= Domain_name.host in
+          let ( let* ) = Result.bind in
+          let* value = Domain_name.of_string domain_name in
+          Domain_name.host value in
         let pk = parse_public_key pk in
         match (selector, domain_name, pk) with
         | Ok selector, Ok domain_name, Ok pk -> Ok (selector, domain_name, pk)
@@ -322,7 +315,7 @@ let extra =
         | _, (Error _ as err), _
         | _, _, (Error _ as err) ->
             err)
-    | _ -> R.error_msgf "Invalid format: %S" str in
+    | _ -> error_msgf "Invalid format: %S" str in
   let pp ppf (selector, domain_name, pk) =
     let pk = Base64.encode_string ~pad:true (X509.Public_key.encode_der pk) in
     Fmt.pf ppf "%a:%a:%s" Domain_name.pp selector Domain_name.pp domain_name pk
@@ -332,6 +325,22 @@ let extra =
 let extra =
   let doc = "Extra entries of DKIM public keys." in
   Arg.(value & opt_all extra [] & info [ "e"; "extra" ] ~doc)
+
+let setup_extra extra =
+  List.iter
+    (fun (selector, v, extra) ->
+      let domain_name =
+        let open Domain_name in
+        let ( let* ) = Result.bind in
+        let* v = prepend_label v "_domainkey" in
+        append selector v in
+      let domain_name = Result.get_ok domain_name in
+      Logs.debug (fun m ->
+          m "add %a as a new DNS entry" Domain_name.pp domain_name) ;
+      Hashtbl.add extra_servers domain_name (extra_to_string extra))
+    extra
+
+let setup_extra = Term.(const setup_extra $ extra)
 
 let fields =
   let doc = "Print which field are secured by the DKIM signatures." in
@@ -392,7 +401,7 @@ let verify =
     $ setup_logs
     $ newline
     $ fields
-    $ extra
+    $ setup_extra
     $ setup_resolver
     $ input in
   Cmd.v info (ret term)

@@ -1,23 +1,33 @@
 let ( % ) f g = fun x -> f (g x)
+let extra_servers = Hashtbl.create 0x100
 
 let request dns domain_name =
-  match Dns_static.getaddrinfo dns Dns.Rr_map.Txt domain_name with
-  | Ok (_ttl, txts) ->
-      let fn elt acc = elt :: acc in
-      let txts = Dns.Rr_map.Txt_set.fold fn txts [] in
-      let txts = List.map (String.concat "" % String.split_on_char ' ') txts in
-      let txts = String.concat "" txts in
-      begin
-        match Dkim.domain_key_of_string txts with
-        | Ok domain_key -> (domain_name, `Domain_key domain_key)
-        | Error (`Msg msg) ->
-            Logs.err (fun m -> m "Invalid domain-key: %s" msg) ;
-            (domain_name, `DNS_error msg)
-      end
-  | Error (`Msg msg) ->
-      Logs.err (fun m ->
-          m "DNS error for %a: %s" Domain_name.pp domain_name msg) ;
-      (domain_name, `DNS_error msg)
+  if Hashtbl.mem extra_servers domain_name
+  then
+    let txts = Hashtbl.find extra_servers domain_name in
+    begin
+      match Dkim.domain_key_of_string txts with
+      | Ok domain_key -> (domain_name, `Domain_key domain_key)
+      | Error (`Msg msg) -> (domain_name, `DNS_error msg)
+    end
+  else
+    match Dns_static.getaddrinfo dns Dns.Rr_map.Txt domain_name with
+    | Ok (_ttl, txts) ->
+        let fn elt acc = elt :: acc in
+        let txts = Dns.Rr_map.Txt_set.fold fn txts [] in
+        let txts = List.map (String.concat "" % String.split_on_char ' ') txts in
+        let txts = String.concat "" txts in
+        begin
+          match Dkim.domain_key_of_string txts with
+          | Ok domain_key -> (domain_name, `Domain_key domain_key)
+          | Error (`Msg msg) ->
+              Logs.err (fun m -> m "Invalid domain-key: %s" msg) ;
+              (domain_name, `DNS_error msg)
+        end
+    | Error (`Msg msg) ->
+        Logs.err (fun m ->
+            m "DNS error for %a: %s" Domain_name.pp domain_name msg) ;
+        (domain_name, `DNS_error msg)
 
 let verify dns newline stream =
   let decoder = Dmarc.Verify.decoder () in
@@ -89,7 +99,7 @@ let chain dns newline stream =
   go (Arc.Verify.decoder ())
 
 let sign _quiet newline resolver seal msgsig keys receiver input =
-  Miou_unix.run @@ fun () ->
+  Miou_unix.run ~domains:0 @@ fun () ->
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let daemon, _, dns = resolver () in
   let finally () =
@@ -178,7 +188,7 @@ let rec show_chain ppf = function
         Fmt.pf ppf "%a@ -[err]-> %02d:%a" show_chain next uid Domain_name.pp
           domain_name
 
-let verify quiet newline resolver input =
+let verify quiet () newline resolver input =
   Miou_unix.run ~domains:0 @@ fun () ->
   let daemon, _he, dns = resolver () in
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
@@ -272,6 +282,68 @@ let setup_resolver =
   $ setup_nameservers
   $ setup_dns_static
 
+let parse_public_key str =
+  match Fpath.of_string str with
+  | Ok _ when Sys.file_exists str ->
+      let ic = open_in str in
+      let ln = in_channel_length ic in
+      let rs = Bytes.create ln in
+      really_input ic rs 0 ln ;
+      close_in ic ;
+      X509.Public_key.decode_pem (Bytes.unsafe_to_string rs)
+  | _ ->
+      let ( let* ) = Result.bind in
+      let* str = Base64.decode str in
+      X509.Public_key.decode_der str
+
+let extra_to_string pk =
+  let pk = X509.Public_key.encode_der pk in
+  Fmt.str "k=rsa; p=%s" (Base64.encode_string ~pad:true pk)
+(* TODO(dinosaure): k=ed25519? *)
+
+let extra =
+  let parser str =
+    match String.split_on_char ':' str with
+    | [ selector; domain_name; pk ] -> (
+        let selector = Domain_name.of_string selector in
+        let domain_name =
+          let ( let* ) = Result.bind in
+          let* value = Domain_name.of_string domain_name in
+          Domain_name.host value in
+        let pk = parse_public_key pk in
+        match (selector, domain_name, pk) with
+        | Ok selector, Ok domain_name, Ok pk -> Ok (selector, domain_name, pk)
+        | (Error _ as err), _, _
+        | _, (Error _ as err), _
+        | _, _, (Error _ as err) ->
+            err)
+    | _ -> error_msgf "Invalid format: %S" str in
+  let pp ppf (selector, domain_name, pk) =
+    let pk = Base64.encode_string ~pad:true (X509.Public_key.encode_der pk) in
+    Fmt.pf ppf "%a:%a:%s" Domain_name.pp selector Domain_name.pp domain_name pk
+  in
+  Arg.conv (parser, pp)
+
+let extra =
+  let doc = "Extra entries of DKIM public keys." in
+  Arg.(value & opt_all extra [] & info [ "e"; "extra" ] ~doc)
+
+let setup_extra extra =
+  List.iter
+    (fun (selector, v, extra) ->
+      let domain_name =
+        let open Domain_name in
+        let ( let* ) = Result.bind in
+        let* v = prepend_label v "_domainkey" in
+        append selector v in
+      let domain_name = Result.get_ok domain_name in
+      Logs.debug (fun m ->
+          m "add %a as a new DNS entry" Domain_name.pp domain_name) ;
+      Hashtbl.add extra_servers domain_name (extra_to_string extra))
+    extra
+
+let setup_extra = Term.(const setup_extra $ extra)
+
 let verify =
   let doc = "Verify ARC informations." in
   let man =
@@ -281,7 +353,9 @@ let verify =
     ] in
   let open Term in
   let info = Cmd.info "verify" ~doc ~man in
-  let term = const verify $ setup_logs $ newline $ setup_resolver $ input in
+  let term =
+    const verify $ setup_logs $ setup_extra $ newline $ setup_resolver $ input
+  in
   Cmd.v info (ret term)
 
 let priv_of_seed ?(bits = 4096) (alg : Dkim.algorithm) seed : Dkim.key =

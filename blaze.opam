@@ -62,5 +62,5 @@ pin-depends: [
   [ "dkim.dev"               "git+https://github.com/mirage/ocaml-dkim.git#4752aa45a3bfa21df0ab2cf0a2daa15552454d53" ]
   [ "uspf.dev"               "git+https://github.com/mirage/uspf.git#8e829f5dd624d0c05f57e8970d98230ec049fb50" ]
   [ "bstr.dev"               "git+https://git.robur.coop/robur/bstr.git#42a68a453f0eb890efd2b2583ae76bb6f20057b9" ]
-  [ "arc.dev"                "git+https://git.robur.coop/robur/ocaml-arc.git#9bf4ddbf5da78f58a672609e794c395c1f406a77" ]
+  [ "arc.dev"                "git+https://git.robur.coop/robur/ocaml-arc.git#aff4309bfa433fa1a52f7877c03d1ced3bb8993d" ]
 ]

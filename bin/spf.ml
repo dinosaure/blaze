@@ -1,16 +1,5 @@
 open Rresult
 
-let ctx sender helo ip =
-  Uspf.empty |> fun ctx ->
-  Option.fold ~none:ctx
-    ~some:(fun helo -> Uspf.with_sender (`HELO helo) ctx)
-    helo
-  |> fun ctx ->
-  Option.fold ~none:ctx
-    ~some:(fun sender -> Uspf.with_sender (`MAILFROM sender) ctx)
-    sender
-  |> fun ctx -> Option.fold ~none:ctx ~some:(fun ip -> Uspf.with_ip ip ctx) ip
-
 let rec transmit ic oc =
   let tmp = Bytes.create 0x1000 in
   go tmp ic oc
@@ -90,7 +79,7 @@ let extract_received_spf ?(newline = `LF) ic =
 let impossible_to_stamp =
   `Error (false, "Impossible to stamp the incoming email with Received-SPF")
 
-let stamp quiet hostname resolver sender helo ip input output =
+let stamp quiet hostname resolver ctx input output =
   Miou_unix.run ~domains:0 @@ fun () ->
   let daemon, _he, dns = resolver () in
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
@@ -106,7 +95,6 @@ let stamp quiet hostname resolver sender helo ip input output =
     match output with
     | Some fpath -> (open_out (Fpath.to_string fpath), close_out)
     | None -> (stdout, ignore) in
-  let ctx = ctx sender helo ip in
   match check dns ctx with
   | Some res when quiet -> begin
       match res with
@@ -311,6 +299,17 @@ let sender =
   let pp = Colombe.Path.pp in
   Arg.conv (parser, pp)
 
+let setup_ctx sender helo ip =
+  Uspf.empty |> fun ctx ->
+  Option.fold ~none:ctx
+    ~some:(fun helo -> Uspf.with_sender (`HELO helo) ctx)
+    helo
+  |> fun ctx ->
+  Option.fold ~none:ctx
+    ~some:(fun sender -> Uspf.with_sender (`MAILFROM sender) ctx)
+    sender
+  |> fun ctx -> Option.fold ~none:ctx ~some:(fun ip -> Uspf.with_ip ip ctx) ip
+
 let sender =
   let doc = "The sender of the given email." in
   Arg.(value & opt (some sender) None & info [ "s"; "sender" ] ~doc)
@@ -325,6 +324,10 @@ let ip =
   let doc = "The IP address of the client." in
   let ipaddr = Arg.conv (Ipaddr.of_string, Ipaddr.pp) in
   Arg.(value & opt (some ipaddr) None & info [ "ip" ] ~doc)
+
+let setup_ctx =
+  let open Term in
+  const setup_ctx $ sender $ helo $ ip
 
 let stamp =
   let doc =
@@ -344,9 +347,7 @@ let stamp =
     $ setup_logs
     $ hostname
     $ setup_resolver
-    $ sender
-    $ helo
-    $ ip
+    $ setup_ctx
     $ input
     $ output in
   Cmd.v info (ret term)
