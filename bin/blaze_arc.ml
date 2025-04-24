@@ -29,8 +29,8 @@ let request dns domain_name =
             m "DNS error for %a: %s" Domain_name.pp domain_name msg) ;
         (domain_name, `DNS_error msg)
 
-let verify dns newline stream =
-  let decoder = Dmarc.Verify.decoder () in
+let verify dns newline ctx stream =
+  let decoder = Dmarc.Verify.decoder ?ctx () in
   let rec go decoder =
     match Dmarc.Verify.decode decoder with
     | #Dmarc.Verify.error as err ->
@@ -98,7 +98,7 @@ let chain dns newline stream =
     | `Malformed err -> Error (`Msg err) in
   go (Arc.Verify.decoder ())
 
-let sign _quiet newline resolver seal msgsig keys receiver input =
+let sign _quiet newline resolver ctx seal msgsig keys receiver input =
   Miou_unix.run ~domains:0 @@ fun () ->
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let daemon, _, dns = resolver () in
@@ -130,7 +130,7 @@ let sign _quiet newline resolver seal msgsig keys receiver input =
         Bqueue.close stream1) in
     go () in
   Miou.await_exn producer ;
-  let prm0 = Miou.async @@ fun () -> verify dns newline stream0 in
+  let prm0 = Miou.async @@ fun () -> verify dns newline ctx stream0 in
   let prm1 = Miou.async @@ fun () -> chain dns newline stream1 in
   let results = Miou.await_exn prm0 and chain = Miou.await_exn prm1 in
   match (results, chain) with
@@ -532,12 +532,60 @@ let input =
   let open Arg in
   value & pos 0 Args.file "-" & info [] ~doc ~docv:"FILE"
 
+let setup_ctx sender helo ip =
+  match (sender, helo, ip) with
+  | None, None, None -> None
+  | _ ->
+      let none = Uspf.empty in
+      let none =
+        Option.fold ~none
+          ~some:(fun helo -> Uspf.with_sender (`HELO helo) none)
+          helo in
+      let none =
+        Option.fold ~none
+          ~some:(fun sender -> Uspf.with_sender (`MAILFROM sender) none)
+          sender in
+      let none = Option.fold ~none ~some:(fun ip -> Uspf.with_ip ip none) ip in
+      Some none
+
+let sender =
+  let parser str =
+    let path =
+      let ( let* ) = Result.bind in
+      let* email = Emile.of_string str in
+      Colombe_emile.to_path email in
+    match path with
+    | Ok v -> Ok v
+    | Error _ -> error_msgf "Invalid sender: %S" str in
+  let pp = Colombe.Path.pp in
+  Arg.conv (parser, pp)
+
+let sender =
+  let doc = "The sender of the given email." in
+  Arg.(value & opt (some sender) None & info [ "s"; "sender" ] ~doc)
+
+let domain_name = Arg.conv (Domain_name.of_string, Domain_name.pp)
+
+let helo =
+  let doc = "HELO/EHLO name used by the SMTP client." in
+  Arg.(value & opt (some domain_name) None & info [ "helo" ] ~doc)
+
+let ip =
+  let doc = "The IP address of the client." in
+  let ipaddr = Arg.conv (Ipaddr.of_string, Ipaddr.pp) in
+  Arg.(value & opt (some ipaddr) None & info [ "ip" ] ~doc)
+
+let setup_ctx =
+  let open Term in
+  const setup_ctx $ sender $ helo $ ip
+
 let sign =
   let open Term in
   const sign
   $ setup_logs
   $ newline
   $ setup_resolver
+  $ setup_ctx
   $ setup_seal
   $ setup_msgsig
   $ setup_keys
