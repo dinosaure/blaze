@@ -38,7 +38,7 @@ val verify_from_idx :
   cfg:Carton_miou_unix.config -> Fpath.t -> Carton.status array * string
 
 val make :
-  ?index:(Carton.Uid.t -> int) ->
+  ?index:(Carton.Uid.t -> Carton.location) ->
   Fpath.t ->
   Carton_miou_unix.file_descr Carton.t
 

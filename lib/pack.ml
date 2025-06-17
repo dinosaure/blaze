@@ -20,11 +20,11 @@ let mail_identify =
   { Carton.First_pass.init; feed; serialize }
 
 let uid_of_value value =
-  let kind = Carton.Value.kind value in
+  let k = Carton.Value.kind value in
   let bstr = Carton.Value.bigstring value in
   let len = Carton.Value.length value in
   let open Carton.First_pass in
-  let ctx = mail_identify.init kind (Carton.Size.of_int_exn len) in
+  let ctx = mail_identify.init k (Carton.Size.of_int_exn len) in
   let ctx = mail_identify.feed (Bigarray.Array1.sub bstr 0 len) ctx in
   mail_identify.Carton.First_pass.serialize ctx
 

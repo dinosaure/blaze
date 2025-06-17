@@ -69,6 +69,7 @@ let sign seal msgsig keys newline receiver queue results chain =
             go (Arc.Sign.fill t str 0 (String.length str))
         | exception Queue.Empty -> go (Arc.Sign.fill t String.empty 0 0))
     | `Malformed err -> Fmt.failwith "%s." err
+    | `Missing_authentication_results -> assert false
     | `Set set ->
         let new_line = match newline with `CRLF -> "\r\n" | `LF -> "\n" in
         let str = Prettym.to_string ~new_line Arc.Encoder.stamp set in

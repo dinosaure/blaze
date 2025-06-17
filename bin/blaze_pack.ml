@@ -155,8 +155,8 @@ let run_list _quit filename =
   let seq =
     let output = De.bigstring_create De.io_buffer_size in
     let allocate bits = De.make_window ~bits in
-    Carton.First_pass.of_seq ~output ~allocate ~ref_length ~digest:Pack.sha1
-      ~identify:Pack.mail_identify seq in
+    Carton.First_pass.of_seq ~output ~allocate ~ref_length ~digest:Pack.sha1 seq
+  in
   let pack = Carton_miou_unix.make ~ref_length (Fpath.v filename) in
   let mails_by_offsets = Hashtbl.create 0x100 in
   let mails_by_refs = Hashtbl.create 0x100 in
@@ -167,7 +167,7 @@ let run_list _quit filename =
     | None, Some ref -> Hashtbl.mem mails_by_refs ref in
   let filter_map = function
     | `Number _ | `Hash _ -> None
-    | `Entry { Carton.First_pass.kind = Base (`A, _); offset; size; _ } ->
+    | `Entry { Carton.First_pass.kind = Base `A; offset; size; _ } ->
         Hashtbl.add mails_by_offsets offset () ;
         let blob = Carton.Blob.make ~size in
         let value = Carton.of_offset pack blob ~cursor:offset in
@@ -214,7 +214,7 @@ let run_list _quit filename =
 let entries_of_pack cfg pack =
   let matrix, hash = Pack.verify_from_pack ~cfg pack in
   let fn _idx = function
-    | Carton.Unresolved_base _ | Carton.Unresolved_node ->
+    | Carton.Unresolved_base _ | Carton.Unresolved_node _ ->
         Logs.err (fun m -> m "object %d unresolved" _idx) ;
         assert false
     | Resolved_base { cursor; uid; crc; _ } ->
@@ -259,7 +259,7 @@ let run_get _quiet idx identifier =
   let idx = Pack.index idx in
   let index (uid : Carton.Uid.t) =
     let uid = Classeur.uid_of_string_exn idx (uid :> string) in
-    Classeur.find_offset idx uid in
+    Carton.Local (Classeur.find_offset idx uid) in
   let pack = Carton_miou_unix.make ~ref_length ~index pack in
   let size =
     match identifier with
@@ -303,7 +303,7 @@ let run_get _quiet idx identifier =
 let pp_status tbl ~max_consumed ~max_offset ppf = function
   | Carton.Unresolved_base { cursor } ->
       Fmt.pf ppf "%08x %d" cursor (Hashtbl.find tbl cursor)
-  | Unresolved_node -> ()
+  | Unresolved_node _ -> ()
   | Resolved_base { cursor; uid; kind; crc } ->
       Fmt.pf ppf "%a %a %*d %*d    %08lx" Carton.Uid.pp uid Carton.Kind.pp kind
         max_offset cursor max_consumed (Hashtbl.find tbl cursor)
@@ -389,7 +389,7 @@ let run_verify quiet progress without_progress threads pagesize pack =
   let max_offset =
     match matrix.(Array.length matrix - 1) with
     | Carton.Unresolved_base { cursor } -> cursor
-    | Unresolved_node -> 0
+    | Unresolved_node _ -> 0
     | Resolved_base { cursor; _ } -> cursor
     | Resolved_node { cursor; _ } -> cursor in
   let max_offset = Float.to_int (log10 (Float.of_int max_offset)) + 1 in
