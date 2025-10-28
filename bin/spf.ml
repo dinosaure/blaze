@@ -276,11 +276,11 @@ let generate ~len =
 
 let default_hostname =
   let str = Unix.gethostname () in
-  match (fst hostname) str with
-  | `Ok domain -> domain
-  | `Error _ ->
-      let[@warning "-8"] (`Ok random_hostname : [ `Ok of _ | `Error of _ ]) =
-        (fst hostname) (generate ~len:16) in
+  match (Cmdliner.Arg.conv_parser hostname) str with
+  | Ok domain -> domain
+  | Error _ ->
+      let[@warning "-8"] (Ok random_hostname) =
+        (Cmdliner.Arg.conv_parser hostname) (generate ~len:16) in
       Logs.warn (fun m ->
           m "Invalid default hostname: %S, use %a as the default hostname" str
             Emile.pp_domain random_hostname) ;

@@ -187,7 +187,8 @@ let zone =
 
 let _for =
   let doc = "The recipient of the given email." in
-  Arg.(required & pos 0 (some path) None & info [] ~doc)
+  let cpath = path in
+  Arg.(required & pos 0 (some cpath) None & info [] ~doc)
 
 let from =
   let doc = "The domain which identifies the source of the given email." in
@@ -200,9 +201,11 @@ let stamp =
       `S Manpage.s_description;
       `P "$(tname) stamps the given $(i,msgs) with a new $(i,Received) field.";
     ] in
-  Cmd.v
-    (Cmd.info "stamp" ~doc ~man)
-    Term.(ret (const stamp $ hostname $ zone $ from $ _for $ input))
+  let info = Cmd.info "stamp" ~doc ~man in
+  let term =
+    let open Term in
+    ret (const stamp $ hostname $ zone $ from $ _for $ input) in
+  Cmd.v info term
 
 let input =
   let doc = "The email to analyze. Use $(b,-) for $(b,stdin)." in
