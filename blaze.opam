@@ -46,6 +46,7 @@ depends: [
   "carton-miou"
   "dmarc"
   "arc"
+  "stem"
   "ke" {>= "0.4"}
   "mirage-crypto-rng-miou-unix"
   "sendmail-miou-unix"
