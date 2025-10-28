@@ -285,7 +285,7 @@ let run_get _quiet idx identifier =
       let str = Carton.Value.string value in
       match Email.of_string str with
       | Error (`Msg msg) -> Fmt.failwith "%s" msg
-      | Ok t ->
+      | Ok (t, _) ->
           let load uid =
             let uid = Carton.Uid.unsafe_of_string uid in
             let size = Carton.size_of_uid pack ~uid Carton.Size.zero in

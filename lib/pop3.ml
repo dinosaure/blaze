@@ -6,7 +6,7 @@ let ( let* ) = Protocol.bind
 
 let transmit ~emitter ctx =
   let rec go () =
-    let* str = Protocol.decode ctx in
+    let* str = Protocol.decode_line ctx in
     match str with
     | "." ->
         emitter None ;
@@ -59,24 +59,24 @@ let entry str =
       pop3f "Invalid UIDL response: %S" str
 
 let fetch ?authentication ~choose ~emitter_of ctx =
-  let* _greeting = Protocol.decode ctx in
+  let* _greeting = Protocol.decode_line ctx in
   Log.debug (fun m -> m "Greeting: %S" _greeting) ;
   let* () =
     match authentication with
     | Some (username, password) ->
         Log.debug (fun m -> m "authentication state") ;
-        let* () = Protocol.encode ctx (Fmt.str "USER %s" username) in
-        let* resp = Protocol.decode ctx in
+        let* () = Protocol.encode_line ctx (Fmt.str "USER %s" username) in
+        let* resp = Protocol.decode_line ctx in
         let* () = is_ok resp in
-        let* () = Protocol.encode ctx (Fmt.str "PASS %s" password) in
-        let* resp = Protocol.decode ctx in
+        let* () = Protocol.encode_line ctx (Fmt.str "PASS %s" password) in
+        let* resp = Protocol.decode_line ctx in
         is_ok resp
     | None -> Protocol.return () in
-  let* () = Protocol.encode ctx "UIDL" in
-  let* resp = Protocol.decode ctx in
+  let* () = Protocol.encode_line ctx "UIDL" in
+  let* resp = Protocol.decode_line ctx in
   let* () = is_ok resp in
   let rec go acc =
-    let* str = Protocol.decode ctx in
+    let* str = Protocol.decode_line ctx in
     match str with
     | "." -> Protocol.return (List.rev acc)
     | str ->
@@ -85,15 +85,15 @@ let fetch ?authentication ~choose ~emitter_of ctx =
   let* lst = go [] in
   let lst = choose lst in
   let rec go = function
-    | [] -> Protocol.encode ctx "QUIT"
+    | [] -> Protocol.encode_line ctx "QUIT"
     | ({ Uid.sid; _ } as uid) :: rest ->
-        let* () = Protocol.encode ctx (Fmt.str "RETR %d" sid) in
-        let* resp = Protocol.decode ctx in
+        let* () = Protocol.encode_line ctx (Fmt.str "RETR %d" sid) in
+        let* resp = Protocol.decode_line ctx in
         let* () = is_ok resp in
         let emitter = emitter_of ~uid in
         let* () = transmit ~emitter ctx in
-        let* () = Protocol.encode ctx "NOOP" in
-        let* resp = Protocol.decode ctx in
+        let* () = Protocol.encode_line ctx "NOOP" in
+        let* resp = Protocol.decode_line ctx in
         let* () = is_ok resp in
         go rest in
   go lst

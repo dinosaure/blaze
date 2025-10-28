@@ -2,6 +2,7 @@ module Decoder : sig
   type t = { buffer : bytes; mutable pos : int; mutable max : int }
 
   val make : int -> t
+  val leftover : t -> string
 
   type ('v, 'err) state =
     | Done of 'v
@@ -16,10 +17,19 @@ module Decoder : sig
   and ('v, 'err) continue = [ `End | `Len of int ] -> ('v, 'err) state
   and 'err info = { error : 'err; buffer : bytes; committed : int }
 
-  type error = [ `End_of_input | `Not_enough_space | `Expected_eol ]
+  type error =
+    [ `End_of_input | `Not_enough_space | `Expected_eol | `Invalid_pkt_line ]
 
+  val at_least_one_line : t -> bool
+  val at_least_one_pkt : t -> bool
   val return : 'v -> t -> ('v, 'err) state
-  val prompt : (t -> ('v, ([> error ] as 'err)) state) -> t -> ('v, 'err) state
+
+  val prompt :
+    at_least:(t -> bool) ->
+    (t -> ('v, ([> error ] as 'err)) state) ->
+    t ->
+    ('v, 'err) state
+
   val peek_while_eol : t -> bytes * int * int
 end
 
@@ -69,5 +79,18 @@ type error = [ Decoder.error | Encoder.error ]
 
 val pp_error : error Fmt.t
 val ctx : unit -> ctx
-val encode : ctx -> string -> (unit, [> Encoder.error ]) t
-val decode : ctx -> (string, [> Decoder.error ]) t
+val leftover : ctx -> string
+
+type ('r, 'err) fmt =
+  ('r, Format.formatter, unit, (unit, ([> Encoder.error ] as 'err)) t) format4
+
+val encode_str : ctx -> string -> (unit, [> Encoder.error ]) t
+val encode_line : ctx -> string -> (unit, [> Encoder.error ]) t
+val encode_pkt : ctx -> ('r, 'err) fmt -> 'r
+val encode_flush_pkt : ctx -> (unit, [> Encoder.error ]) t
+val encode_delim_pkt : ctx -> (unit, [> Encoder.error ]) t
+
+(**/*)
+
+val decode_line : ctx -> (string, [> Decoder.error ]) t
+val decode_pkt : ctx -> (string, [> Decoder.error ]) t

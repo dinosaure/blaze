@@ -1,7 +1,7 @@
 let run _quiet filename output =
   let filename = Fpath.v filename in
   match Email.of_filename filename with
-  | Ok t ->
+  | Ok (t, _) ->
       let oc, finally =
         match output with
         | Some filename ->
@@ -12,7 +12,10 @@ let run _quiet filename output =
       Fun.protect ~finally @@ fun () ->
       Email.to_output_channel_from_filename filename t oc ;
       `Ok ()
-  | Error (`Msg msg) -> `Error (false, Fmt.str "%s." msg)
+  | Error `Invalid -> `Error (false, "Invalid email")
+  | Error `No_symmetry ->
+      `Error (false, "No symmetry between Mr.MIME and our skeleton")
+  | Error `Not_enough -> `Error (false, "Not enough input for an email")
 
 open Cmdliner
 open Args

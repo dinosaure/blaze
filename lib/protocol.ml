@@ -7,6 +7,10 @@ module Decoder = struct
 
   let make len = { buffer = Bytes.make len '\000'; pos = 0; max = 0 }
 
+  let leftover { buffer; pos; max } =
+    let len = pos - max in
+    Bytes.sub_string buffer pos len
+
   type ('v, 'err) state =
     | Done of 'v
     | Read of {
@@ -20,12 +24,14 @@ module Decoder = struct
   and ('v, 'err) continue = [ `End | `Len of int ] -> ('v, 'err) state
   and 'err info = { error : 'err; buffer : bytes; committed : int }
 
-  type error = [ `End_of_input | `Not_enough_space | `Expected_eol ]
+  type error =
+    [ `End_of_input | `Not_enough_space | `Expected_eol | `Invalid_pkt_line ]
 
   let pp_error ppf = function
     | `End_of_input -> Fmt.string ppf "End of input"
     | `Not_enough_space -> Fmt.string ppf "Not enough space"
     | `Expected_eol -> Fmt.string ppf "Expected EOL"
+    | `Invalid_pkt_line -> Fmt.string ppf "Invalid PKT-line"
 
   exception Leave of error info
 
@@ -35,10 +41,11 @@ module Decoder = struct
   let safe k decoder =
     try k decoder with Leave ({ error = #error; _ } as info) -> Error info
 
-  let leave_with (t : t) error =
+  let leave_with (t : t) error : 'a =
     let info = { error; buffer = t.buffer; committed = t.pos } in
     raise (Leave info)
 
+  (* NOTE(dinosaure): for POP3. *)
   let at_least_one_line (t : t) =
     let pos = ref t.pos in
     let chr = ref '\000' in
@@ -54,7 +61,23 @@ module Decoder = struct
     done ;
     !pos < t.max && !chr = '\n' && !has_cr
 
-  let prompt k decoder =
+  let hex t str =
+    let to_int = function
+      | 'a' .. 'f' as chr -> 10 + Char.code chr - Char.code 'a'
+      | 'A' .. 'F' as chr -> 10 + Char.code chr - Char.code 'A'
+      | '0' .. '9' as chr -> Char.code chr - Char.code '0'
+      | _ -> leave_with t `Invalid_pkt_line in
+    let v = to_int str.[0] in
+    let v = (16 * v) + to_int str.[1] in
+    let v = (16 * v) + to_int str.[2] in
+    (16 * v) + to_int str.[3]
+
+  (* NOTE(dinosaure): for Git. *)
+  let at_least_one_pkt (t : t) =
+    let len = t.max - t.pos in
+    if len >= 4 then hex t (Bytes.sub_string t.buffer t.pos 4) <= len else false
+
+  let prompt ~at_least k decoder =
     if decoder.pos > 0
     then begin
       let rest = decoder.max - decoder.pos in
@@ -63,9 +86,8 @@ module Decoder = struct
       decoder.pos <- 0
     end ;
     let rec go off =
-      let at_least_one_line = at_least_one_line { decoder with max = off } in
-      Log.debug (fun m -> m "prompt (at least, one line: %b)" at_least_one_line) ;
-      if (not at_least_one_line) && off = Bytes.length decoder.buffer
+      let at_least_something = at_least { decoder with max = off } in
+      if (not at_least_something) && off = Bytes.length decoder.buffer
       then
         let info =
           {
@@ -74,7 +96,7 @@ module Decoder = struct
             committed = decoder.pos;
           } in
         Error info
-      else if not at_least_one_line
+      else if not at_least_something
       then
         let continue = function
           | `Len len -> go (off + len)
@@ -98,6 +120,12 @@ module Decoder = struct
         safe k decoder
       end in
     go decoder.max
+
+  let peek_pkt (t : t) =
+    if t.max - t.pos < 4 then leave_with t `Invalid_pkt_line ;
+    let len = hex t (Bytes.sub_string t.buffer t.pos 4) in
+    if t.max - t.pos < len then leave_with t `Invalid_pkt_line ;
+    (t.buffer, t.pos + 4, Int.max 0 (len - 4))
 
   let peek_while_eol t =
     let idx = ref t.pos in
@@ -237,11 +265,12 @@ let pp_error ppf = function
   | #Encoder.error as err -> Encoder.pp_error ppf err
   | #Decoder.error as err -> Decoder.pp_error ppf err
 
-let ctx () = { encoder = Encoder.make 0x1000; decoder = Decoder.make 0x1000 }
+let ctx () = { encoder = Encoder.make 65536; decoder = Decoder.make 65536 }
+let leftover ctx = Decoder.leftover ctx.decoder
 
-let encode ctx str =
+let encode_str ctx str =
   let k t =
-    Encoder.write (str ^ "\r\n") t ;
+    Encoder.write str t ;
     Encoder.flush (fun _t -> Encoder.Done) t in
   let k t = Encoder.safe k t in
   let rec go = function
@@ -251,19 +280,66 @@ let encode ctx str =
     | Encoder.Error err -> Error err in
   go (k ctx.encoder)
 
-let decode ctx =
+let encode_line ctx str = encode_str ctx (str ^ "\r\n")
+
+let hex =
+  let[@ocamlformat "disable"] to_char =
+    [| '0'; '1'; '2'; '3'; '4'; '5'; '6'; '7'; '8'; '9';
+       'A'; 'B'; 'C'; 'D'; 'E'; 'F'; |] in
+  fun n ->
+    if n < 0 then invalid_arg "Protocol.hex: negative number" ;
+    if n > 65535 then Fmt.invalid_arg "Protocol.hex: too large number (%d)" n ;
+    let n = ref n in
+    let buf = Bytes.create 4 in
+    Bytes.set buf 3 to_char.(!n mod 16) ;
+    n := !n / 16 ;
+    Bytes.set buf 2 to_char.(!n mod 16) ;
+    n := !n / 16 ;
+    Bytes.set buf 1 to_char.(!n mod 16) ;
+    n := !n / 16 ;
+    Bytes.set buf 0 to_char.(!n) ;
+    Bytes.unsafe_to_string buf
+
+let encode_pkt ctx str =
+  let hdr = hex (String.length str + 4) in
+  encode_str ctx (hdr ^ str)
+
+let encode_flush_pkt ctx = encode_str ctx "0000"
+let encode_delim_pkt ctx = encode_str ctx "0001"
+
+type ('r, 'err) fmt =
+  ('r, Format.formatter, unit, (unit, ([> Encoder.error ] as 'err)) t) format4
+
+let encode_pkt ctx fmt = Fmt.kstr (encode_pkt ctx) fmt
+
+let decode_line ctx =
+  let at_least = Decoder.at_least_one_line in
   let k t =
     let buf, off, len = Decoder.peek_while_eol t in
     let str = Bytes.sub_string buf off (len - 2) in
     Decoder.skip t len ;
-    Log.debug (fun m -> m "decode %d byte(s)" len) ;
     Decoder.Done str in
   let k t =
-    if Decoder.at_least_one_line t then Decoder.safe k t else Decoder.prompt k t
-  in
+    if at_least t then Decoder.safe k t else Decoder.prompt ~at_least k t in
   let rec go = function
     | Decoder.Done v -> Return v
     | Decoder.Read { buffer; off; len; continue } ->
-        Read { k = go % continue; buffer; off; len }
+        Read { k = Fun.compose go continue; buffer; off; len }
+    | Decoder.Error { error; _ } -> Error error in
+  go (k ctx.decoder)
+
+let decode_pkt ctx =
+  let at_least = Decoder.at_least_one_pkt in
+  let k t =
+    let buf, off, len = Decoder.peek_pkt t in
+    let str = Bytes.sub_string buf off len in
+    Decoder.skip t (4 + len) ;
+    Decoder.Done str in
+  let k t =
+    if at_least t then Decoder.safe k t else Decoder.prompt ~at_least k t in
+  let rec go = function
+    | Decoder.Done v -> Return v
+    | Decoder.Read { buffer; off; len; continue } ->
+        Read { k = Fun.compose go continue; buffer; off; len }
     | Decoder.Error { error; _ } -> Error error in
   go (k ctx.decoder)

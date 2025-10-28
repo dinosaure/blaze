@@ -30,10 +30,20 @@ let uid_of_value value =
 
 let filename_to_email filename =
   match Email.of_filename filename with
-  | Ok t -> (filename, t)
-  | Error (`Msg msg) ->
+  | Ok (t, _) -> (filename, t)
+  | Error `Invalid ->
       Log.err (fun m -> m "%a is an invalid email" Fpath.pp filename) ;
-      Fmt.failwith "%s" msg
+      Fmt.failwith "Invalid email"
+  | Error `No_symmetry ->
+      Log.err (fun m ->
+          m "%a has no symmetry between skeleton and Mr.MIME result" Fpath.pp
+            filename) ;
+      Fmt.failwith "Invalid email: no symmetry"
+  | Error `Not_enough ->
+      Log.err (fun m ->
+          m "%a has not enough bytes to correspond to an email" Fpath.pp
+            filename) ;
+      Fmt.failwith "Invalid email: truncated email"
 
 type src = Mail of string | Body of Fpath.t * int * int
 
@@ -53,14 +63,15 @@ let email_to_entries (filename, t) =
     let ctx = mail_identify.Carton.First_pass.feed bstr ctx in
     let uid = mail_identify.Carton.First_pass.serialize ctx in
     (pos, len, uid) in
-  let t = Email.map fn t in
+  let t = Email.Skeleton.map fn t in
   let fn entries (pos, len, hash) =
     let entry =
       Entry.make ~kind:`B ~length:len hash (Body (filename, pos, len)) in
     entry :: entries in
-  let entries = Email.fold fn [] t in
-  let t = Email.map (fun (_, _, (hash : Carton.Uid.t)) -> (hash :> string)) t in
-  let serialized = Email.to_string t in
+  let entries = Email.Skeleton.fold fn [] t in
+  let fn (_, _, (hash : Carton.Uid.t)) = (hash :> string) in
+  let t = Email.Skeleton.map fn t in
+  let serialized = Email.to_string (t, None) in
   let hash =
     let hdr = Fmt.str "mail %d\000" (String.length serialized) in
     Digestif.SHA1.digest_string (hdr ^ serialized) in

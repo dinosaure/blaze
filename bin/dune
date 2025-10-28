@@ -186,22 +186,34 @@
  (libraries blaze.args cmdliner))
 
 (library
+ (name doc)
+ (modules doc)
+ (public_name blaze.doc)
+ (libraries blaze.args blaze.email))
+
+(library
  (name blaze_pack)
  (modules blaze_pack)
  (public_name blaze.epack)
- (libraries blaze.args blaze.pack carton-miou-unix blaze.email))
+ (libraries blaze.args blaze.pack carton-miou.unix blaze.email))
 
 (library
  (name fetch)
  (modules fetch)
  (public_name blaze.fetch)
- (libraries mirage-crypto-rng-miou-unix blaze.args blaze.pop3-miou-unix))
+ (libraries
+  flux
+  emile
+  mirage-crypto-rng-miou-unix
+  blaze.args
+  blaze.pop3-miou-unix
+  blaze.git-miou-unix))
 
 (library
  (name blaze_mbox)
  (modules blaze_mbox)
  (public_name blaze.embox)
- (libraries blaze.args blaze.pack carton-miou-unix blaze.mbox blaze.email))
+ (libraries blaze.args blaze.pack carton-miou.unix blaze.mbox blaze.email))
 
 (library
  (name blaze_dmarc)

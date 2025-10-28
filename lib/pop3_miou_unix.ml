@@ -42,64 +42,6 @@ let rec tls fd = function
 
 let ( $ ) f g x = match f x with Ok x -> g x | Error _ as err -> err
 
-module Stream = struct
-  type 'a t = {
-    arr : 'a option array;
-    lock : Miou.Mutex.t;
-    mutable read_pos : int;
-    mutable write_pos : int;
-    mutable closed : bool;
-    not_empty_or_closed : Miou.Condition.t;
-    not_full : Miou.Condition.t;
-  }
-
-  let make len =
-    {
-      arr = Array.make len None;
-      lock = Miou.Mutex.create ();
-      read_pos = 0;
-      write_pos = 0;
-      closed = false;
-      not_empty_or_closed = Miou.Condition.create ();
-      not_full = Miou.Condition.create ();
-    }
-
-  let put t data =
-    Miou.Mutex.protect t.lock @@ fun () ->
-    match (data, t.closed) with
-    | None, true -> ()
-    | None, false ->
-        t.closed <- true ;
-        Miou.Condition.signal t.not_empty_or_closed
-    | Some _, true -> invalid_arg "Stream.put: stream already closed"
-    | (Some _ as data), false ->
-        while (t.write_pos + 1) mod Array.length t.arr = t.read_pos do
-          Miou.Condition.wait t.not_full t.lock
-        done ;
-        t.arr.(t.write_pos) <- data ;
-        t.write_pos <- (t.write_pos + 1) mod Array.length t.arr ;
-        Miou.Condition.signal t.not_empty_or_closed
-
-  let get t =
-    Miou.Mutex.protect t.lock @@ fun () ->
-    while t.write_pos = t.read_pos && not t.closed do
-      Miou.Condition.wait t.not_empty_or_closed t.lock
-    done ;
-    if t.write_pos = t.read_pos && t.closed
-    then None
-    else begin
-      let data = Option.get t.arr.(t.read_pos) in
-      t.arr.(t.read_pos) <- None ;
-      t.read_pos <- (t.read_pos + 1) mod Array.length t.arr ;
-      Miou.Condition.signal t.not_full ;
-      Some data
-    end
-
-  let to_seq t =
-    let dispenser () = get t in
-    Seq.of_dispenser dispenser
-end
-
 type error = [ Pop3.error | `Msg of string ]
 
 let pp_error ppf = function
@@ -126,11 +68,13 @@ let fetch ?authentication ?cfg:user's_tls_config
     | _ -> `Tls tls_cfg in
   let ctx = Protocol.ctx () in
   let emitter_of ~uid =
-    let mail = Stream.make 0x100 in
-    let push = Stream.put mail in
-    Stream.put stream (Some (uid, mail)) ;
+    let mail = Flux.Bqueue.(create with_close) 0x7ff in
+    let push = function
+      | Some chunk -> Flux.Bqueue.put mail chunk
+      | None -> Flux.Bqueue.close mail in
+    Flux.Bqueue.put stream (uid, mail) ;
     push in
-  let finally () = Stream.put stream None in
+  let finally () = Flux.Bqueue.close stream in
   Fun.protect ~finally @@ fun () ->
   Log.debug (fun m -> m "fetch emails from %s" server) ;
   let t = Pop3.fetch ?authentication ~choose ~emitter_of ctx in

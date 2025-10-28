@@ -1,4 +1,13 @@
 let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
+let msgf fmt = Fmt.kstr (fun msg -> `Msg msg) fmt
+let reword_error fn = function Ok _ as v -> v | Error err -> Error (fn err)
+
+type uid = [ `POP3 of string ]
+type protocol = [ `POP3 | `Git ]
+
+type remote =
+  | Uri of protocol * (string * string) option * string * int option * string
+  | Git of string * string * string
 
 let decode_host_port str =
   match String.split_on_char ':' str with
@@ -24,10 +33,11 @@ let decode_user_pass up =
 let decode_uri uri =
   let ( >>= ) = Result.bind in
   match String.split_on_char '/' uri with
-  | [ proto; ""; user_pass_host_port ] ->
+  | proto :: "" :: user_pass_host_port :: path ->
       begin
         match proto with
         | "pop3:" -> Ok `POP3
+        | "git:" -> Ok `Git
         | _ -> error_msgf "Unknown protocol"
       end
       >>= fun protocol ->
@@ -40,7 +50,8 @@ let decode_uri uri =
       end
       >>= fun (user_pass, host_port) ->
       decode_host_port host_port >>= fun (host, port) ->
-      Ok (protocol, user_pass, host, port)
+      let path = "/" ^ String.concat "/" path in
+      Ok (Uri (protocol, user_pass, host, port, path))
   | [ user_pass_host_port ] ->
       begin
         match String.split_on_char '@' user_pass_host_port with
@@ -51,45 +62,116 @@ let decode_uri uri =
       end
       >>= fun (user_pass, host_port) ->
       decode_host_port host_port >>= fun (host, port) ->
-      Ok (`POP3, user_pass, host, port)
-  | _ -> error_msgf "Could't decode URI on top"
+      Ok (Uri (`POP3, user_pass, host, port, "/"))
+  | _ -> Error (`Msg "Could't decode URI on top")
 
-type uid = [ `POP3 of string ]
-type protocol = [ `POP3 ]
-type uri = protocol * (string * string) option * string * int option
+let decode_ssh str =
+  let ( >>= ) = Result.bind in
+  let len = String.length str in
+  Emile.of_string_raw ~off:0 ~len str |> reword_error (msgf "%a" Emile.pp_error)
+  >>= fun (consumed, m) ->
+  let rem = String.sub str consumed (len - consumed) in
+  match String.split_on_char ':' rem with
+  | "" :: path ->
+      let local =
+        let fn = function `Atom x -> x | `String x -> Fmt.str "%S" x in
+        List.map fn m.Emile.local in
+      let user = String.concat "." local in
+      let host =
+        match fst m.Emile.domain with
+        | `Domain vs -> String.concat "." vs
+        | `Literal v -> v
+        | `Addr (Emile.IPv4 v) -> Ipaddr.V4.to_string v
+        | `Addr (Emile.IPv6 v) -> Ipaddr.V6.to_string v
+        | `Addr (Emile.Ext (k, v)) -> Fmt.str "%s:%s" k v in
+      Ok (Git (user, host, String.concat ":" path))
+  | _ -> error_msgf "Invalid SSH endpoint"
+
+let remote_of_string str =
+  match (decode_ssh str, decode_uri str) with
+  | Ok v, _ | _, Ok v -> Ok v
+  | _, (Error _ as err) -> err
 
 type cfg = {
   quiet : bool;
-  uri : uri;
+  uri : remote;
   authenticator : X509.Authenticator.t option;
   happy_eyeballs : Happy_eyeballs_miou_unix.t;
   excludes : uid list;
   fmt : (string -> string, Format.formatter, unit, string) format4;
 }
 
+let or_failwith on_err = function
+  | Ok value -> value
+  | Error err ->
+      let str = on_err err in
+      Logs.err (fun m -> m "Task failed with: %s" str) ;
+      failwith str
+
+let split_on_char chr ?(interleave = Bstr.make 1 chr) bstr =
+  let rec go bottom idx () =
+    if idx >= Bstr.length bstr
+    then
+      let pre = Bstr.sub bstr ~off:bottom ~len:(idx - bottom) in
+      Seq.Cons (pre, Seq.empty)
+    else if Bstr.get bstr idx = chr
+    then
+      let pre = Bstr.sub bstr ~off:bottom ~len:(idx - bottom) in
+      let seq0 = go (idx + 1) (idx + 1) in
+      let seq1 = Seq.cons interleave seq0 in
+      Seq.Cons (pre, seq1)
+    else go bottom (idx + 1) () in
+  go 0 0
+
+let crlf = Bstr.of_string "\r\n"
+
 let run cfg =
-  let stream = Pop3_miou_unix.Stream.make 0x100 in
-  let protocol, authentication, server, port = cfg.uri in
-  let ports = match port with Some port -> Some [ port ] | None -> None in
-  let store =
-    Miou.call @@ fun () ->
-    let rec go mails =
-      match Pop3_miou_unix.Stream.get stream with
-      | None -> if not cfg.quiet then List.iter print_endline mails
-      | Some (uid, mail) ->
-          Logs.debug (fun m -> m "Store %a" Pop3.Uid.pp uid) ;
-          let filename = Fmt.str cfg.fmt (Pop3.Uid.to_string uid) in
-          let oc = open_out filename in
-          let finally () = close_out oc in
-          begin
-            Fun.protect ~finally @@ fun () ->
-            let seq = Pop3_miou_unix.Stream.to_seq mail in
-            Seq.iter (output_string oc) seq
-          end ;
-          go (filename :: mails) in
-    go [] in
-  match protocol with
-  | `POP3 ->
+  let store stream () =
+    let open Flux in
+    let save =
+      let init = () and merge () () = () in
+      Sink.each ~parallel:false ~init ~merge @@ fun (uid, stream) ->
+      let filename = Fmt.str cfg.fmt uid in
+      Stream.file ~filename stream in
+    let into =
+      let open Sink.Syntax in
+      let+ mails = Sink.list and+ _ = save in
+      let fn (uid, _) = Fmt.str cfg.fmt uid in
+      List.map fn mails in
+    let mails = Stream.into into stream in
+    if not cfg.quiet then List.iter print_endline mails in
+  match cfg.uri with
+  | Git _ | Uri (`Git, _, _, _, _) ->
+      let bqueue = Flux.Bqueue.(create with_close) 0x7ff in
+      let remote =
+        match cfg.uri with
+        | Git (user, server, path) -> `SSH (user, server, None, path)
+        | Uri (_, _, server, port, path) -> `Git (server, port, path) in
+      let fetch =
+        Miou.async @@ fun () ->
+        Git_miou_unix.fetch remote cfg.happy_eyeballs bqueue
+        |> or_failwith (Fmt.str "%a" Git_miou_unix.pp_error) in
+      let from = Flux.Source.bqueue bqueue in
+      let from = Flux.Stream.from from in
+      let from =
+        let fn (uid, raw) =
+          let uid = Fmt.str "%a" Carton.Uid.pp uid in
+          Logs.debug (fun m -> m "[+] %s" uid) ;
+          Logs.debug (fun m ->
+              m "@[<hov>%a@]" (Hxd_string.pp Hxd.default) (Bstr.to_string raw)) ;
+          let seq = split_on_char '\n' ~interleave:crlf raw in
+          let src = Flux.Source.seq seq in
+          let stream = Flux.Stream.from src in
+          let stream = Flux.Stream.map Bstr.to_string stream in
+          (uid, stream) in
+        Flux.Stream.map fn from in
+      let store = Miou.call (store from) in
+      Miou.await_exn fetch ;
+      Logs.debug (fun m -> m "public-inbox cloned, start to store emails") ;
+      Miou.await_exn store
+  | Uri (`POP3, authentication, server, port, _) ->
+      let ports = Option.map (fun x -> [ x ]) port in
+      let stream = Flux.Bqueue.(create with_close) 0x7ff in
       let excludes =
         List.filter_map (function `POP3 uid -> Some uid) cfg.excludes in
       let filter uids =
@@ -97,19 +179,25 @@ let run cfg =
         List.filter (Fun.negate exists) uids in
       let fetch =
         Miou.async @@ fun () ->
-        match
-          Pop3_miou_unix.fetch ?authentication ?authenticator:cfg.authenticator
-            ?ports ~server ~filter cfg.happy_eyeballs stream
-        with
-        | Ok () -> ()
-        | Error err -> Fmt.failwith "%a" Pop3_miou_unix.pp_error err in
+        Pop3_miou_unix.fetch ?authentication ?authenticator:cfg.authenticator
+          ?ports ~server ~filter cfg.happy_eyeballs stream
+        |> or_failwith (Fmt.str "%a" Pop3_miou_unix.pp_error) in
+      let from = Flux.Source.bqueue stream in
+      let from = Flux.Stream.from from in
+      let from =
+        let fn (uid, src) =
+          let src = Flux.Source.bqueue src in
+          let stream = Flux.Stream.from src in
+          (Pop3.Uid.to_string uid, stream) in
+        Flux.Stream.map fn from in
+      let store = Miou.call (store from) in
       Miou.await_exn fetch ;
       Miou.await_exn store
 
 let now () = Some (Ptime_clock.now ())
 
 let run quiet authenticator resolver (uri, _) excludes fmt =
-  Miou_unix.run ~domains:0 @@ fun () ->
+  Miou_unix.run ~domains:2 @@ fun () ->
   let daemon, happy_eyeballs = resolver () in
   let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let authenticator = Option.map (fun (fn, _) -> fn now) authenticator in
@@ -139,18 +227,20 @@ let password =
 let uri =
   let doc = "The server to fetch emails." in
   let parser str =
-    match decode_uri str with Ok v -> Ok (v, str) | Error _ as err -> err in
+    match remote_of_string str with
+    | Ok v -> Ok (v, str)
+    | Error _ as err -> err in
   let pp ppf (_, str) = Fmt.string ppf str in
   let uri = Arg.conv (parser, pp) in
   let open Arg in
   required & pos 0 (some uri) None & info [] ~doc ~docv:"URI"
 
-let setup_uri (uri : uri * _) username password =
+let setup_uri (uri : remote * _) username password =
   let str = snd uri in
   match (fst uri, username, password) with
   | _, None, None -> uri
-  | (protocol, None, host, port), Some username, Some password ->
-      let uri = (protocol, Some (username, password), host, port) in
+  | Uri (protocol, None, host, port, path), Some username, Some password ->
+      let uri = Uri (protocol, Some (username, password), host, port, path) in
       (uri, str)
   | _ -> uri (* TODO(dinosaure): warn which username/password we will use. *)
 

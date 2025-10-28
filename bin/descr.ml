@@ -15,60 +15,95 @@ let default =
   |> Map.add message_id Field.(Witness Unstructured)
   |> Map.add comments Field.(Witness Unstructured)
 
-let emitter_of_queue q = function Some str -> Queue.push str q | None -> ()
+type t = Single of { mime : string option } | Choose of kind * t list
+and kind = [ `Mixed | `Alternative | `Parallel | `Message | `Other of string ]
+
+let pp_kind ppf = function
+  | `Mixed -> Fmt.string ppf "mixed"
+  | `Alternative -> Fmt.string ppf "alternative"
+  | `Parallel -> Fmt.string ppf "parallel"
+  | `Message -> Fmt.string ppf "message"
+  | `Other v -> Fmt.string ppf v
+
+let top =
+  Lazy.from_fun @@ fun () ->
+  if Fmt.utf_8 Fmt.stdout then ("┌── ", "│   ") else (".-- ", "|   ")
+
+let between =
+  Lazy.from_fun @@ fun () ->
+  if Fmt.utf_8 Fmt.stdout then ("├── ", "│   ") else ("|-- ", "|   ")
+
+let last =
+  Lazy.from_fun @@ fun () ->
+  if Fmt.utf_8 Fmt.stdout then ("└── ", "    ") else ("`-- ", "    ")
+
+let rec pp ?(prefix = "") ?(is_last = false) ppf tree =
+  let branch, next_prefix = Lazy.force (if is_last then last else between) in
+  match tree with
+  | Single { mime } ->
+      let mime = Option.value ~default:"unknown" mime in
+      Fmt.pf ppf "%s%s%s@." prefix branch mime
+  | Choose (kind, children) ->
+      Fmt.pf ppf "%s%s%a@." prefix branch pp_kind kind ;
+      let prefix = prefix ^ next_prefix in
+      let rec go = function
+        | [] -> ()
+        | [ x ] -> pp ~prefix ~is_last:true ppf x
+        | x :: r ->
+            pp ~prefix ~is_last:false ppf x ;
+            go r in
+      go children
+
+let pp ppf = function
+  | Single _ as v -> pp ppf v
+  | Choose (kind, children) ->
+      let branch, next_prefix = Lazy.force top in
+      Fmt.pf ppf "%s%a@." branch pp_kind kind ;
+      let prefix = next_prefix in
+      let rec go = function
+        | [] -> ()
+        | [ x ] -> pp ~prefix ~is_last:true ppf x
+        | x :: r ->
+            pp ~prefix ~is_last:false ppf x ;
+            go r in
+      go children
 
 let blit src src_off dst dst_off len =
   Bstr.blit_from_string src ~src_off dst ~dst_off ~len
 
-let up_to_right =
-  Lazy.from_fun @@ fun () ->
-  if Fmt.utf_8 Fmt.stdout then "\xe2\x94\x97" else "`-"
-
-let up_and_right =
-  Lazy.from_fun @@ fun () ->
-  if Fmt.utf_8 Fmt.stdout then "\xe2\x94\xa3" else "|-"
-
-let up_to_down =
-  Lazy.from_fun @@ fun () ->
-  if Fmt.utf_8 Fmt.stdout then "\xe2\x94\x83" else "| "
-
 let parser ic =
-  let uid = ref (-1) in
-  let tbl = Hashtbl.create 0x10 in
-  let emitters _header =
-    incr uid ;
-    let v = !uid in
-    let contents = Queue.create () in
-    Hashtbl.add tbl v contents ;
-    (emitter_of_queue contents, v) in
+  let emitters _headers = (Fun.const (), ()) in
   let parser = Mrmime.Mail.stream ~g:default emitters in
   let rec loop ic ke = function
-    | Angstrom.Unbuffered.Done (_, (header, mail)) -> R.ok (header, mail, tbl)
+    | Angstrom.Unbuffered.Done (_, v) -> Ok v
     | Fail _ -> R.error_msgf "Invalid incoming email"
-    | Partial { committed; continue } -> (
+    | Partial { committed; continue } -> begin
         Ke.Rke.N.shift_exn ke committed ;
         if committed = 0 then Ke.Rke.compress ke ;
         match input_line ic with
         | "" ->
             Ke.Rke.push ke '\n' ;
             let[@warning "-8"] (slice :: _) = Ke.Rke.N.peek ke in
-            loop ic ke
-              (continue slice ~off:0 ~len:(Bstr.length slice) Incomplete)
+            let off = 0 and len = Bstr.length slice in
+            let state = continue slice ~off ~len Incomplete in
+            loop ic ke state
         | line when line.[String.length line - 1] = '\r' ->
             Ke.Rke.N.push ke ~blit ~length:String.length ~off:0
               ~len:(String.length line) line ;
             Ke.Rke.push ke '\n' ;
             let[@warning "-8"] (slice :: _) = Ke.Rke.N.peek ke in
-            loop ic ke
-              (continue slice ~off:0 ~len:(Bstr.length slice) Incomplete)
+            let off = 0 and len = Bstr.length slice in
+            let state = continue slice ~off ~len Incomplete in
+            loop ic ke state
         | line ->
             Ke.Rke.N.push ke ~blit ~length:String.length ~off:0
               ~len:(String.length line) line ;
             Ke.Rke.push ke '\r' ;
             Ke.Rke.push ke '\n' ;
             let[@warning "-8"] (slice :: _) = Ke.Rke.N.peek ke in
-            loop ic ke
-              (continue slice ~off:0 ~len:(Bstr.length slice) Incomplete)
+            let off = 0 and len = Bstr.length slice in
+            let state = continue slice ~off ~len Incomplete in
+            loop ic ke state
         | exception End_of_file ->
             let buf =
               match Ke.Rke.length ke with
@@ -76,89 +111,69 @@ let parser ic =
               | _ ->
                   Ke.Rke.compress ke ;
                   List.hd (Ke.Rke.N.peek ke) in
-            loop ic ke (continue buf ~off:0 ~len:(Bstr.length buf) Complete))
-  in
+            let off = 0 and len = Bstr.length buf in
+            let state = continue buf ~off ~len Complete in
+            loop ic ke state
+      end in
   let ke = Ke.Rke.create ~capacity:0x1000 Bigarray.char in
   loop ic ke (Angstrom.Unbuffered.parse parser)
 
-let pp_unstructured ppf unstructured =
-  let lst =
-    List.fold_left
-      (fun a -> function #Unstrctrd.elt as x -> x :: a | _ -> a)
-      [] unstructured in
-  let lst = List.rev lst in
-  let v = R.get_ok (Unstrctrd.of_list lst) in
-  Fmt.pf ppf "@[<hov>%s@]" (Unstrctrd.to_utf_8_string v)
+let mime_from_headers hdrs =
+  let open Mrmime in
+  let content_type = Field_name.content_type in
+  match Header.assoc content_type hdrs with
+  | Field.Field (_, Content, v) :: _ ->
+      let a = Content_type.Type.to_string v.Content_type.ty in
+      let b = Content_type.Subtype.to_string v.Content_type.subty in
+      Some (Fmt.str "%s/%s" a b)
+  | _ -> None
 
-let show_headers ~fields ~level hdrs =
-  let up_to_right = Lazy.force up_to_right in
-  let up_to_down = Lazy.force up_to_down in
+let to_kind v =
+  let v = Content_type.Subtype.to_string v in
+  let v = String.lowercase_ascii v in
+  match v with
+  | "mixed" -> `Mixed
+  | "alternative" -> `Alternative
+  | "parallel" -> `Parallel
+  | v -> `Other v
 
-  let lst = Header.to_list hdrs in
-  let lst, _ =
-    match fields with
-    | `All -> (lst, [])
-    | `Some vs ->
-        let predicate (Field.Field (field_name, _, _)) =
-          List.exists (Field_name.equal field_name) vs in
-        List.partition predicate lst in
-  let max = List.length lst in
+let kind_of_headers hdrs =
+  let open Mrmime in
+  let content_type = Field_name.content_type in
+  match Header.assoc content_type hdrs with
+  | Field.Field (_, Content, v) :: _ -> to_kind v.Content_type.subty
+  | _ -> assert false
 
-  let show_field ~prefix pp field_name v =
-    Fmt.pr "%s%a:%a\n%!" prefix Field_name.pp field_name pp v in
+let rec to_semantic ~headers = function
+  | Mrmime.Mail.Leaf _ ->
+      let mime = mime_from_headers headers in
+      Single { mime }
+  | Multipart lst ->
+      let kind = kind_of_headers headers in
+      let fn acc (headers, contents) =
+        match contents with
+        | None -> acc
+        | Some contents -> to_semantic ~headers contents :: acc in
+      let lst = List.fold_left fn [] lst in
+      let lst = List.rev lst in
+      Choose (kind, lst)
+  | Message (headers, t) ->
+      let t = to_semantic ~headers t in
+      Choose (`Message, [ t ])
 
-  let f idx field =
-    let prefix =
-      if idx = max - 1 && level > 0
-      then Fmt.str "%s%s " (String.make (level - 1) ' ') up_to_right
-      else if idx > 0 && level > 0
-      then Fmt.str "%s%s " (String.make (level - 1) ' ') up_to_down
-      else "" in
-    match field with
-    | Field.Field (field_name, Unstructured, v) ->
-        show_field ~prefix pp_unstructured field_name v
-    | Field.Field (field_name, Content, v) ->
-        show_field ~prefix
-          Fmt.(const string " " ++ Content_type.pp)
-          field_name v
-    | Field.Field (field_name, Encoding, v) ->
-        show_field ~prefix
-          Fmt.(const string " " ++ Content_encoding.pp)
-          field_name v
-    | Field.Field (_field_name, _, _) -> () in
+let to_semantic (headers, t) = to_semantic ~headers t
+let ( let@ ) finally fn = Fun.protect ~finally fn
 
-  List.iteri f lst
-
-let show_body ~tbl:_ ~level:_ _v = Fmt.pr "\n%!"
-
-let show ~fields ~tbl m =
-  let up_and_right = Lazy.force up_and_right in
-  let rec go ~level (headers, body) =
-    show_headers ~fields ~level headers ;
-    match body with
-    | Some (Mrmime.Mail.Leaf v) -> show_body ~tbl ~level v
-    | Some (Mrmime.Mail.Multipart vs) ->
-        List.iter
-          (fun m ->
-            Fmt.pr "%s%s %!" (String.make level ' ') up_and_right ;
-            go ~level:(succ level) m)
-          vs
-    | Some (Mrmime.Mail.Message _) -> assert false
-    | None -> Fmt.pr "\n%!" in
-  go ~level:0 m
-
-let run _ fields input =
+let run _ input =
   let ic, close =
     match input with
     | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
     | None -> (stdin, ignore) in
+  let@ () = fun () -> close ic in
   match parser ic with
-  | Error (`Msg err) ->
-      close ic ;
-      `Error (false, Fmt.str "%s." err)
-  | Ok (hdrs, mail, tbl) ->
-      close ic ;
-      show ~fields ~tbl (hdrs, Some mail) ;
+  | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
+  | Ok v ->
+      Fmt.pr "%a%!" pp (to_semantic v) ;
       `Ok ()
 
 open Cmdliner
@@ -180,24 +195,6 @@ let input =
   let doc = "The email to analyze." in
   Arg.(value & pos 0 existing_file None & info [] ~doc)
 
-let fields =
-  let doc = "Which fields you want to show." in
-  let parser str =
-    match String.lowercase_ascii str with
-    | "all" -> Ok `All
-    | _ ->
-        let fields = Astring.String.cuts ~sep:"," str in
-        let f acc x =
-          match (acc, Field_name.of_string x) with
-          | Ok acc, Ok x -> Ok (x :: acc)
-          | (Error _ as err), _ -> err
-          | Ok _, (Error _ as err) -> err in
-        List.fold_left f (Ok []) fields >>| fun vs -> `Some vs in
-  let pp ppf = function
-    | `All -> Fmt.string ppf "all"
-    | `Some lst -> Fmt.Dump.list Field_name.pp ppf lst in
-  Arg.(value & opt (conv (parser, pp)) `All & info [ "f"; "fields" ] ~doc)
-
 let cmd =
   let doc = "Describe the structure of the given email." in
   let man =
@@ -208,5 +205,5 @@ let cmd =
   let info = Cmd.info "descr" ~doc ~man in
   let term =
     let open Term in
-    ret (const run $ setup_logs $ fields $ input) in
+    ret (const run $ setup_logs $ input) in
   Cmd.v info term

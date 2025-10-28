@@ -8,7 +8,7 @@
  (name email)
  (public_name blaze.email)
  (modules email)
- (libraries logs unix fpath encore mrmime))
+ (libraries flux stem.snowball bstr logs unix fpath encore mrmime))
 
 (library
  (name protocol)
@@ -27,6 +27,7 @@
  (public_name blaze.pop3-miou-unix)
  (modules pop3_miou_unix)
  (libraries
+  flux
   hxd.core
   hxd.string
   tls-miou-unix
@@ -47,10 +48,32 @@
  (name pack)
  (public_name blaze.pack)
  (modules pack)
- (libraries digestif carton-miou-unix blaze.email))
+ (libraries digestif carton-miou.unix blaze.email))
 
 (library
  (name bqueue)
  (public_name blaze.bqueue)
  (modules bqueue)
  (libraries miou))
+
+(library
+ (name smart)
+ (public_name blaze.smart)
+ (modules smart)
+ (libraries blaze.protocol flux miou))
+
+(library
+ (name git_miou_unix)
+ (public_name blaze.git-miou-unix)
+ (modules git_miou_unix)
+ (libraries
+  flux
+  carton
+  digestif
+  carton-miou.unix
+  carton-miou.flux
+  hxd.core
+  hxd.string
+  happy-eyeballs-miou-unix
+  blaze.smart
+  miou.unix))

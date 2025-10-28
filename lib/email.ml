@@ -1,3 +1,20 @@
+type bigstring =
+  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+
+let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
+
+let top =
+  Lazy.from_fun @@ fun () ->
+  if Fmt.utf_8 Fmt.stdout then ("┌── ", "│   ") else (".-- ", "|   ")
+
+let between =
+  Lazy.from_fun @@ fun () ->
+  if Fmt.utf_8 Fmt.stdout then ("├── ", "│   ") else ("|-- ", "|   ")
+
+let last =
+  Lazy.from_fun @@ fun () ->
+  if Fmt.utf_8 Fmt.stdout then ("└── ", "    ") else ("`-- ", "    ")
+
 (* multipart-body :=
       [preamble CRLF]
       --boundary transport-padding CRLF
@@ -18,49 +35,99 @@ let src = Logs.Src.create "blaze.email"
 
 module Log = (val Logs.src_log src : Logs.LOG)
 
-type transport_padding = string
+module Skeleton = struct
+  type transport_padding = string
 
-type bigstring =
-  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+  type 'octet body =
+    | Multipart of 'octet multipart
+    | Single of 'octet option
+    | Message of 'octet t
 
-type 'octet body =
-  | Multipart of 'octet multipart
-  | Single of 'octet option
-  | Message of 'octet t
+  and 'octet part = { headers : 'octet; body : 'octet body }
 
-and 'octet part = { headers : 'octet; body : 'octet body }
+  and 'octet multipart = {
+    preamble : string;
+    epilogue : string * transport_padding;
+    boundary : string;
+    parts : (transport_padding * 'octet part) list;
+  }
 
-and 'octet multipart = {
-  preamble : string;
-  epilogue : string * transport_padding;
-  boundary : string;
-  parts : (transport_padding * 'octet part) list;
-}
+  and 'octet t = 'octet part
 
-and 'octet t = 'octet part
+  let rec pp ?(prefix = "") ?(is_last = false) ppf tree =
+    let branch, next_prefix = Lazy.force (if is_last then last else between) in
+    match tree with
+    | Single None -> Fmt.pf ppf "%s%s<none>@." prefix branch
+    | Single (Some _) -> Fmt.pf ppf "%s%s<some>@." prefix branch
+    | Message { body; _ } ->
+        Fmt.pf ppf "%s%s<message>@." prefix branch ;
+        let prefix = prefix ^ next_prefix in
+        pp ~prefix ~is_last:true ppf body
+    | Multipart { parts; _ } ->
+        Fmt.pf ppf "%s%s<multipart>@." prefix branch ;
+        let prefix = prefix ^ next_prefix in
+        let rec go = function
+          | [] -> ()
+          | [ (_, { body; _ }) ] -> pp ~prefix ~is_last:true ppf body
+          | (_, { body; _ }) :: r ->
+              pp ~prefix ~is_last:false ppf body ;
+              go r in
+        go parts
 
-let rec map fn { headers; body; _ } =
-  let headers = fn headers in
-  let body =
+  let pp ppf = function
+    | Single _ as v -> pp ppf v
+    | Multipart { parts; _ } ->
+        let branch, next_prefix = Lazy.force top in
+        Fmt.pf ppf "%s<multipart>@." branch ;
+        let prefix = next_prefix in
+        let rec go = function
+          | [] -> ()
+          | [ (_, { body; _ }) ] -> pp ~prefix ~is_last:true ppf body
+          | (_, { body; _ }) :: r ->
+              pp ~prefix ~is_last:false ppf body ;
+              go r in
+        go parts
+    | Message { body; _ } ->
+        let branch, next_prefix = Lazy.force top in
+        Fmt.pf ppf "%s<message>@." branch ;
+        let prefix = next_prefix in
+        pp ~prefix ~is_last:true ppf body
+
+  let _pp ppf ({ body; _ } : 'a t) = pp ppf body
+
+  let rec map fn { headers; body; _ } =
+    let headers = fn headers in
+    let body =
+      match body with
+      | Single None -> Single None
+      | Single (Some v) -> Single (Some (fn v))
+      | Multipart vs ->
+          let fn (transport_padding, part) = (transport_padding, map fn part) in
+          let parts = List.map fn vs.parts in
+          Multipart { vs with parts }
+      | Message t -> Message (map fn t) in
+    { headers; body }
+
+  let rec fold fn acc { headers; body } =
+    let acc = fn acc headers in
     match body with
-    | Single None -> Single None
-    | Single (Some v) -> Single (Some (fn v))
+    | Single None -> acc
+    | Single (Some v) -> fn acc v
     | Multipart vs ->
-        let fn (transport_padding, part) = (transport_padding, map fn part) in
-        let parts = List.map fn vs.parts in
-        Multipart { vs with parts }
-    | Message t -> Message (map fn t) in
-  { headers; body }
+        let fn acc (_, part) = fold fn acc part in
+        List.fold_left fn acc vs.parts
+    | Message t -> fold fn acc t
+end
 
-let rec fold fn acc { headers; body } =
-  let acc = fn acc headers in
-  match body with
-  | Single None -> acc
-  | Single (Some v) -> fn acc v
-  | Multipart vs ->
-      let fn acc (_, part) = fold fn acc part in
-      List.fold_left fn acc vs.parts
-  | Message t -> fold fn acc t
+module Semantic = struct
+  type 'octet document =
+    | Leaf of { mime : string; lang : Snowball.Language.t; contents : 'octet }
+    | Choose of { mime : string; parts : 'octet document list }
+
+  and 'octet t = 'octet document option
+end
+
+type 'octet t = 'octet Skeleton.t * 'octet Semantic.t
 
 module Format = struct
   open Encore
@@ -87,10 +154,19 @@ module Format = struct
 
   let multipart =
     let fwd ((((preamble, epilogue), transport_padding), boundary), parts) =
-      { preamble; epilogue = (epilogue, transport_padding); boundary; parts }
-    in
+      {
+        Skeleton.preamble;
+        epilogue = (epilogue, transport_padding);
+        boundary;
+        parts;
+      } in
     let bwd
-        { preamble; epilogue = epilogue, transport_padding; boundary; parts } =
+        {
+          Skeleton.preamble;
+          epilogue = epilogue, transport_padding;
+          boundary;
+          parts;
+        } =
       ((((preamble, epilogue), transport_padding), boundary), parts) in
     Bij.v ~fwd ~bwd
 
@@ -113,45 +189,78 @@ module Format = struct
 
   let single_none =
     let single_none =
-      let fwd () = Single None in
-      let bwd = function Single None -> () | _ -> raise Bij.Bijection in
+      let fwd () = Skeleton.Single None in
+      let bwd = function
+        | Skeleton.Single None -> ()
+        | _ -> raise Bij.Bijection in
       Bij.v ~fwd ~bwd in
     single_none <$> ctor '\001'
 
   let single_some =
     let single_some =
-      let fwd hex = Single (Some hex) in
-      let bwd = function Single (Some hex) -> hex | _ -> raise Bij.Bijection in
+      let fwd hex = Skeleton.Single (Some hex) in
+      let bwd = function
+        | Skeleton.Single (Some hex) -> hex
+        | _ -> raise Bij.Bijection in
       Bij.v ~fwd ~bwd in
     single_some <$> ctor '\002' *> hex
 
-  let multipart : 'a part t -> 'a body t =
+  let multipart : 'a Skeleton.part t -> 'a Skeleton.body t =
    fun part ->
     let bijection =
-      let fwd multipart = Multipart multipart in
+      let fwd multipart = Skeleton.Multipart multipart in
       let bwd = function
-        | Multipart multipart -> multipart
+        | Skeleton.Multipart multipart -> multipart
         | _ -> raise Bij.Bijection in
       Bij.v ~fwd ~bwd in
     bijection <$> ctor '\003' *> multipart part
 
-  let body : string part t -> string body t =
+  let body : string Skeleton.part t -> string Skeleton.body t =
    fun part ->
     let bijection =
-      let fwd t = Message t in
-      let bwd = function Message t -> t | _ -> raise Bij.Bijection in
+      let fwd t = Skeleton.Message t in
+      let bwd = function Skeleton.Message t -> t | _ -> raise Bij.Bijection in
       Bij.v ~fwd ~bwd in
     let message = bijection <$> ctor '\004' *> part in
     choice [ single_none; single_some; multipart part; message ]
 
   let part =
     let part =
-      let fwd (hash, body) = { headers = hash; body } in
-      let bwd { headers = hash; body } = (hash, body) in
+      let fwd (hash, body) = { Skeleton.headers = hash; body } in
+      let bwd { Skeleton.headers = hash; body } = (hash, body) in
       Bij.v ~fwd ~bwd in
     fix @@ fun m -> map part (hex <*> body m)
 
-  let t = part
+  let lang =
+    let fwd str =
+      let fn (lang : Snowball.Language.t) = (lang :> string) = str in
+      List.find fn Snowball.languages in
+    let bwd (lang : Snowball.Language.t) = (lang :> string) in
+    Bij.v ~fwd ~bwd <$> c_string
+
+  let leaf =
+    let leaf =
+      let fwd ((mime, lang), contents) =
+        Semantic.Leaf { mime; lang; contents } in
+      let bwd = function
+        | Semantic.Leaf { mime; lang; contents } -> ((mime, lang), contents)
+        | _ -> raise Bij.Bijection in
+      Bij.v ~fwd ~bwd in
+    leaf <$> ctor '\005' *> (c_string <*> lang <*> hex)
+
+  let choose document =
+    let bijection =
+      let fwd (mime, parts) = Semantic.Choose { mime; parts } in
+      let bwd = function
+        | Semantic.Choose { mime; parts } -> (mime, parts)
+        | _ -> raise Bij.Bijection in
+      Bij.v ~fwd ~bwd in
+    bijection <$> (c_string <*> rep1 document)
+
+  let document = fix @@ fun m -> choice [ leaf; choose m ]
+
+  (* NOTE(dinosaure): [option] seems safe here because it is at the end of our value. *)
+  let t = part <*> option document
 end
 
 module Parser = struct
@@ -203,8 +312,8 @@ module Parser = struct
 
   let encapsulation boundary octet =
     let open Angstrom in
-    crlf *> string ("--" ^ boundary) *> transport_padding
-    >>= fun transport_padding ->
+    crlf >>= fun _ ->
+    string ("--" ^ boundary) *> transport_padding >>= fun transport_padding ->
     crlf *> commit *> octet >>= fun part -> return (transport_padding, part)
 
   let epilogue = function
@@ -221,10 +330,10 @@ module Parser = struct
     many (encapsulation boundary octet) >>= fun r ->
     crlf *> commit *> string ("--" ^ boundary ^ "--") *> transport_padding
     >>= fun transport_padding1 ->
-    option "" (crlf *> epilogue parent) >>= fun epilogue ->
+    option "" (epilogue parent) >>= fun epilogue ->
     return
       {
-        preamble;
+        Skeleton.preamble;
         epilogue = (epilogue, transport_padding1);
         boundary;
         parts = (transport_padding0, part) :: r;
@@ -251,127 +360,277 @@ module Parser = struct
             skip_until_delimiter boundary *> pos >>= fun stop_body ->
             let body =
               if start_body == stop_body
-              then Single None
-              else Single (Some (start_body, stop_body)) in
-            return { headers = (start_hdrs, stop_hdrs); body }
+              then Skeleton.Single None
+              else Skeleton.Single (Some (start_body, stop_body)) in
+            return { Skeleton.headers = (start_hdrs, stop_hdrs); body }
         | None ->
             pos >>= fun start_body ->
             skip_while (Fun.const true) *> pos >>= fun stop_body ->
             let body =
               if start_body == stop_body
-              then Single None
-              else Single (Some (start_body, stop_body)) in
-            return { headers = (start_hdrs, stop_hdrs); body })
+              then Skeleton.Single None
+              else Skeleton.Single (Some (start_body, stop_body)) in
+            return { Skeleton.headers = (start_hdrs, stop_hdrs); body })
     | `Multipart -> (
         match find_boundary hdrs with
         | Some boundary' ->
             multipart ?parent:boundary boundary' (part (Some boundary'))
             >>= fun multipart ->
             return
-              { headers = (start_hdrs, stop_hdrs); body = Multipart multipart }
+              {
+                Skeleton.headers = (start_hdrs, stop_hdrs);
+                body = Multipart multipart;
+              }
         | None -> fail "Invalid email: boundary expected")
     | `Message ->
         part boundary >>| fun t ->
-        { headers = (start_hdrs, stop_hdrs); body = Message t }
+        { Skeleton.headers = (start_hdrs, stop_hdrs); body = Message t }
 
   let t = part None
 end
 
-external bigstring_set_uint8 : bigstring -> int -> int -> unit
-  = "%caml_ba_set_1"
+let blit src src_off dst dst_off len =
+  Bstr.blit_from_string src ~src_off dst ~dst_off ~len
 
-external bigstring_set_int32_ne : bigstring -> int -> int32 -> unit
-  = "%caml_bigstring_set32"
+let g =
+  let open Mrmime in
+  let open Field_name in
+  Map.empty
+  |> Map.add date Field.(Witness Unstructured)
+  |> Map.add from Field.(Witness Unstructured)
+  |> Map.add sender Field.(Witness Unstructured)
+  |> Map.add reply_to Field.(Witness Unstructured)
+  |> Map.add (v "to") Field.(Witness Unstructured)
+  |> Map.add cc Field.(Witness Unstructured)
+  |> Map.add bcc Field.(Witness Unstructured)
+  |> Map.add subject Field.(Witness Unstructured)
+  |> Map.add message_id Field.(Witness Unstructured)
+  |> Map.add comments Field.(Witness Unstructured)
 
-let bigstring_blit_from_bytes src ~src_off dst ~dst_off ~len =
-  let len0 = len land 3 in
-  let len1 = len lsr 2 in
-  for i = 0 to len1 - 1 do
-    let i = i * 4 in
-    let v = Bytes.get_int32_ne src (src_off + i) in
-    bigstring_set_int32_ne dst (dst_off + i) v
-  done ;
-  for i = 0 to len0 - 1 do
-    let i = (len1 * 4) + i in
-    let v = Bytes.get_uint8 src (src_off + i) in
-    bigstring_set_uint8 dst (dst_off + i) v
-  done
+let mime_from_headers hdrs =
+  let open Mrmime in
+  let content_type = Field_name.content_type in
+  match Header.assoc content_type hdrs with
+  | Field.Field (_, Content, v) :: _ ->
+      let text = v.Content_type.ty in
+      if text = `Text
+      then Some (Content_type.Subtype.to_string v.Content_type.subty)
+      else None
+  | _ -> None
 
-let bigstring_blit_from_string src src_off dst dst_off len =
-  bigstring_blit_from_bytes
-    (Bytes.unsafe_of_string src)
-    ~src_off dst ~dst_off ~len
+let to_unstrctrd unstructured =
+  let fold acc = function #Unstrctrd.elt as elt -> elt :: acc | _ -> acc in
+  let unstrctrd = List.fold_left fold [] unstructured in
+  Result.get_ok (Unstrctrd.of_list (List.rev unstrctrd))
 
-external bigstring_get_uint8 : bigstring -> int -> int = "%caml_ba_ref_1"
+let[@ocamlformat "disable"] iso639_2 =
+  [ "basque", [ "eus"; "baq/eus"; "eu" ]
+  ; "catalan", [ "cat"; "ca" ]
+  ; "danish", [ "dan"; "da" ]
+  ; "dutch", [ "nld"; "dut/nld"; "nl" ]
+  ; "english", [ "eng"; "en" ]
+  ; "finnish", [ "fin"; "fi" ]
+  ; "french", [ "fra"; "fre/fra"; "fr" ]
+  ; "german", [ "deu"; "ger/deu"; "de" ]
+  ; "indonesian", [ "ind"; "id" ]
+  ; "irish", [ "gle"; "ga" ]
+  ; "italian", [ "ita"; "it" ]
+  ; "norwegian", [ "nor"; "no" ]
+  ; "portuguese", [ "por"; "pt" ]
+  ; "spanish", [ "spa"; "es" ]
+  ; "swedish", [ "swe"; "sv" ]
+  ; "hungarian", [ "hun"; "hu" ]
+  ; "russian", [ "rus"; "ru" ]
+  ; "arabic", [ "ara"; "ar" ]
+  ; "armenian", [ "hye"; "arm/hye"; "hy" ]
+  ; "esperanto", [ "epo"; "eo" ]
+  ; "estonian", [ "est"; "et" ]
+  ; "greek", [ "ell"; "gre/ell" ]
+  ; "hindi", [ "hin"; "hi" ]
+  ; "lithuanian", [ "lit"; "lt" ]
+  ; "nepali", [ "nep"; "ne" ]
+  ; "romanian", [ "ron"; "rum/ron"; "ro" ]
+  ; "serbian", [ "srp"; "scc/srp"; "sr" ]
+  ; "tamil", [ "tam"; "ta" ]
+  ; "turkish", [ "tur"; "tr" ]
+  ; "yiddish", [ "yid"; "yi" ] ]
 
-external bigstring_get_int32_ne : bigstring -> int -> int32
-  = "%caml_bigstring_get32"
+let iso639_2 =
+  let fn (lang, values) =
+    let fn (lang' : Snowball.Language.t) = lang = (lang' :> string) in
+    let lang = List.find fn Snowball.languages in
+    (lang, values) in
+  List.map fn iso639_2
 
-let bigstring_blit_to_bytes src ~src_off dst ~dst_off ~len =
-  let len0 = len land 3 in
-  let len1 = len lsr 2 in
-  for i = 0 to len1 - 1 do
-    let i = i * 4 in
-    let v = bigstring_get_int32_ne src (src_off + i) in
-    Bytes.set_int32_ne dst (dst_off + i) v
-  done ;
-  for i = 0 to len0 - 1 do
-    let i = (len1 * 4) + i in
-    let v = bigstring_get_uint8 src (src_off + i) in
-    Bytes.set_uint8 dst (dst_off + i) v
-  done
+let content_language_to_lang str =
+  let langs = String.split_on_char ',' str in
+  let langs = List.map String.trim langs in
+  let fn value (language, ls) =
+    if List.mem value ls then Some language else None in
+  let fn acc value =
+    match acc with
+    | Some _ as acc -> acc
+    | None -> List.find_map (fn value) iso639_2 in
+  List.fold_left fn None langs
 
-let bigstring_empty = Bigarray.Array1.create Bigarray.char Bigarray.c_layout 0
-let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
+let lang_from_headers lang hdrs =
+  let open Mrmime in
+  let content_language = Field_name.v "Content-Language" in
+  match Header.assoc content_language hdrs with
+  | Field.Field (_, Unstructured, v) :: _ ->
+      let str = to_unstrctrd v in
+      let str = Unstrctrd.fold_fws str in
+      let str = Unstrctrd.to_utf_8_string str in
+      content_language_to_lang str
+  | _ -> lang
 
-let of_filename filename =
-  let ic = open_in (Fpath.to_string filename) in
-  let buf = Bytes.create 0x7ff in
-  let finally () = close_in ic in
-  Fun.protect ~finally @@ fun () ->
-  let ke = Ke.Rke.create ~capacity:0x1000 Bigarray.char in
-  let rec go = function
-    | Angstrom.Unbuffered.Partial { committed; continue } -> (
+let multipart_from_headers hdrs =
+  let open Mrmime in
+  let content_type = Field_name.content_type in
+  match Header.assoc content_type hdrs with
+  | Field.Field (_, Content, v) :: _ ->
+      Content_type.Subtype.to_string v.Content_type.subty
+  | _ -> "none"
+
+let sink_of_parser parser =
+  let init () =
+    let ke = Ke.Rke.create ~capacity:0x100 Bigarray.char in
+    let state = Angstrom.Unbuffered.parse parser in
+    (ke, `Continue state) in
+  let push (ke, state) str =
+    let open Angstrom.Unbuffered in
+    if String.length str > 0
+    then
+      match state with
+      | `Continue (Done (_, v)) -> (ke, `Full v)
+      | `Continue (Fail _) -> (ke, `Error)
+      | `Continue (Partial { committed; continue }) ->
+          Ke.Rke.N.shift_exn ke committed ;
+          if committed = 0 then Ke.Rke.compress ke ;
+          let length = String.length in
+          let len = String.length str in
+          Ke.Rke.N.push ke ~blit ~length ~off:0 ~len str ;
+          let[@warning "-8"] (slice :: _) = Ke.Rke.N.peek ke in
+          let off = 0 and len = Bstr.length slice in
+          let state = continue slice ~off ~len Incomplete in
+          (ke, `Continue state)
+      | (`Full _ | `Error) as value -> (ke, value)
+    else (ke, state) in
+  let full (_ke, state) =
+    match state with `Continue _ -> false | `Full _ | `Error -> true in
+  let stop (ke, state) =
+    let open Angstrom.Unbuffered in
+    match state with
+    | `Full v | `Continue (Done (_, v)) -> Ok v
+    | `Error | `Continue (Fail _) -> Error `Invalid
+    | `Continue (Partial { committed; continue }) -> begin
         Ke.Rke.N.shift_exn ke committed ;
-        Ke.Rke.compress ke ;
-        match input ic buf 0 (Bytes.length buf) with
-        | 0 | (exception End_of_file) ->
-            let buf =
-              match Ke.Rke.length ke with
-              | 0 -> bigstring_empty
-              | _ ->
-                  Ke.Rke.compress ke ;
-                  List.hd (Ke.Rke.N.peek ke) in
-            let len = Bigarray.Array1.dim buf in
-            let state = continue buf ~off:0 ~len Complete in
-            go state
-        | len ->
-            Ke.Rke.N.push ke ~blit:bigstring_blit_from_string
-              ~length:String.length ~len
-              (Bytes.unsafe_to_string buf) ;
-            let buf = List.hd (Ke.Rke.N.peek ke) in
-            let len = Bigarray.Array1.dim buf in
-            let state = continue buf ~off:0 ~len Incomplete in
-            go state)
-    | Done (_, t) -> Ok t
-    | Fail _ -> error_msgf "Invalid email" in
-  go (Angstrom.Unbuffered.parse Parser.t)
+        let rem =
+          match Ke.Rke.length ke with
+          | 0 -> Bstr.empty
+          | _ ->
+              Ke.Rke.compress ke ;
+              List.hd (Ke.Rke.N.peek ke) in
+        let off = 0 and len = Bstr.length rem in
+        match continue rem ~off ~len Complete with
+        | Done (_, v) -> Ok v
+        | Fail _ -> Error `Invalid
+        | Partial _ -> Error `Not_enough
+      end in
+  Flux.Sink { init; push; full; stop }
+
+let documents_of_mrmime ?lang (headers, t) =
+  let ( let* ) = Option.bind in
+  let rec go ~headers = function
+    | Mrmime.Mail.Leaf contents ->
+        (* select only [text/*] *)
+        let* mime = mime_from_headers headers in
+        (* select only supported languages *)
+        let* lang = lang_from_headers lang headers in
+        Some (Semantic.Leaf { mime; lang; contents })
+    | Multipart parts ->
+        let mime = multipart_from_headers headers in
+        let fn acc = function
+          | headers, Some contents ->
+              (* select only parts with contents *)
+              let part = go ~headers contents in
+              Option.fold ~none:acc ~some:(fun part -> part :: acc) part
+          | _, None -> acc in
+        let parts = List.fold_left fn [] parts in
+        let parts = List.rev parts in
+        Some (Semantic.Choose { mime; parts })
+    | Message (headers, t) ->
+        let* part = go ~headers t in
+        Some (Semantic.Choose { mime = "message"; parts = [ part ] }) in
+  go ~headers t
+
+let join a b =
+  match (a, b) with
+  | Ok a, Ok b -> Ok (a, b)
+  | Error err, _ | _, Error err -> Error err
+
+let rec map_from_skeleton skeleton mrmime =
+  let open Skeleton in
+  let open Mrmime.Mail in
+  let ( let* ) = Result.bind in
+  match (skeleton, mrmime) with
+  | { body = Single (Some contents); _ }, (headers, Leaf ()) ->
+      Ok (headers, Leaf contents)
+  | { body = Multipart { parts; _ }; _ }, (headers, Multipart parts') -> begin
+      try
+        let fn (_, skeleton) (headers', part') =
+          match (skeleton, part') with
+          | { body = Single None; _ }, None -> Ok (headers', None)
+          | _, None -> Error `No_symmetry
+          | skeleton, Some part' ->
+              let* headers', parts' =
+                map_from_skeleton skeleton (headers', part') in
+              Ok (headers', Some parts') in
+        let parts = List.map2 fn parts parts' in
+        if List.exists Result.is_error parts
+        then Error `No_symmetry
+        else Ok (headers, Multipart (List.map Result.get_ok parts))
+      with _ -> Error `No_symmetry
+    end
+  | { body = Message t; _ }, (headers, Message (hdrs', t')) ->
+      let* hdrs, t = map_from_skeleton t (hdrs', t') in
+      Ok (headers, Message (hdrs, t))
+  | _ -> assert false
+
+let of_filename ?lang filename =
+  let filename = Fpath.to_string filename in
+  let from = Flux.Source.file ~filename 0x7ff in
+  let via = Flux.Flow.identity in
+  let emitters _hdrs = (Fun.const (), ()) in
+  let into =
+    let open Flux.Sink.Syntax in
+    let+ s = sink_of_parser Parser.t
+    and+ m = sink_of_parser (Mrmime.Mail.stream ~g emitters) in
+    join s m in
+  let result, leftover = Flux.Stream.run ~from ~via ~into in
+  Option.iter Flux.Source.dispose leftover ;
+  let ( let* ) = Result.bind in
+  let* skeleton, mrmime = result in
+  let* mrmime = map_from_skeleton skeleton mrmime in
+  let documents = documents_of_mrmime ?lang mrmime in
+  Ok (skeleton, documents)
 
 let output_bigstring oc bstr =
   let buf = Bytes.create 0x7ff in
   let rec go bstr =
     let dim = Bigarray.Array1.dim bstr in
     if dim > 0
-    then (
+    then begin
       let len = Int.min (Bytes.length buf) dim in
-      bigstring_blit_to_bytes bstr ~src_off:0 buf ~dst_off:0 ~len ;
+      Bstr.blit_to_bytes bstr ~src_off:0 buf ~dst_off:0 ~len ;
       output_substring oc (Bytes.unsafe_to_string buf) 0 len ;
-      go (Bigarray.Array1.sub bstr len (dim - len))) in
+      go (Bigarray.Array1.sub bstr len (dim - len))
+    end in
   go bstr
 
 let rec to_seq ~load t =
   let rec go part =
-    let hdr = load part.headers in
+    let hdr = load part.Skeleton.headers in
     match part.body with
     | Single None -> Seq.return (`Value hdr)
     | Single (Some v) ->
@@ -379,8 +638,7 @@ let rec to_seq ~load t =
         Seq.cons (`Value hdr) (Seq.return (`Value body))
     | Multipart { preamble; epilogue; boundary; parts } ->
         let suffix =
-          [ "\r\n"; "--" ^ boundary ^ "--"; fst epilogue; snd epilogue; "\r\n" ]
-        in
+          [ "\r\n"; "--" ^ boundary ^ "--"; fst epilogue; snd epilogue ] in
         let suffix = List.to_seq suffix in
         let suffix = Seq.map (fun str -> `String str) suffix in
         let parts = List.to_seq parts in
@@ -420,44 +678,6 @@ let to_output_channel_from_filename filename t oc =
     | `String str -> output_string oc str
     | `Value bstr -> output_bigstring oc bstr in
   Seq.iter fn seq
-
-(*
-let to_output_channel_from_filename filename t oc =
-  let fd = Unix.openfile (Fpath.to_string filename) Unix.[ O_RDONLY ] 0o644 in
-  let finally () = Unix.close fd in
-  Fun.protect ~finally @@ fun () ->
-  let map ~off ~len =
-    Log.debug (fun m -> m "map off:%08x len:%d" off len) ;
-    let barr =
-      Unix.map_file fd ~pos:(Int64.of_int off) Bigarray.char Bigarray.c_layout
-        false [| len |] in
-    Bigarray.array1_of_genarray barr in
-  let rec go part =
-    let pos, end_pos = part.headers in
-    let bstr = map ~off:pos ~len:(end_pos - pos) in
-    output_bigstring oc bstr ;
-    match part.body with
-    | Single None -> ()
-    | Single (Some (pos, end_pos)) ->
-        let bstr = map ~off:pos ~len:(end_pos - pos) in
-        output_bigstring oc bstr
-    | Multipart { preamble; epilogue; boundary; parts } ->
-        output_string oc preamble ;
-        let first = ref true in
-        let fn (transport_padding, part) =
-          if not !first then output_string oc "\r\n" else first := false ;
-          output_string oc ("--" ^ boundary) ;
-          output_string oc transport_padding ;
-          output_string oc "\r\n" ;
-          go part in
-        List.iter fn parts ;
-        output_string oc "\r\n" ;
-        output_string oc ("--" ^ boundary ^ "--") ;
-        output_string oc (fst epilogue) ;
-        output_string oc (snd epilogue) ;
-        output_string oc "\r\n" in
-  go t
-*)
 
 let of_string str =
   let parser = Encore.to_angstrom Format.t in
