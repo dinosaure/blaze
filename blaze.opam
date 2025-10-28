@@ -43,7 +43,7 @@ depends: [
   "ipaddr" {>= "5.2.0"}
   "encore"
   "progress"
-  "carton-miou-unix"
+  "carton-miou"
   "dmarc"
   "arc"
   "ke" {>= "0.4"}
