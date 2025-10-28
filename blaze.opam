@@ -63,6 +63,6 @@ pin-depends: [
   [ "uspf.dev"               "git+https://github.com/mirage/uspf.git#a4b90d1e99a607b2d2e8af62f32d5b211787b45d" ]
   [ "arc.dev"                "git+https://git.robur.coop/robur/ocaml-arc.git#2ea6849a809b4abe4e7b37543e9459e1f7e9938a" ]
   [ "carton.dev"             "git+https://github.com/robur-coop/carton.git#b3deccbfbc631982042adf80f3ef941ee11ae25e" ]
-  [ "carton-miou-unix.dev"   "git+https://github.com/robur-coop/carton.git#b3deccbfbc631982042adf80f3ef941ee11ae25e" ]
+  [ "carton-miou.dev"        "git+https://github.com/robur-coop/carton.git#b3deccbfbc631982042adf80f3ef941ee11ae25e" ]
   [ "flux.dev"               "git+https://github.com/robur-coop/flux.git#527a116071a93a221219d85b3f638d320f6ca93a" ]
 ]
