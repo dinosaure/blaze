@@ -160,19 +160,17 @@ let collect _quiet newline input =
         let (Field.Field (fn, w, v)) = Location.prj field in
         let is_authentication_results =
           Field_name.equal Dmarc.field_authentication_results fn in
-        begin
-          match (is_authentication_results, w) with
-          | true, Field.Unstructured ->
-              let v = to_unstrctrd v in
-              begin
-                match Dmarc.Authentication_results.of_unstrctrd v with
-                | Ok t -> go (t :: results)
-                | Error _ ->
-                    Logs.warn (fun m ->
-                        m "Invalid Authentication-Results field, ignore it") ;
-                    go results
-              end
-          | _ -> go results
+        begin match (is_authentication_results, w) with
+        | true, Field.Unstructured ->
+            let v = to_unstrctrd v in
+            begin match Dmarc.Authentication_results.of_unstrctrd v with
+            | Ok t -> go (t :: results)
+            | Error _ ->
+                Logs.warn (fun m ->
+                    m "Invalid Authentication-Results field, ignore it") ;
+                go results
+            end
+        | _ -> go results
         end
     | `Malformed _ -> error_msgf "Invalid email"
     | `End _ -> Ok (List.rev results)
@@ -216,7 +214,7 @@ let verify quiet newline ctx domain resolver fpath output =
   | Error (`Msg msg) -> `Error (false, Fmt.str "%s." msg)
 
 open Cmdliner
-open Args
+open Blaze_cli
 
 let input =
   let doc = "The email to check." in

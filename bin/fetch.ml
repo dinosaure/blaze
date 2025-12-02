@@ -34,31 +34,28 @@ let decode_uri uri =
   let ( >>= ) = Result.bind in
   match String.split_on_char '/' uri with
   | proto :: "" :: user_pass_host_port :: path ->
-      begin
-        match proto with
-        | "pop3:" -> Ok `POP3
-        | "git:" -> Ok `Git
-        | _ -> error_msgf "Unknown protocol"
+      begin match proto with
+      | "pop3:" -> Ok `POP3
+      | "git:" -> Ok `Git
+      | _ -> error_msgf "Unknown protocol"
       end
       >>= fun protocol ->
-      begin
-        match String.split_on_char '@' user_pass_host_port with
-        | [ host_port ] -> Ok (None, host_port)
-        | [ user_pass; host_port ] ->
-            decode_user_pass user_pass >>= fun up -> Ok (up, host_port)
-        | _ -> error_msgf "Couldn't decode URI"
+      begin match String.split_on_char '@' user_pass_host_port with
+      | [ host_port ] -> Ok (None, host_port)
+      | [ user_pass; host_port ] ->
+          decode_user_pass user_pass >>= fun up -> Ok (up, host_port)
+      | _ -> error_msgf "Couldn't decode URI"
       end
       >>= fun (user_pass, host_port) ->
       decode_host_port host_port >>= fun (host, port) ->
       let path = "/" ^ String.concat "/" path in
       Ok (Uri (protocol, user_pass, host, port, path))
   | [ user_pass_host_port ] ->
-      begin
-        match String.split_on_char '@' user_pass_host_port with
-        | [ host_port ] -> Ok (None, host_port)
-        | [ user_pass; host_port ] ->
-            decode_user_pass user_pass >>= fun up -> Ok (up, host_port)
-        | _ -> error_msgf "Couldn't decode URI"
+      begin match String.split_on_char '@' user_pass_host_port with
+      | [ host_port ] -> Ok (None, host_port)
+      | [ user_pass; host_port ] ->
+          decode_user_pass user_pass >>= fun up -> Ok (up, host_port)
+      | _ -> error_msgf "Couldn't decode URI"
       end
       >>= fun (user_pass, host_port) ->
       decode_host_port host_port >>= fun (host, port) ->
@@ -208,7 +205,7 @@ let run quiet authenticator resolver (uri, _) excludes fmt =
   run { quiet; authenticator; happy_eyeballs; uri; excludes; fmt }
 
 open Cmdliner
-open Args
+open Blaze_cli
 
 let username =
   let doc = "The username used to be connected to the service." in

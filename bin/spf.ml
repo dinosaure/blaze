@@ -108,10 +108,9 @@ let stamp quiet hostname resolver ctx input output =
       transmit ic oc ;
       close_ic ic ;
       close_oc oc ;
-      begin
-        match res with
-        | `Pass _ | `None | `Neutral -> `Ok ()
-        | _ (* Fail | Softfail | Permerror | Temperror *) -> impossible_to_stamp
+      begin match res with
+      | `Pass _ | `None | `Neutral -> `Ok ()
+      | _ (* Fail | Softfail | Permerror | Temperror *) -> impossible_to_stamp
       end
   | None -> impossible_to_stamp
 
@@ -194,7 +193,7 @@ let analyze quiet newline resolver input =
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
 open Cmdliner
-open Args
+open Blaze_cli
 
 let setup_resolver happy_eyeballs_cfg nameservers local () =
   let happy_eyeballs =

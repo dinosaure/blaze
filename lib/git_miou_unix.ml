@@ -127,7 +127,7 @@ let fetch remote he producer =
   Log.debug (fun m -> m "Repository cloned into %s" filename) ;
   let pack = Carton_miou_unix.make ~ref_length:20 (Fpath.v filename) in
   let entries = Carton_miou_flux.entries pack oracle in
-  let fn (value, uid) =
+  let fn (value, _cursor, uid) =
     match Carton.Value.kind value with
     | `C ->
         Log.debug (fun m -> m "New Git object: %a" Carton.Uid.pp uid) ;

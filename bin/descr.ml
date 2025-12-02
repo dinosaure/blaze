@@ -177,7 +177,7 @@ let run _ input =
       `Ok ()
 
 open Cmdliner
-open Args
+open Blaze_cli
 
 let existing_file =
   let parser = function

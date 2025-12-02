@@ -68,13 +68,12 @@ let response_of_dns_request errored ~dkim dns =
             let txts =
               List.map (String.concat "" % String.split_on_char ' ') txts in
             let txts = String.concat "" txts in
-            begin
-              match Dkim.domain_key_of_string txts with
-              | Ok domain_key -> `Domain_key domain_key
-              | Error (`Msg msg) ->
-                  Logs.err (fun m -> m "Invalid domain-key: %s" msg) ;
-                  errored := `Invalid_domain_key dkim :: !errored ;
-                  `DNS_error msg
+            begin match Dkim.domain_key_of_string txts with
+            | Ok domain_key -> `Domain_key domain_key
+            | Error (`Msg msg) ->
+                Logs.err (fun m -> m "Invalid domain-key: %s" msg) ;
+                errored := `Invalid_domain_key dkim :: !errored ;
+                `DNS_error msg
             end
         | Error (`Msg msg) ->
             Logs.err (fun m ->
@@ -203,21 +202,20 @@ let sign _verbose newline input output key dkim =
     | `Signature dkim -> Ok dkim
     | `Await signer ->
         let len = Stdlib.input ic buf 0 (Bytes.length buf) in
-        begin
-          match len with
-          | 0 ->
-              let signer = Dkim.Sign.fill signer String.empty 0 0 in
-              go signer
-          | len when newline = `CRLF ->
-              let str = Bytes.sub_string buf 0 len in
-              let signer = Dkim.Sign.fill signer str 0 len in
-              go signer
-          | len ->
-              let str = Bytes.sub_string buf 0 len in
-              let str = String.split_on_char '\n' str in
-              let str = String.concat "\r\n" str in
-              let signer = Dkim.Sign.fill signer str 0 (String.length str) in
-              go signer
+        begin match len with
+        | 0 ->
+            let signer = Dkim.Sign.fill signer String.empty 0 0 in
+            go signer
+        | len when newline = `CRLF ->
+            let str = Bytes.sub_string buf 0 len in
+            let signer = Dkim.Sign.fill signer str 0 len in
+            go signer
+        | len ->
+            let str = Bytes.sub_string buf 0 len in
+            let str = String.split_on_char '\n' str in
+            let str = String.concat "\r\n" str in
+            let signer = Dkim.Sign.fill signer str 0 (String.length str) in
+            go signer
         end in
   let ( let* ) = Result.bind in
   let* dkim = go (Dkim.Sign.signer ~key dkim) in
@@ -283,7 +281,7 @@ let gen bits seed output =
     `Ok ()
 
 open Cmdliner
-open Args
+open Blaze_cli
 
 let parse_public_key str =
   match Fpath.of_string str with
@@ -348,7 +346,7 @@ let fields =
 
 let input =
   let doc = "The email to verify." in
-  Arg.(value & pos 0 Args.file "-" & info [] ~doc)
+  Arg.(value & pos 0 Blaze_cli.file "-" & info [] ~doc)
 
 let setup_resolver happy_eyeballs_cfg nameservers local () =
   let happy_eyeballs =
@@ -421,7 +419,7 @@ let setup_key bits alg seed key =
 
 let input =
   let doc = "The email to sign." in
-  Arg.(value & pos 0 Args.file "-" & info [] ~doc)
+  Arg.(value & pos 0 Blaze_cli.file "-" & info [] ~doc)
 
 let new_file = Arg.conv (Fpath.of_string, Fpath.pp)
 

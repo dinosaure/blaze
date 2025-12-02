@@ -8,7 +8,7 @@
  (name email)
  (public_name blaze.email)
  (modules email)
- (libraries flux stem.snowball bstr logs unix fpath encore mrmime))
+ (libraries flux stem.snowball bstr logs fpath encore mrmime))
 
 (library
  (name protocol)
@@ -48,13 +48,22 @@
  (name pack)
  (public_name blaze.pack)
  (modules pack)
- (libraries digestif carton-miou.unix blaze.email))
+ (libraries
+  hxd.core
+  hxd.string
+  digestif
+  carton-miou.unix
+  blaze.email
+  blaze.stem
+  stem.stopwords
+  stem.snowball
+  stem.tokenizer))
 
 (library
- (name bqueue)
- (public_name blaze.bqueue)
- (modules bqueue)
- (libraries miou))
+ (name stem)
+ (public_name blaze.stem)
+ (modules stem)
+ (libraries digestif encore logs))
 
 (library
  (name smart)

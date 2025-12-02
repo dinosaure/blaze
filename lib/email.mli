@@ -22,6 +22,7 @@ module Skeleton : sig
 
   val map : ('a -> 'b) -> 'a t -> 'b t
   val fold : ('acc -> 'a -> 'acc) -> 'acc -> 'a t -> 'acc
+  val pp : 'a Fmt.t -> 'a t Fmt.t
 end
 
 module Semantic : sig
@@ -30,9 +31,16 @@ module Semantic : sig
     | Choose of { mime : string; parts : 'octet document list }
 
   and 'octet t = 'octet document option
+
+  val fold :
+    ('acc -> string * Snowball.Language.t * 'a -> 'acc) -> 'acc -> 'a t -> 'acc
+
+  val pp : 'a Fmt.t -> 'a t Fmt.t
 end
 
 type 'octet t = 'octet Skeleton.t * 'octet Semantic.t
+
+val map : ('a -> 'b) -> 'a t -> 'b t
 
 module Format : sig
   val t : string t Encore.t
@@ -49,9 +57,6 @@ val of_filename :
 
 val to_seq :
   load:('a -> 'b) -> 'a Skeleton.t -> [ `String of string | `Value of 'b ] Seq.t
-
-val to_output_channel_from_filename :
-  Fpath.t -> (int * int) Skeleton.t -> out_channel -> unit
 
 val of_string : string -> (string t, [> `Msg of string ]) result
 val of_bigstring : bigstring -> (string t, [> `Msg of string ]) result

@@ -1,4 +1,7 @@
-type src = Mail of string | Body of Fpath.t * int * int
+type src =
+  | Mail of string
+  | Body of Fpath.t * int * int
+  | Stem of Carton.Uid.t * Carton.Uid.t * int * (string, int) Hashtbl.t
 
 val sha1 : Carton.First_pass.digest
 val mail_identify : Digestif.SHA1.ctx Carton.First_pass.identify
@@ -12,10 +15,10 @@ val config :
   unit ->
   Carton_miou_unix.config
 
-val filename_to_email : Fpath.t -> Fpath.t * (int * int) Email.Skeleton.t
+val filename_to_email : Fpath.t -> Fpath.t * (int * int) Email.t
 
 val email_to_entries :
-  Fpath.t * (int * int) Email.Skeleton.t -> src Cartonnage.Entry.t list
+  Fpath.t * (int * int) Email.t -> src Cartonnage.Entry.t list
 
 val uid_of_value : Carton.Value.t -> Carton.Uid.t
 

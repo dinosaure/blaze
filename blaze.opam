@@ -25,7 +25,6 @@ depends: [
   "colombe" {>= "0.7.0"}
   "sendmail"
   "ca-certs"
-  "lwt" {>= "5.5.0"}
   "tls" {>= "0.15.0"}
   "dkim" {>= "0.4.0"}
   "dns-client" {>= "5.0.1"}
@@ -47,6 +46,7 @@ depends: [
   "dmarc"
   "arc"
   "stem"
+  "bm25"
   "ke" {>= "0.4"}
   "mirage-crypto-rng-miou-unix"
   "sendmail-miou-unix"
@@ -58,13 +58,8 @@ build: [
 dev-repo: "git+https://github.com/dinosaure/blaze.git"
 pin-depends: [
   [ "maildir.dev"            "git+https://github.com/dinosaure/ocaml-maildir.git#597823c7d2d4fd2aef26a581f6828f2b458371ea" ]
-  [ "dmarc.dev"              "git+https://github.com/dinosaure/ocaml-dmarc.git#537f7101ca891accfac9f67e5ccae5bcf0bfa10f" ]
-  [ "public-suffix.dev"      "git+https://github.com/dinosaure/ocaml-dmarc.git#48bec0b9e8dac83c4390da3e89794707d6613ac9" ]
-  [ "dkim.dev"               "git+https://github.com/mirage/ocaml-dkim.git#a497c0890ee077eecd691d0c87388d6c5404f66c" ]
-  [ "uspf.dev"               "git+https://github.com/mirage/uspf.git#a4b90d1e99a607b2d2e8af62f32d5b211787b45d" ]
-  [ "arc.dev"                "git+https://git.robur.coop/robur/ocaml-arc.git#2ea6849a809b4abe4e7b37543e9459e1f7e9938a" ]
-  [ "carton.dev"             "git+https://github.com/robur-coop/carton.git#b3deccbfbc631982042adf80f3ef941ee11ae25e" ]
-  [ "carton-miou.dev"        "git+https://github.com/robur-coop/carton.git#b3deccbfbc631982042adf80f3ef941ee11ae25e" ]
-  [ "flux.dev"               "git+https://github.com/robur-coop/flux.git#527a116071a93a221219d85b3f638d320f6ca93a" ]
-  [ "stem.dev"               "git+https://github.com/robur-coop/stem.git#eae8815700884b70a734ff52d37d24a29bf58614" ]
+  [ "carton.dev"             "git+https://github.com/robur-coop/carton.git#f3d9d905d8de849a660b3ec8193c791bfb655918" ]
+  [ "carton-miou.dev"        "git+https://github.com/robur-coop/carton.git#f3d9d905d8de849a660b3ec8193c791bfb655918" ]
+  [ "flux.dev"               "git+https://github.com/robur-coop/flux.git#0bc30aa56d83f7bdd9ddcb750282749aaeb05e53" ]
+  [ "stem.dev"               "git+https://github.com/robur-coop/stem.git#22a9588d0090c151c6905d721a533177dd92a4bc" ]
 ]

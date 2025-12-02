@@ -13,7 +13,7 @@ let run _ seed len output =
   | `Raw -> Fmt.pr "%s" res
 
 open Cmdliner
-open Args
+open Blaze_cli
 
 let seed =
   let parser str =

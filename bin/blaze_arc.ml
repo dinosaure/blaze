@@ -5,10 +5,9 @@ let request dns domain_name =
   if Hashtbl.mem extra_servers domain_name
   then
     let txts = Hashtbl.find extra_servers domain_name in
-    begin
-      match Dkim.domain_key_of_string txts with
-      | Ok domain_key -> (domain_name, `Domain_key domain_key)
-      | Error (`Msg msg) -> (domain_name, `DNS_error msg)
+    begin match Dkim.domain_key_of_string txts with
+    | Ok domain_key -> (domain_name, `Domain_key domain_key)
+    | Error (`Msg msg) -> (domain_name, `DNS_error msg)
     end
   else
     match Dns_static.getaddrinfo dns Dns.Rr_map.Txt domain_name with
@@ -17,12 +16,11 @@ let request dns domain_name =
         let txts = Dns.Rr_map.Txt_set.fold fn txts [] in
         let txts = List.map (String.concat "" % String.split_on_char ' ') txts in
         let txts = String.concat "" txts in
-        begin
-          match Dkim.domain_key_of_string txts with
-          | Ok domain_key -> (domain_name, `Domain_key domain_key)
-          | Error (`Msg msg) ->
-              Logs.err (fun m -> m "Invalid domain-key: %s" msg) ;
-              (domain_name, `DNS_error msg)
+        begin match Dkim.domain_key_of_string txts with
+        | Ok domain_key -> (domain_name, `Domain_key domain_key)
+        | Error (`Msg msg) ->
+            Logs.err (fun m -> m "Invalid domain-key: %s" msg) ;
+            (domain_name, `DNS_error msg)
         end
     | Error (`Msg msg) ->
         Logs.err (fun m ->
@@ -37,7 +35,7 @@ let verify dns newline ctx stream =
         Logs.err (fun m -> m "Error from DMARC: %a" Dmarc.Verify.pp_error err) ;
         Error err
     | `Await decoder -> (
-        match Bqueue.get stream with
+        match Flux.Bqueue.get stream with
         | None -> go (Dmarc.Verify.src decoder String.empty 0 0)
         | Some str when newline = `CRLF ->
             go (Dmarc.Verify.src decoder str 0 (String.length str))
@@ -82,7 +80,7 @@ let chain dns newline stream =
   let rec go decoder =
     match Arc.Verify.decode decoder with
     | `Await decoder -> (
-        match Bqueue.get stream with
+        match Flux.Bqueue.get stream with
         | None -> go (Arc.Verify.src decoder String.empty 0 0)
         | Some str when newline = `CRLF ->
             go (Arc.Verify.src decoder str 0 (String.length str))
@@ -111,8 +109,8 @@ let sign _quiet newline resolver ctx seal msgsig keys receiver input =
     if input = "-" then (stdin, ignore) else (open_in input, close_in) in
   let finally () = ic_close ic in
   Fun.protect ~finally @@ fun () ->
-  let stream0 = Bqueue.create 0x10 in
-  let stream1 = Bqueue.create 0x10 in
+  let stream0 = Flux.Bqueue.(create with_close) 0x7ff in
+  let stream1 = Flux.Bqueue.(create with_close) 0x7ff in
   let msg = Queue.create () in
   let producer =
     Miou.async @@ fun () ->
@@ -122,13 +120,13 @@ let sign _quiet newline resolver ctx seal msgsig keys receiver input =
       if len > 0
       then (
         let str = Bytes.sub_string buf 0 len in
-        Bqueue.put stream0 str ;
-        Bqueue.put stream1 str ;
+        Flux.Bqueue.put stream0 str ;
+        Flux.Bqueue.put stream1 str ;
         Queue.push str msg ;
         go ())
       else (
-        Bqueue.close stream0 ;
-        Bqueue.close stream1) in
+        Flux.Bqueue.close stream0 ;
+        Flux.Bqueue.close stream1) in
     go () in
   Miou.await_exn producer ;
   let prm0 = Miou.async @@ fun () -> verify dns newline ctx stream0 in
@@ -240,11 +238,11 @@ let verify quiet () newline resolver input =
       if verify true chain then `Ok () else `Error (false, "Invalid ARC-chain.")
 
 open Cmdliner
-open Args
+open Blaze_cli
 
 let input =
   let doc = "The email to verify. use $(b,-) for $(b,stdin)." in
-  Arg.(value & pos 0 Args.file "-" & info [] ~doc)
+  Arg.(value & pos 0 Blaze_cli.file "-" & info [] ~doc)
 
 let setup_resolver happy_eyeballs_cfg nameservers local () =
   let happy_eyeballs =
@@ -531,7 +529,7 @@ let to_domain domain_name =
 let input =
   let doc = "The email to sign. Use $(b,-) for $(b,stdin)." in
   let open Arg in
-  value & pos 0 Args.file "-" & info [] ~doc ~docv:"FILE"
+  value & pos 0 Blaze_cli.file "-" & info [] ~doc ~docv:"FILE"
 
 let setup_ctx sender helo ip =
   match (sender, helo, ip) with

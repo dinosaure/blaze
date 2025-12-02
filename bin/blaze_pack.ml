@@ -1,4 +1,4 @@
-let ( % ) f g = fun x -> f (g x)
+let () = Printexc.record_backtrace true
 
 let rec clean acc orphans =
   match Miou.care orphans with
@@ -66,6 +66,10 @@ let delete_duplicates ?(quiet = true) entriess =
   List.fold_left (fun acc entries -> go [] entries :: acc) [] entriess
 
 let load _uid = function
+  | Pack.Stem (uid, blob, length, tbl) ->
+      let str =
+        Stem.to_string ((uid :> string), (blob :> string), length, tbl) in
+      Carton.Value.of_string ~kind:`C str
   | Pack.Mail str -> Carton.Value.of_string ~kind:`A str
   | Pack.Body (filename, pos, len) ->
       let fd =
@@ -97,13 +101,17 @@ let with_reporter ~config ?total quiet =
       (on, finally)
 
 let run_make quiet progress without_progress threads mails_from_stdin
-    mails_from_cmdline output =
+    mails_from_cmdline output align =
   Miou_unix.run ~domains:threads @@ fun () ->
   let ( let* ) = Result.bind in
   let mails_from_cmdline = List.map Fpath.v mails_from_cmdline in
   let mails = List.rev_append mails_from_stdin mails_from_cmdline in
+  Logs.debug (fun m ->
+      m "Serialize incoming emails to skeleton/semantic entries") ;
   let* mails = parallel ~fn:Pack.filename_to_email mails in
+  Logs.debug (fun m -> m "Explode skeleton/semantic entries to PACK entries") ;
   let* entries = parallel ~fn:Pack.email_to_entries mails in
+  Logs.debug (fun m -> m "Delete duplicates") ;
   let entries = delete_duplicates ~quiet entries in
   let with_header =
     List.fold_left (fun acc entries -> acc + List.length entries) 0 entries
@@ -133,6 +141,15 @@ let run_make quiet progress without_progress threads mails_from_stdin
     | None -> (stdout, ignore) in
   Fun.protect ~finally @@ fun () ->
   Seq.iter (output_string oc) pack ;
+  flush oc ;
+  let () =
+    let pos = pos_out oc in
+    match align with
+    | Some align when align mod pos <> 0 ->
+        let len = (((pos / align) + 1) * align) - pos in
+        let trailing = String.make len '\000' in
+        output_string oc trailing
+    | _ -> () in
   Ok ()
 
 let seq_of_filename filename =
@@ -148,10 +165,74 @@ let seq_of_filename filename =
         Some str in
   Seq.of_dispenser dispenser
 
-let run_list _quit filename =
+let run_list _quiet filename =
   Miou_unix.run @@ fun () ->
   let ref_length = Digestif.SHA1.digest_size in
-  let seq = seq_of_filename filename in
+  let zero = Carton.Size.zero in
+  let pack = Pack.make (Fpath.v filename) in
+  let from = Flux.Source.file ~filename 0x7ff in
+  let mails_by_offsets = Hashtbl.create 0x100 in
+  let mails_by_refs = Hashtbl.create 0x100 in
+  let is_a_mail ?offset ?ref () =
+    match (offset, ref) with
+    | None, None -> false
+    | Some offset, _ -> Hashtbl.mem mails_by_offsets offset
+    | None, Some ref -> Hashtbl.mem mails_by_refs ref in
+  let fn = function
+    | `Number _ | `Hash _ -> None
+    | `Entry { Carton.First_pass.kind = Base `A; offset; size; _ } ->
+        Hashtbl.add mails_by_offsets offset () ;
+        let blob = Carton.Blob.make ~size in
+        let value = Carton.of_offset pack blob ~cursor:offset in
+        let uid = Pack.uid_of_value value in
+        Hashtbl.add mails_by_refs uid () ;
+        Some (offset, value)
+    | `Entry { Carton.First_pass.kind = Ofs { sub; _ }; offset; _ } ->
+        let parent = offset - sub in
+        if is_a_mail ~offset:parent ()
+        then begin
+          Hashtbl.add mails_by_offsets offset () ;
+          let size = Carton.size_of_offset pack ~cursor:offset zero in
+          let blob = Carton.Blob.make ~size in
+          let value = Carton.of_offset pack blob ~cursor:offset in
+          let uid = Pack.uid_of_value value in
+          Hashtbl.add mails_by_refs uid () ;
+          Some (offset, value)
+        end
+        else None
+    | `Entry { Carton.First_pass.kind = Ref { ptr; _ }; offset; _ } ->
+        (* TODO(dinosaure): we don't handle a cascade of [OBJ_REF]! Our [pack]
+           was not made with an [index]. *)
+        if is_a_mail ~ref:ptr ()
+        then begin
+          Hashtbl.add mails_by_offsets offset () ;
+          let size = Carton.size_of_offset pack ~cursor:offset zero in
+          let blob = Carton.Blob.make ~size in
+          let value = Carton.of_offset pack blob ~cursor:offset in
+          let uid = Pack.uid_of_value value in
+          Hashtbl.add mails_by_refs uid () ;
+          Some (offset, value)
+        end
+        else None
+    | _ -> None in
+  let show (offset, value) =
+    assert (Carton.Value.kind value = `A) ;
+    let bstr = Carton.Value.bigstring value in
+    let bstr = Bigarray.Array1.sub bstr 0 (Carton.Value.length value) in
+    let uid = Pack.uid_of_value value in
+    match Email.of_bigstring bstr with
+    | Ok _t -> Fmt.pr "%08x %a\n%!" offset Carton.Uid.pp uid
+    | Error (`Msg msg) -> Fmt.failwith "%s" msg in
+  let via =
+    let open Flux.Flow in
+    Carton_miou_flux.first_pass ~digest:Pack.sha1 ~ref_length
+    << filter_map fn
+    << tap show in
+  let into = Flux.Sink.drain in
+  let (), leftover = Flux.Stream.run ~from ~via ~into in
+  Option.iter Flux.Source.dispose leftover
+
+(*
   let seq =
     let output = De.bigstring_create De.io_buffer_size in
     let allocate bits = De.make_window ~bits in
@@ -166,50 +247,9 @@ let run_list _quit filename =
     | Some offset, _ -> Hashtbl.mem mails_by_offsets offset
     | None, Some ref -> Hashtbl.mem mails_by_refs ref in
   let filter_map = function
-    | `Number _ | `Hash _ -> None
-    | `Entry { Carton.First_pass.kind = Base `A; offset; size; _ } ->
-        Hashtbl.add mails_by_offsets offset () ;
-        let blob = Carton.Blob.make ~size in
-        let value = Carton.of_offset pack blob ~cursor:offset in
-        let uid = Pack.uid_of_value value in
-        Hashtbl.add mails_by_refs uid () ;
-        Some (offset, value)
-    | `Entry { Carton.First_pass.kind = Ofs { sub; _ }; offset; _ } ->
-        let parent = offset - sub in
-        if is_a_mail ~offset:parent ()
-        then (
-          Hashtbl.add mails_by_offsets offset () ;
-          let size =
-            Carton.size_of_offset pack ~cursor:offset Carton.Size.zero in
-          let blob = Carton.Blob.make ~size in
-          let value = Carton.of_offset pack blob ~cursor:offset in
-          let uid = Pack.uid_of_value value in
-          Hashtbl.add mails_by_refs uid () ;
-          Some (offset, value))
-        else None
-    | `Entry { Carton.First_pass.kind = Ref { ptr; _ }; offset; _ } ->
-        if is_a_mail ~ref:ptr ()
-        then (
-          Hashtbl.add mails_by_offsets offset () ;
-          let size =
-            Carton.size_of_offset pack ~cursor:offset Carton.Size.zero in
-          let blob = Carton.Blob.make ~size in
-          let value = Carton.of_offset pack blob ~cursor:offset in
-          let uid = Pack.uid_of_value value in
-          Hashtbl.add mails_by_refs uid () ;
-          Some (offset, value))
-        else None
-    | _ -> None in
   let seq = Seq.filter_map filter_map seq in
-  let show (offset, value) =
-    assert (Carton.Value.kind value = `A) ;
-    let bstr = Carton.Value.bigstring value in
-    let bstr = Bigarray.Array1.sub bstr 0 (Carton.Value.length value) in
-    let uid = Pack.uid_of_value value in
-    match Email.of_bigstring bstr with
-    | Ok _t -> Fmt.pr "%08x %a\n%!" offset Carton.Uid.pp uid
-    | Error (`Msg msg) -> Fmt.failwith "%s" msg in
   Seq.iter show seq
+*)
 
 let entries_of_pack cfg pack =
   let matrix, hash = Pack.verify_from_pack ~cfg pack in
@@ -252,7 +292,7 @@ let run_index _quiet threads filename =
   Classeur.Encoder.dst encoder out 0 (Bytes.length out) ;
   go `Await
 
-let run_get _quiet idx identifier =
+let run_get quiet idx hxd format identifier =
   Miou_unix.run @@ fun () ->
   let pack = Fpath.set_ext ".pack" idx in
   let ref_length = Digestif.SHA1.digest_size in
@@ -264,24 +304,20 @@ let run_get _quiet idx identifier =
   let size =
     match identifier with
     | `Offset cursor -> Carton.size_of_offset pack ~cursor Carton.Size.zero
-    | `Uid uid ->
-        let uid = Carton.Uid.unsafe_of_string uid in
-        Carton.size_of_uid pack ~uid Carton.Size.zero in
+    | `Uid uid -> Carton.size_of_uid pack ~uid Carton.Size.zero in
   let blob = Carton.Blob.make ~size in
   let value =
     match identifier with
     | `Offset cursor -> Carton.of_offset pack blob ~cursor
-    | `Uid uid ->
-        let uid = Carton.Uid.unsafe_of_string uid in
-        Carton.of_uid pack blob ~uid in
+    | `Uid uid -> Carton.of_uid pack blob ~uid in
   match Carton.Value.kind value with
   | `B | `C | `D ->
-      let pp_identifier ppf = function
-        | `Offset cursor -> Fmt.pf ppf "cursor:%08x" cursor
-        | `Uid uid -> Fmt.pf ppf "%s" (Ohex.encode uid) in
-      Fmt.failwith "Invalid object %a, it is not an email" pp_identifier
-        identifier
-  | `A -> (
+      let str = Carton.Value.string value in
+      if format = `Hex && not quiet
+      then Fmt.pr "@[<hov>%a@]\n%!" (Hxd_string.pp hxd) str
+      else if not quiet
+      then Fmt.pr "%s%!" str
+  | `A -> begin
       let str = Carton.Value.string value in
       match Email.of_string str with
       | Error (`Msg msg) -> Fmt.failwith "%s" msg
@@ -298,7 +334,46 @@ let run_get _quiet idx identifier =
           let fn = function
             | `String str -> output_string stdout str
             | `Value bstr -> Email.output_bigstring stdout bstr in
-          Seq.iter fn seq)
+          Seq.iter fn seq
+    end
+
+let run_descr _quiet idx identifier =
+  Miou_unix.run @@ fun () ->
+  let pack = Fpath.set_ext ".pack" idx in
+  let ref_length = Digestif.SHA1.digest_size in
+  let idx = Pack.index idx in
+  let index (uid : Carton.Uid.t) =
+    let uid = Classeur.uid_of_string_exn idx (uid :> string) in
+    Carton.Local (Classeur.find_offset idx uid) in
+  let pack = Carton_miou_unix.make ~ref_length ~index pack in
+  let size =
+    match identifier with
+    | `Offset cursor -> Carton.size_of_offset pack ~cursor Carton.Size.zero
+    | `Uid uid -> Carton.size_of_uid pack ~uid Carton.Size.zero in
+  let blob = Carton.Blob.make ~size in
+  let value =
+    match identifier with
+    | `Offset cursor -> Carton.of_offset pack blob ~cursor
+    | `Uid uid -> Carton.of_uid pack blob ~uid in
+  match Carton.Value.kind value with
+  | `B | `C | `D ->
+      let pp_identifier ppf = function
+        | `Offset cursor -> Fmt.pf ppf "cursor:%08x" cursor
+        | `Uid (uid : Carton.Uid.t) ->
+            Fmt.pf ppf "%s" (Ohex.encode (uid :> string)) in
+      Fmt.failwith "Invalid object %a, it is not an email" pp_identifier
+        identifier
+  | `A -> begin
+      let str = Carton.Value.string value in
+      match Email.of_string str with
+      | Error (`Msg msg) -> Fmt.failwith "%s" msg
+      | Ok (skeleton, semantic) ->
+          let pp_elt ppf hash = Fmt.string ppf (Ohex.encode hash) in
+          Fmt.pr "skeleton:\n%!" ;
+          Fmt.pr "%a%!" (Email.Skeleton.pp pp_elt) skeleton ;
+          Fmt.pr "semantic:\n%!" ;
+          Fmt.pr "%a%!" (Email.Semantic.pp pp_elt) semantic
+    end
 
 let pp_status tbl ~max_consumed ~max_offset ppf = function
   | Carton.Unresolved_base { cursor } ->
@@ -397,7 +472,7 @@ let run_verify quiet progress without_progress threads pagesize pack =
   if not quiet then Array.iter (Fmt.pr "%a\n%!" pp_status) matrix
 
 open Cmdliner
-open Args
+open Blaze_cli
 
 let setup_mails_from_in_channel ic =
   let rec go mails =
@@ -421,12 +496,12 @@ let setup_mails_from_in_channel ic =
 let mails =
   let doc = "Emails to encode into a PACK file." in
   let open Arg in
-  value & opt_all Args.file [] & info [ "m"; "mail" ] ~doc ~docv:"MAIL"
+  value & opt_all Blaze_cli.file [] & info [ "m"; "mail" ] ~doc ~docv:"MAIL"
 
 let list_of_mails =
   let doc = "A file (or $(i,stdin)) containing a list of emails." in
   let open Arg in
-  value & pos 0 Args.file "-" & info [] ~doc ~docv:"FILE"
+  value & pos 0 Blaze_cli.file "-" & info [] ~doc ~docv:"FILE"
 
 let setup_mails_from_in_channel = function
   | "-" -> setup_mails_from_in_channel stdin
@@ -453,7 +528,10 @@ let pack =
 
 let uid_of_string_opt str =
   match Ohex.decode ~skip_whitespace:true str with
-  | uid -> Some uid
+  | uid ->
+      if String.length uid = 20
+      then Some (Carton.Uid.unsafe_of_string uid)
+      else None
   | exception _exn -> None
 
 let identifier =
@@ -467,10 +545,26 @@ let identifier =
     | None, None -> error_msgf "Invalid position of the object: %S" str in
   let pp ppf = function
     | `Offset offset -> Fmt.pf ppf "0x%x" offset
-    | `Uid uid -> Fmt.pf ppf "%s" (Ohex.encode uid) in
+    | `Uid (uid : Carton.Uid.t) -> Fmt.pf ppf "%s" (Ohex.encode (uid :> string))
+  in
   let identifier = Arg.conv (parser, pp) in
   let open Arg in
   required & pos 1 (some identifier) None & info [] ~doc ~docv:"IDENTIFIER"
+
+let pot x = x land (x - 1) == 0 && x != 0
+
+let align =
+  let doc =
+    "Align the generated PACK file to a $(i,pagesize) (it must be a power of \
+     two)." in
+  let parser str =
+    match int_of_string_opt str with
+    | Some v when pot v -> Ok v
+    | Some v -> error_msgf "%d is not a power of two" v
+    | None -> error_msgf "Invalid number" in
+  let align = Arg.conv (parser, Fmt.int) in
+  let open Arg in
+  value & opt (some align) None & info [ "align" ] ~doc ~docv:"NUMBER"
 
 let make_term =
   let open Term in
@@ -485,7 +579,8 @@ let make_term =
     $ threads ~min:2 ()
     $ setup_mails_from_in_channel
     $ mails
-    $ output in
+    $ output
+    $ align in
   let term = map to_ret term in
   ret term
 
@@ -521,6 +616,14 @@ let pack =
 
 let errorf ?(usage = false) fmt = Fmt.kstr (fun msg -> `Error (usage, msg)) fmt
 
+let format_of_output =
+  let open Arg in
+  let hex =
+    let doc = "Displaying the object in the hexdump format." in
+    info [ "hex" ] ~doc in
+  let raw = info [ "raw" ] ~doc:"Displaying the object as is." in
+  value & vflag `Hex [ (`Hex, hex); (`Raw, raw) ]
+
 let get_term =
   let setup_pack = function
     | `Pack pack ->
@@ -540,7 +643,33 @@ let get_term =
        directly or the associated IDX file). The IDX file must exist." in
     Arg.(required & pos 0 (some pack) None & info [] ~doc ~docv:"FILE") in
   let setup_pack = ret (const setup_pack $ pack) in
-  const run_get $ setup_logs $ setup_pack $ identifier
+  const run_get
+  $ setup_logs
+  $ setup_pack
+  $ setup_hxd
+  $ format_of_output
+  $ identifier
+
+let descr_term =
+  let setup_pack = function
+    | `Pack pack ->
+        let idx = Fpath.set_ext ".idx" pack in
+        if
+          Sys.file_exists (Fpath.to_string idx)
+          && Sys.is_directory (Fpath.to_string idx) = false
+        then `Ok idx
+        else
+          errorf "You must have the IDX file of %a to be able to get emails."
+            Fpath.pp pack
+    | `Idx (idx, _) -> `Ok idx in
+  let open Term in
+  let pack =
+    let doc =
+      "The file used to access to the PACK file (it can be the PACK file \
+       directly or the associated IDX file). The IDX file must exist." in
+    Arg.(required & pos 0 (some pack) None & info [] ~doc ~docv:"FILE") in
+  let setup_pack = ret (const setup_pack $ pack) in
+  const run_descr $ setup_logs $ setup_pack $ identifier
 
 external getpagesize : unit -> int = "carton_miou_unix_getpagesize" [@@noalloc]
 
@@ -593,6 +722,12 @@ let get_cmd =
   let info = Cmd.info "get" ~doc ~man in
   Cmd.v info get_term
 
+let descr_cmd =
+  let doc = "A tool to describe an email from a PACK file." in
+  let man = [] in
+  let info = Cmd.info "descr" ~doc ~man in
+  Cmd.v info descr_term
+
 let verify_cmd =
   let doc = "A tool to verify a PACK file of emails." in
   let man = [] in
@@ -606,4 +741,4 @@ let cmd =
   let man = [] in
   Cmd.group ~default
     (Cmd.info "pack" ~doc ~man)
-    [ make_cmd; list_cmd; index_cmd; get_cmd; verify_cmd ]
+    [ make_cmd; list_cmd; index_cmd; get_cmd; descr_cmd; verify_cmd ]

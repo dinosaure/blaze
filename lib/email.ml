@@ -3,17 +3,11 @@ type bigstring =
 
 let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 
-let top =
+let display_tree =
   Lazy.from_fun @@ fun () ->
-  if Fmt.utf_8 Fmt.stdout then ("┌── ", "│   ") else (".-- ", "|   ")
-
-let between =
-  Lazy.from_fun @@ fun () ->
-  if Fmt.utf_8 Fmt.stdout then ("├── ", "│   ") else ("|-- ", "|   ")
-
-let last =
-  Lazy.from_fun @@ fun () ->
-  if Fmt.utf_8 Fmt.stdout then ("└── ", "    ") else ("`-- ", "    ")
+  match Fmt.utf_8 Fmt.stdout with
+  | true -> (("┌── ", "│   "), ("├── ", "│   "), ("└── ", "    "), "─┐", "·")
+  | false -> ((".-- ", "|   "), ("|-- ", "|   "), ("`-- ", "    "), "-.", "x")
 
 (* multipart-body :=
       [preamble CRLF]
@@ -54,46 +48,49 @@ module Skeleton = struct
 
   and 'octet t = 'octet part
 
-  let rec pp ?(prefix = "") ?(is_last = false) ppf tree =
-    let branch, next_prefix = Lazy.force (if is_last then last else between) in
+  let rec pp ?(prefix = "") ?(is_last = false) pp_elt ppf tree =
+    let _, between, last, expand, none = Lazy.force display_tree in
+    let branch, next_prefix = if is_last then last else between in
     match tree with
-    | Single None -> Fmt.pf ppf "%s%s<none>@." prefix branch
-    | Single (Some _) -> Fmt.pf ppf "%s%s<some>@." prefix branch
+    | Single None -> Fmt.pf ppf "%s%s%s@." prefix branch none
+    | Single (Some v) -> Fmt.pf ppf "%s%s%a@." prefix branch pp_elt v
     | Message { body; _ } ->
-        Fmt.pf ppf "%s%s<message>@." prefix branch ;
+        Fmt.pf ppf "%s%s<message>%s@." prefix branch expand ;
         let prefix = prefix ^ next_prefix in
-        pp ~prefix ~is_last:true ppf body
+        pp ~prefix ~is_last:true pp_elt ppf body
     | Multipart { parts; _ } ->
-        Fmt.pf ppf "%s%s<multipart>@." prefix branch ;
+        Fmt.pf ppf "%s%s<multipart>%s@." prefix branch expand ;
         let prefix = prefix ^ next_prefix in
         let rec go = function
           | [] -> ()
-          | [ (_, { body; _ }) ] -> pp ~prefix ~is_last:true ppf body
+          | [ (_, { body; _ }) ] -> pp ~prefix ~is_last:true pp_elt ppf body
           | (_, { body; _ }) :: r ->
-              pp ~prefix ~is_last:false ppf body ;
+              pp ~prefix ~is_last:false pp_elt ppf body ;
               go r in
         go parts
 
-  let pp ppf = function
-    | Single _ as v -> pp ppf v
+  let pp pp_elt ppf = function
+    | Single _ as v -> pp pp_elt ppf v
     | Multipart { parts; _ } ->
-        let branch, next_prefix = Lazy.force top in
-        Fmt.pf ppf "%s<multipart>@." branch ;
+        let top, _, _, expand, _ = Lazy.force display_tree in
+        let branch, next_prefix = top in
+        Fmt.pf ppf "%s<multipart>%s@." branch expand ;
         let prefix = next_prefix in
         let rec go = function
           | [] -> ()
-          | [ (_, { body; _ }) ] -> pp ~prefix ~is_last:true ppf body
+          | [ (_, { body; _ }) ] -> pp ~prefix ~is_last:true pp_elt ppf body
           | (_, { body; _ }) :: r ->
-              pp ~prefix ~is_last:false ppf body ;
+              pp ~prefix ~is_last:false pp_elt ppf body ;
               go r in
         go parts
     | Message { body; _ } ->
-        let branch, next_prefix = Lazy.force top in
-        Fmt.pf ppf "%s<message>@." branch ;
+        let top, _, _, expand, _ = Lazy.force display_tree in
+        let branch, next_prefix = top in
+        Fmt.pf ppf "%s<message>%s@." branch expand ;
         let prefix = next_prefix in
-        pp ~prefix ~is_last:true ppf body
+        pp ~prefix ~is_last:true pp_elt ppf body
 
-  let _pp ppf ({ body; _ } : 'a t) = pp ppf body
+  let pp pp_elt ppf ({ body; _ } : 'a t) = pp pp_elt ppf body
 
   let rec map fn { headers; body; _ } =
     let headers = fn headers in
@@ -125,9 +122,65 @@ module Semantic = struct
     | Choose of { mime : string; parts : 'octet document list }
 
   and 'octet t = 'octet document option
+
+  let rec map fn = function
+    | Leaf { mime; lang; contents; _ } ->
+        let contents = fn contents in
+        Leaf { mime; lang; contents }
+    | Choose { mime; parts } ->
+        let fn = map fn in
+        let parts = List.map fn parts in
+        Choose { mime; parts }
+
+  let rec fold fn acc = function
+    | Leaf { mime; lang; contents } -> fn acc (mime, lang, contents)
+    | Choose { parts; _ } -> List.fold_left (fold fn) acc parts
+
+  let fold fn acc = Option.fold ~none:acc ~some:(fold fn acc)
+
+  let rec pp ?(prefix = "") ?(is_last = false) pp_elt ppf tree =
+    let _, between, last, expand, _ = Lazy.force display_tree in
+    let branch, next_prefix = if is_last then last else between in
+    match tree with
+    | Leaf { contents; mime; _ } ->
+        Fmt.pf ppf "%s%s(%s) %a@." prefix branch mime pp_elt contents
+    | Choose { mime; parts; _ } ->
+        Fmt.pf ppf "%s%s<%s>%s@." prefix branch mime expand ;
+        let prefix = prefix ^ next_prefix in
+        let rec go = function
+          | [] -> ()
+          | [ x ] -> pp ~prefix ~is_last:true pp_elt ppf x
+          | x :: r ->
+              pp ~prefix ~is_last:false pp_elt ppf x ;
+              go r in
+        go parts
+
+  let pp pp_elt ppf = function
+    | Leaf _ as v -> pp pp_elt ppf v
+    | Choose { parts; mime; _ } ->
+        let top, _, _, expand, _ = Lazy.force display_tree in
+        let branch, next_prefix = top in
+        Fmt.pf ppf "%s<%s>%s@." branch mime expand ;
+        let prefix = next_prefix in
+        let rec go = function
+          | [] -> ()
+          | [ x ] -> pp ~prefix ~is_last:true pp_elt ppf x
+          | x :: r ->
+              pp ~prefix ~is_last:false pp_elt ppf x ;
+              go r in
+        go parts
+
+  let pp pp_elt ppf = function
+    | None ->
+        let _, _, _, _, none = Lazy.force display_tree in
+        Fmt.pf ppf "%s\n%!" none
+    | Some t -> pp pp_elt ppf t
 end
 
 type 'octet t = 'octet Skeleton.t * 'octet Semantic.t
+
+let map fn ((skeleton, semantic) : 'a t) =
+  (Skeleton.map fn skeleton, Option.map (Semantic.map fn) semantic)
 
 module Format = struct
   open Encore
@@ -255,12 +308,28 @@ module Format = struct
         | Semantic.Choose { mime; parts } -> (mime, parts)
         | _ -> raise Bij.Bijection in
       Bij.v ~fwd ~bwd in
-    bijection <$> (c_string <*> rep1 document)
+    (* NOTE(dinosaure): we should be able to use [rep1] instead of [rep0]. But
+       we actually failed with empty lists. We should assert that [Choose] as,
+       at least, one part. *)
+    bijection <$> ctor '\006' *> (c_string <*> rep0 document)
+
+  let document_none =
+    let bijection =
+      let fwd () = None in
+      let bwd = function None -> () | _ -> raise Bij.Bijection in
+      Bij.v ~fwd ~bwd in
+    bijection <$> ctor '\007'
 
   let document = fix @@ fun m -> choice [ leaf; choose m ]
 
-  (* NOTE(dinosaure): [option] seems safe here because it is at the end of our value. *)
-  let t = part <*> option document
+  let document_some =
+    let bijection =
+      let fwd t = Some t in
+      let bwd = function Some t -> t | None -> raise Bij.Bijection in
+      Bij.v ~fwd ~bwd in
+    bijection <$> ctor '\008' *> document
+
+  let t = part <*> choice [ document_none; document_some ]
 end
 
 module Parser = struct
@@ -473,7 +542,11 @@ let content_language_to_lang str =
     | None -> List.find_map (fn value) iso639_2 in
   List.fold_left fn None langs
 
-let lang_from_headers lang hdrs =
+let english =
+  let fn ((lang : Snowball.Language.t), _) = (lang :> string) = "english" in
+  List.find fn iso639_2 |> fst
+
+let lang_from_headers _lang hdrs =
   let open Mrmime in
   let content_language = Field_name.v "Content-Language" in
   match Header.assoc content_language hdrs with
@@ -482,7 +555,7 @@ let lang_from_headers lang hdrs =
       let str = Unstrctrd.fold_fws str in
       let str = Unstrctrd.to_utf_8_string str in
       content_language_to_lang str
-  | _ -> lang
+  | _ -> Some english
 
 let multipart_from_headers hdrs =
   let open Mrmime in
@@ -662,23 +735,6 @@ let rec to_seq ~load t =
     | Message t -> Seq.cons (`Value hdr) (to_seq ~load t) in
   go t
 
-let to_output_channel_from_filename filename t oc =
-  let fd = Unix.openfile (Fpath.to_string filename) Unix.[ O_RDONLY ] 0o644 in
-  let finally () = Unix.close fd in
-  Fun.protect ~finally @@ fun () ->
-  let map ~off ~len =
-    Log.debug (fun m -> m "map off:%08x len:%d" off len) ;
-    let barr =
-      Unix.map_file fd ~pos:(Int64.of_int off) Bigarray.char Bigarray.c_layout
-        false [| len |] in
-    Bigarray.array1_of_genarray barr in
-  let load (pos, pos_end) = map ~off:pos ~len:(pos_end - pos) in
-  let seq = to_seq ~load t in
-  let fn = function
-    | `String str -> output_string oc str
-    | `Value bstr -> output_bigstring oc bstr in
-  Seq.iter fn seq
-
 let of_string str =
   let parser = Encore.to_angstrom Format.t in
   match Angstrom.parse_string ~consume:All parser str with
@@ -693,4 +749,8 @@ let of_bigstring bstr =
 
 let to_string t =
   let emitter = Encore.to_lavoisier Format.t in
-  Encore.Lavoisier.emit_string ~chunk:0x7ff t emitter
+  try Encore.Lavoisier.emit_string ~chunk:0x7ff t emitter
+  with exn ->
+    let bt = Printexc.get_raw_backtrace () in
+    Log.err (fun m -> m "%s" (Printexc.raw_backtrace_to_string bt)) ;
+    raise exn

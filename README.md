@@ -142,6 +142,25 @@ $ blaze mbox archive.mbox -o pack.pack
 $ blaze pack index pack.pack
 ```
 
+## How to search emails?
+
+From an email archive, it is possible to search for an email based on a query.
+`blaze` offers the `okapi` tool (named after the [Okapi BM25 algorithm][bm25])
+which allows you to "rate" emails in an archive based on a query:
+```sh
+$ blaze okapi pack.idx "foo" | head -n5
+79233664206d01e186011e35a4a5c73588667bcc: 10.709457
+629fd153b511cff1948f300ff65d89de78292156: 10.004464
+e28b0c40ef928c05478cc830ca32cbdc0d8dda61: 9.988271
+57f39c708e4e005d277a9fedc8f205ba9d163fb1: 9.695392
+4d9f51478e777ae186f315692dd5ebd3536a94ef: 9.135971
+```
+
+The identifiers allow you to retrieve the email from the archive:
+```sh
+$ blaze pack get pack.idx 79233664206d01e186011e35a4a5c73588667bcc > new.eml
+```
+
 ## Funding
 
 This project received funding through [NGI Zero Core](https://nlnet.nl/core), a
@@ -153,3 +172,4 @@ more at the [NLnet project page](https://nlnet.nl/project/PTT).
 [dkim]: https://github.com/dinosaure/ocaml-dkim
 [spf]: https://github.com/dinosaure/uspf
 [conan]: https://github.com/mirage/conan
+[bm25]: https://en.wikipedia.org/wiki/Okapi_BM25

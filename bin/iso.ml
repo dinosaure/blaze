@@ -1,3 +1,20 @@
+let to_output_channel_from_filename filename t oc =
+  let fd = Unix.openfile (Fpath.to_string filename) Unix.[ O_RDONLY ] 0o644 in
+  let finally () = Unix.close fd in
+  Fun.protect ~finally @@ fun () ->
+  let map ~off ~len =
+    Logs.debug (fun m -> m "map off:%08x len:%d" off len) ;
+    let barr =
+      Unix.map_file fd ~pos:(Int64.of_int off) Bigarray.char Bigarray.c_layout
+        false [| len |] in
+    Bigarray.array1_of_genarray barr in
+  let load (pos, pos_end) = map ~off:pos ~len:(pos_end - pos) in
+  let seq = Email.to_seq ~load t in
+  let fn = function
+    | `String str -> output_string oc str
+    | `Value bstr -> Email.output_bigstring oc bstr in
+  Seq.iter fn seq
+
 let run _quiet filename output =
   let filename = Fpath.v filename in
   match Email.of_filename filename with
@@ -10,7 +27,7 @@ let run _quiet filename output =
             (oc, finally)
         | None -> (stdout, ignore) in
       Fun.protect ~finally @@ fun () ->
-      Email.to_output_channel_from_filename filename t oc ;
+      to_output_channel_from_filename filename t oc ;
       `Ok ()
   | Error `Invalid -> `Error (false, "Invalid email")
   | Error `No_symmetry ->
@@ -18,7 +35,7 @@ let run _quiet filename output =
   | Error `Not_enough -> `Error (false, "Not enough input for an email")
 
 open Cmdliner
-open Args
+open Blaze_cli
 
 let input =
   let doc = "The incoming email." in

@@ -111,7 +111,7 @@ let run want_to_decode_rfc2047 newline without_name fields input =
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
 open Cmdliner
-open Args
+open Blaze_cli
 
 let existing_file =
   let parser = function

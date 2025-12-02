@@ -24,6 +24,7 @@ let parallel ~fn lst =
   go (Ok []) lst
 
 let load _uid = function
+  | Pack.Stem (_uid, _blob, _length, _tbl) -> assert false (* TODO *)
   | Pack.Mail str -> Carton.Value.of_string ~kind:`A str
   | Pack.Body (filename, pos, len) ->
       let fd =
@@ -146,12 +147,12 @@ let run_pack quiet progress without_progress threads mbox output =
   Ok ()
 
 open Cmdliner
-open Args
+open Blaze_cli
 
 let mbox =
   let doc = "The mbox file to manipulate." in
   let open Arg in
-  value & pos 0 Args.file "-" & info [] ~doc ~docv:"FILE"
+  value & pos 0 Blaze_cli.file "-" & info [] ~doc ~docv:"FILE"
 
 let output =
   let doc = "The output file where to save the PACK file." in

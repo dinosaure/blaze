@@ -170,7 +170,7 @@ let path =
 
 let input =
   let doc = "The email to analyze. Use $(b,-) for $(b,stdin)." in
-  Arg.(value & pos 1 Args.file "-" & info [] ~doc)
+  Arg.(value & pos 1 Blaze_cli.file "-" & info [] ~doc)
 
 let dot =
   let doc = "Print a $(i,dot) graph." in
@@ -209,7 +209,7 @@ let stamp =
 
 let input =
   let doc = "The email to analyze. Use $(b,-) for $(b,stdin)." in
-  Arg.(value & pos 0 Args.file "-" & info [] ~doc)
+  Arg.(value & pos 0 Blaze_cli.file "-" & info [] ~doc)
 
 let extract =
   let doc = "Extract Received fields" in

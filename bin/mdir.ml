@@ -59,7 +59,7 @@ let commit _ g hostname maildir flags new_message message =
   `Ok ()
 
 open Cmdliner
-open Args
+open Blaze_cli
 
 let maildir =
   let parser str =

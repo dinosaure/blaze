@@ -21,7 +21,7 @@ let run _quiet filename output =
   go ()
 
 open Cmdliner
-open Args
+open Blaze_cli
 
 let input =
   let doc = "The email uses the system line feed." in

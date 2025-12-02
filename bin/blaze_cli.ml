@@ -254,7 +254,7 @@ let non_existing_file =
 let default_threads = Int.min 4 (Stdlib.Domain.recommended_domain_count () - 1)
 
 let threads ?(min = default_threads) () =
-  let doc = "The number of threads to allocate for the PACKv2 verification." in
+  let doc = "The number of threads to allocate for the computation." in
   let open Arg in
   value & opt int min & info [ "t"; "threads" ] ~doc ~docv:"NUMBER"
 
@@ -404,11 +404,10 @@ let private_key : key Arg.conv =
         really_input ic buf 0 len ;
         close_in ic ;
         let str = Bytes.unsafe_to_string buf in
-        begin
-          match X509.Private_key.decode_pem str with
-          | Ok #key as key -> key
-          | Ok _ -> error_msgf "Invalid algorithm used for DKIM signature"
-          | Error _ as err -> err
+        begin match X509.Private_key.decode_pem str with
+        | Ok #key as key -> key
+        | Ok _ -> error_msgf "Invalid algorithm used for DKIM signature"
+        | Error _ as err -> err
         end
     | (Error _ as err), _ -> err in
   let pp ppf (pk : key) =
@@ -471,3 +470,163 @@ let canon =
   Arg.conv (parser, pp)
 
 let domain_name = Arg.conv (Domain_name.of_string, Domain_name.pp)
+let docs_hexdump = "HEX OUTPUT"
+
+let colorscheme =
+  let x = Array.make 256 `None in
+  for i = 0 to 31 do
+    x.(i) <- `Style (`Fg, `bit24 (0xaf, 0xd7, 0xff))
+  done ;
+  for i = 48 to 57 do
+    x.(i) <- `Style (`Fg, `bit24 (0xaf, 0xdf, 0x77))
+  done ;
+  for i = 65 to 90 do
+    x.(i) <- `Style (`Fg, `bit24 (0xff, 0xaf, 0x5f))
+  done ;
+  for i = 97 to 122 do
+    x.(i) <- `Style (`Fg, `bit24 (0xff, 0xaf, 0xd7))
+  done ;
+  Hxd.colorscheme_of_array x
+
+let cols =
+  let doc = "Format $(i,COLS) octets per line. Default 16. Max 256." in
+  let parser str =
+    match int_of_string str with
+    | n when n < 1 || n > 256 ->
+        error_msgf "Invalid COLS value (must <= 256 && > 0): %d" n
+    | n -> Ok n
+    | exception _ -> error_msgf "Invalid COLS value: %S" str in
+  let open Arg in
+  let cols = conv (parser, Fmt.int) in
+  value
+  & opt (some cols) None
+  & info [ "c"; "cols" ] ~doc ~docv:"COLS" ~docs:docs_hexdump
+
+let groupsize =
+  let doc =
+    "Separate the output of every $(i,bytes) bytes (two hex characters) by a \
+     whitespace. Specify -g 0 to supress grouping. $(i,bytes) defaults to 2."
+  in
+  let open Arg in
+  value
+  & opt (some int) None
+  & info [ "g"; "groupsize" ] ~doc ~docv:"BYTES" ~docs:docs_hexdump
+
+let len =
+  let doc = "Stop after writing $(i,LEN) octets." in
+  let open Arg in
+  value
+  & opt (some int) None
+  & info [ "l"; "len" ] ~doc ~docv:"LEN" ~docs:docs_hexdump
+
+let uppercase =
+  let doc = "Use upper case hex letters. Default is lower case." in
+  let open Arg in
+  value & flag & info [ "u" ] ~doc ~docs:docs_hexdump
+
+let setup_hxd cols groupsize len uppercase =
+  Hxd.xxd ?cols ?groupsize ?long:len ~uppercase colorscheme
+
+let setup_hxd = Term.(const setup_hxd $ cols $ groupsize $ len $ uppercase)
+
+let language_from_string str =
+  let algs = Snowball.languages in
+  let str = String.lowercase_ascii str in
+  let fn (alg : Snowball.Language.t) = String.equal str (alg :> string) in
+  match List.find_opt fn algs with
+  | Some alg -> Ok alg
+  | None -> error_msgf "Language %S not found" str
+
+let tokenizer_from_string str =
+  match String.lowercase_ascii str with
+  | "whitespace" -> Ok Tokenizer.Whitespace
+  | "dash" -> Ok Dash
+  | "bert" -> Ok Bert
+  | _ -> error_msgf "Invalid tokenizer: %S" str
+
+let behavior_from_string str =
+  match String.lowercase_ascii str with
+  | "remove" -> Ok Tokenizer.Remove
+  | "isolate" -> Ok Isolate
+  | "merge_with_previous" | "merge-with-previous" -> Ok Merge_with_previous
+  | "merge_with_next" | "merge-with-next" -> Ok Merge_with_next
+  | _ -> error_msgf "Invalid behavior: %S" str
+
+let re_from_string str =
+  try Ok (Re.Pcre.regexp str)
+  with _ -> error_msgf "Invalid regular expression: %S" str
+
+let pp_tokenizer ppf = function
+  | Tokenizer.Whitespace -> Fmt.string ppf "whitespace"
+  | Dash -> Fmt.string ppf "dash"
+  | Bert -> Fmt.string ppf "bert"
+  | Regex re -> Fmt.pf ppf "re:%a" Re.pp_re re
+
+let pp_behavior ppf = function
+  | Tokenizer.Remove -> Fmt.string ppf "remove"
+  | Isolate -> Fmt.string ppf "isolate"
+  | Merge_with_previous -> Fmt.string ppf "merge-with-previous"
+  | Merge_with_next -> Fmt.string ppf "merge-with-next"
+
+let language =
+  let algs = Snowball.languages in
+  let pp ppf (alg : Snowball.Language.t) = Fmt.string ppf (alg :> string) in
+  let language = Arg.conv (language_from_string, pp) in
+  let doc =
+    let algs =
+      List.map (fun (alg : Snowball.Language.t) -> (alg :> string)) algs in
+    let hd, tl = (List.hd algs, List.tl algs) in
+    let tl = List.rev tl in
+    Fmt.str
+      "The language to process. $(tname) is able to handle these languages: %s \
+       and %s."
+      (String.concat ", " tl) hd in
+  let open Arg in
+  value
+  & opt language Snowball.porter
+  & info [ "l"; "language" ] ~doc ~docv:"LANGUAGE"
+
+let encoding =
+  let open Arg in
+  let docs = "ENCODINGS" in
+  let encodings =
+    [
+      (Snowball.UTF_8, info [ "utf-8" ] ~doc:"UTF-8 encoding" ~docs);
+      ( Snowball.ISO_8859_1,
+        info [ "iso-8859-1"; "latin1" ] ~doc:"Latin1 encoding" ~docs );
+      ( Snowball.ISO_8859_2,
+        info [ "iso-8859-2"; "latin2" ] ~doc:"Latin2 encoding" ~docs );
+      (Snowball.KOI8_R, info [ "koi8-r" ] ~doc:"KOI8-R encoding" ~docs);
+    ] in
+  value & vflag Snowball.UTF_8 encodings
+
+let action =
+  let ( let* ) = Result.bind in
+  let parser str =
+    match String.split_on_char ':' str with
+    | [ tokenizer ] ->
+        let* tokenizer = tokenizer_from_string tokenizer in
+        Ok (tokenizer, Tokenizer.Remove)
+    | ("re" | "RE" | "rE" | "Re") :: behavior :: re ->
+        let* behavior = behavior_from_string behavior in
+        let* re = re_from_string (String.concat ":" re) in
+        Ok (Tokenizer.Regex re, behavior)
+    | tokenizer :: behavior ->
+        let behavior = String.concat ":" behavior in
+        let* tokenizer = tokenizer_from_string tokenizer in
+        let* behavior = behavior_from_string behavior in
+        Ok (tokenizer, behavior)
+    | [] -> assert false in
+  let pp ppf (tokenizer, action) =
+    match tokenizer with
+    | Tokenizer.Regex re -> Fmt.pf ppf "re:%a:%a" pp_behavior action Re.pp_re re
+    | tokenizer -> Fmt.pf ppf "%a:%a" pp_tokenizer tokenizer pp_behavior action
+  in
+  Arg.conv (parser, pp)
+
+let actions =
+  let doc = "An action to $(i,tokenize) the given document and split words." in
+  let open Arg in
+  value
+  & opt_all action Tokenizer.[ (Whitespace, Remove); (Bert, Remove) ]
+  & info [ "a"; "action" ] ~doc ~docv:"ACTION"

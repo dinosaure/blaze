@@ -143,7 +143,7 @@ let mailmap _ diff input output =
   | Error (`Msg err), _ -> `Error (false, Fmt.str "%s." err)
 
 open Cmdliner
-open Args
+open Blaze_cli
 
 let existing_file =
   let parser = function

@@ -255,7 +255,7 @@ let run _ authenticator resolver destination domain sender recipients mail =
   run cfg |> to_exit_status
 
 open Cmdliner
-open Args
+open Blaze_cli
 
 let docs_tls = "TRANSPORT LAYER SECURITY"
 

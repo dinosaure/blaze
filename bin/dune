@@ -1,7 +1,7 @@
 (library
- (name args)
- (modules args)
- (public_name blaze.args)
+ (name blaze_cli)
+ (modules blaze_cli)
+ (public_name blaze.cli)
  (libraries
   logs.threaded
   blaze.dns-static
@@ -13,17 +13,20 @@
   cmdliner
   ca-certs
   tls
+  hxd.core
+  hxd.string
   progress
   logs.fmt
   logs.cli
   fmt.tty
-  fmt.cli))
+  fmt.cli
+  stem.cli))
 
 (library
  (name addr)
  (modules addr)
  (public_name blaze.addr)
- (libraries blaze.args cmdliner fpath rresult mrmime bigstringaf emile))
+ (libraries blaze.cli cmdliner fpath rresult mrmime bigstringaf emile))
 
 (library
  (name hdr)
@@ -35,20 +38,13 @@
  (name map)
  (modules map)
  (public_name blaze.map)
- (libraries bstr cmdliner blaze.args fpath mrmime))
+ (libraries bstr cmdliner blaze.cli fpath mrmime))
 
 (library
  (name mdir)
  (modules mdir)
  (public_name blaze.mdir)
- (libraries
-  base64
-  blaze.args
-  domain-name
-  cmdliner
-  fpath
-  rresult
-  maildir.unix))
+ (libraries base64 blaze.cli domain-name cmdliner fpath rresult maildir.unix))
 
 (library
  (name spf)
@@ -59,7 +55,7 @@
   fpath
   rresult
   uri
-  blaze.args
+  blaze.cli
   mirage-crypto-rng-miou-unix
   uspf.unix))
 
@@ -68,7 +64,7 @@
  (modules recv)
  (public_name blaze.recv)
  (libraries
-  blaze.args
+  blaze.cli
   ocamlgraph
   cmdliner
   fpath
@@ -96,14 +92,14 @@
   uri
   dkim
   mirage-crypto-rng-miou-unix
-  blaze.args))
+  blaze.cli))
 
 (library
  (name submit)
  (modules submit)
  (public_name blaze.submit)
  (libraries
-  blaze.args
+  blaze.cli
   cmdliner
   fpath
   rresult
@@ -125,7 +121,7 @@
  (modules send)
  (public_name blaze.send)
  (libraries
-  blaze.args
+  blaze.cli
   cmdliner
   fpath
   rresult
@@ -147,55 +143,54 @@
  (name srv)
  (modules srv)
  (public_name blaze.srv)
- (libraries fpath sendmail.starttls rresult blaze.args colombe))
+ (libraries fpath sendmail.starttls rresult blaze.cli colombe))
 
 (library
  (name make)
  (modules make)
  (public_name blaze.make)
- (libraries unix blaze.args cmdliner fpath ptime.clock.os mrmime))
-
-; (executable
-;  (name dmarc)
-;  (modules dmarc)
-;  (public_name blaze.dmarc)
-;  (libraries blaze.args dmarc cmdliner lwt.unix))
+ (libraries unix blaze.cli cmdliner fpath ptime.clock.os mrmime))
 
 (library
  (name descr)
  (modules descr)
  (public_name blaze.descr)
- (libraries bstr blaze.args cmdliner mrmime fpath))
+ (libraries bstr blaze.cli cmdliner mrmime fpath))
 
 (library
  (name rand)
  (modules rand)
  (public_name blaze.rand)
- (libraries blaze.args cmdliner fmt mirage-crypto-rng ohex base64))
+ (libraries blaze.cli cmdliner fmt mirage-crypto-rng ohex base64))
 
 (library
  (name iso)
  (modules iso)
  (public_name blaze.iso)
- (libraries blaze.args cmdliner blaze.email))
+ (libraries blaze.cli cmdliner blaze.email))
 
 (library
  (name crlf)
  (modules crlf)
  (public_name blaze.crlf)
- (libraries blaze.args cmdliner))
+ (libraries blaze.cli cmdliner))
 
 (library
  (name doc)
  (modules doc)
  (public_name blaze.doc)
- (libraries blaze.args blaze.email))
+ (libraries blaze.cli blaze.email))
 
 (library
  (name blaze_pack)
  (modules blaze_pack)
  (public_name blaze.epack)
- (libraries blaze.args blaze.pack carton-miou.unix blaze.email))
+ (libraries
+  blaze.cli
+  blaze.pack
+  carton-miou.unix
+  carton-miou.flux
+  blaze.email))
 
 (library
  (name fetch)
@@ -205,7 +200,7 @@
   flux
   emile
   mirage-crypto-rng-miou-unix
-  blaze.args
+  blaze.cli
   blaze.pop3-miou-unix
   blaze.git-miou-unix))
 
@@ -213,19 +208,31 @@
  (name blaze_mbox)
  (modules blaze_mbox)
  (public_name blaze.embox)
- (libraries blaze.args blaze.pack carton-miou.unix blaze.mbox blaze.email))
+ (libraries blaze.cli blaze.pack carton-miou.unix blaze.mbox blaze.email))
 
 (library
  (name blaze_dmarc)
  (modules blaze_dmarc)
  (public_name blaze.dmarc)
- (libraries blaze.args mirage-crypto-rng-miou-unix dmarc))
+ (libraries blaze.cli mirage-crypto-rng-miou-unix dmarc))
 
 (library
  (name blaze_arc)
  (modules blaze_arc)
  (public_name blaze.arc)
- (libraries blaze.args blaze.bqueue mirage-crypto-rng-miou-unix arc))
+ (libraries blaze.cli flux mirage-crypto-rng-miou-unix arc))
+
+(library
+ (name okapi)
+ (modules okapi)
+ (public_name blaze.okapi)
+ (libraries
+  blaze.stem
+  bm25
+  blaze.cli
+  blaze.pack
+  carton-miou.unix
+  blaze.email))
 
 (executable
  (name blaze)
@@ -252,4 +259,5 @@
   blaze.recv
   blaze.dmarc
   blaze.arc
+  blaze.okapi
   cmdliner))

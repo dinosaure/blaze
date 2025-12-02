@@ -346,7 +346,7 @@ let put headers content_encoding mime_type content_parameters body input output
     Content_type.Parameters.of_list content_type.Content_type.parameters in
   Content_type.Parameters.(find (k "boundary") parameters)
   |> R.of_option ~none:(fun () ->
-         R.error_msgf "Content-Type does not contain a boundary parameter")
+      R.error_msgf "Content-Type does not contain a boundary parameter")
   >>= fun boundary ->
   let boundary = match boundary with `Token v -> v | `String v -> v in
   let hdrs = Header.of_list headers in
@@ -479,7 +479,7 @@ let put _ headers content_encoding mime_type content_parameters body input
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
 
 open Cmdliner
-open Args
+open Blaze_cli
 
 let field =
   let parser str =
@@ -636,7 +636,7 @@ let date =
 
 let body =
   let doc = "Body of the email. Use $(b,-) for $(b,stdin)." in
-  Arg.(value & pos ~rev:true 0 Args.file "-" & info [] ~doc)
+  Arg.(value & pos ~rev:true 0 Blaze_cli.file "-" & info [] ~doc)
 
 let output =
   let doc = "The filename where you want to save the email." in
@@ -679,7 +679,7 @@ let make_info, make_term =
 
 let input =
   let doc = "The email to be modified. Use $(b,-) for $(b,stdin)." in
-  Arg.(value & pos ~rev:true 0 Args.file "-" & info [] ~doc)
+  Arg.(value & pos ~rev:true 0 Blaze_cli.file "-" & info [] ~doc)
 
 let add_field =
   let content_encoding =
@@ -719,7 +719,7 @@ let add_field =
 let input =
   let doc =
     "The email to wrap into a multipart one. Use $(b,-) for $(b,stdin)." in
-  Arg.(value & pos ~rev:true 0 Args.file "-" & info [] ~doc)
+  Arg.(value & pos ~rev:true 0 Blaze_cli.file "-" & info [] ~doc)
 
 let seed =
   let doc = "Seed used by the random number generator." in
@@ -777,11 +777,11 @@ let wrap =
 let input =
   let doc =
     "The email to wrap into a multipart one. Use $(b,-) for $(b,stdin)." in
-  Arg.(value & pos 1 Args.file "-" & info [] ~doc)
+  Arg.(value & pos 1 Blaze_cli.file "-" & info [] ~doc)
 
 let body =
   let doc = "Body of the email." in
-  Arg.(value & pos 0 Args.file "-" & info [] ~doc)
+  Arg.(value & pos 0 Blaze_cli.file "-" & info [] ~doc)
 
 let put =
   let content_encoding =

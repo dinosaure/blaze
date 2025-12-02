@@ -494,7 +494,7 @@ let run _ with_metadata pk cert bind_name domain output =
   | Error (`Msg msg) -> `Error (false, Fmt.str "%s." msg)
 
 open Cmdliner
-open Args
+open Blaze_cli
 
 let bind_name =
   let parser str =
