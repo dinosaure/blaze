@@ -5,7 +5,6 @@
  (libraries
   logs.threaded
   blaze.dns-static
-  rresult
   fpath
   ipaddr
   ipaddr.unix
@@ -26,13 +25,13 @@
  (name addr)
  (modules addr)
  (public_name blaze.addr)
- (libraries blaze.cli cmdliner fpath rresult mrmime bigstringaf emile))
+ (libraries blaze.cli cmdliner fpath mrmime bigstringaf emile))
 
 (library
  (name hdr)
  (modules hdr)
  (public_name blaze.hdr)
- (libraries cmdliner fpath rresult mrmime bigstringaf fmt))
+ (libraries cmdliner fpath mrmime bigstringaf fmt))
 
 (library
  (name map)
@@ -44,7 +43,7 @@
  (name mdir)
  (modules mdir)
  (public_name blaze.mdir)
- (libraries base64 blaze.cli domain-name cmdliner fpath rresult maildir.unix))
+ (libraries base64 blaze.cli domain-name cmdliner fpath maildir.unix))
 
 (library
  (name spf)
@@ -53,7 +52,6 @@
  (libraries
   cmdliner
   fpath
-  rresult
   uri
   blaze.cli
   mirage-crypto-rng-miou-unix
@@ -68,7 +66,6 @@
   ocamlgraph
   cmdliner
   fpath
-  rresult
   mrmime
   bigstringaf
   fmt
@@ -85,7 +82,6 @@
   blaze.dns-static
   cmdliner
   fpath
-  rresult
   mrmime
   bigstringaf
   fmt
@@ -102,7 +98,6 @@
   blaze.cli
   cmdliner
   fpath
-  rresult
   mrmime
   bigstringaf
   fmt
@@ -124,7 +119,6 @@
   blaze.cli
   cmdliner
   fpath
-  rresult
   mrmime
   bigstringaf
   fmt
@@ -143,7 +137,7 @@
  (name srv)
  (modules srv)
  (public_name blaze.srv)
- (libraries fpath sendmail.starttls rresult blaze.cli colombe))
+ (libraries fpath sendmail.starttls blaze.cli colombe))
 
 (library
  (name make)

@@ -1,7 +1,7 @@
 open Mrmime
-open Rresult
 
 let identity x = x
+let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 
 let default =
   let open Field_name in
@@ -119,7 +119,7 @@ let show ~prefix hdr fields =
   let open Field in
   let pp ppf = function
     | Field (field_name, Date, v) ->
-        let v, tz_offset_s = R.get_ok (Date.to_ptime v) in
+        let v, tz_offset_s = Result.get_ok (Date.to_ptime v) in
         Fmt.pf ppf "%a: %a" Field_name.pp field_name
           (Ptime.pp_human ~tz_offset_s ())
           v
@@ -139,7 +139,7 @@ let show ~prefix hdr fields =
           List.fold_left filter [] v
           |> List.rev
           |> Unstrctrd.of_list
-          |> R.get_ok in
+          |> Result.get_ok in
         let v = Unstrctrd.fold_fws v in
         Fmt.pf ppf "%a:%s" Field_name.pp field_name
           (Unstrctrd.to_utf_8_string v)
@@ -187,12 +187,12 @@ let run fields want_to_decode_rfc2047 prefix parameter input =
         List.fold_left
           (fun a x -> Map.add x Field.(Witness Content) a)
           Map.empty fields in
-  match
-    ( ( parse_header p ic >>| fun res ->
-        close ic ;
-        res ),
-      parameter )
-  with
+  let result =
+    let ( >>| ) x fn = Result.map fn x in
+    parse_header p ic >>| fun value ->
+    close ic ;
+    value in
+  match (result, parameter) with
   | Ok hdr, None ->
       show ~prefix hdr fields ;
       `Ok ()
@@ -209,7 +209,7 @@ let existing_file =
     | str ->
     match Fpath.of_string str with
     | Ok v when Sys.file_exists str -> Ok (Some v)
-    | Ok v -> Rresult.R.error_msgf "%a not found" Fpath.pp v
+    | Ok v -> error_msgf "%a not found" Fpath.pp v
     | Error _ as err -> err in
   Arg.conv (parser, Fmt.option ~none:(Fmt.any "-") Fpath.pp)
 

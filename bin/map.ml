@@ -1,8 +1,7 @@
-open Rresult
-
 let const x _ = x
 let ( <.> ) f g x = f (g x)
 let emitter_of_queue q = function Some str -> Queue.push str q | None -> ()
+let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 
 let stream_of_queue q () =
   match Queue.pop q with
@@ -25,8 +24,8 @@ let parser ic =
     (emitter_of_queue contents, v) in
   let parser = Mrmime.Mail.stream emitters in
   let rec loop ic ke = function
-    | Angstrom.Unbuffered.Done (_, (header, mail)) -> R.ok (header, mail, tbl)
-    | Fail _ -> R.error_msgf "Invalid incoming email"
+    | Angstrom.Unbuffered.Done (_, (header, mail)) -> Ok (header, mail, tbl)
+    | Fail _ -> error_msgf "Invalid incoming email"
     | Partial { committed; continue } -> (
         Ke.Rke.N.shift_exn ke committed ;
         if committed = 0 then Ke.Rke.compress ke ;
@@ -151,7 +150,7 @@ let existing_file =
     | str ->
     match Fpath.of_string str with
     | Ok v when Sys.file_exists str -> Ok (Some v)
-    | Ok v -> Rresult.R.error_msgf "%a not found" Fpath.pp v
+    | Ok v -> error_msgf "%a not found" Fpath.pp v
     | Error _ as err -> err in
   Arg.conv (parser, Fmt.option ~none:(Fmt.any "-") Fpath.pp)
 

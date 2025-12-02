@@ -1,5 +1,5 @@
-open Rresult
-
+let msgf fmt = Fmt.kstr (fun msg -> `Msg msg) fmt
+let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 let src = Logs.Src.create "dns-cache"
 
 module Log = (val Logs.src_log src : Logs.LOG)
@@ -60,7 +60,7 @@ let of_fpath local fpath =
     match Domain_name.of_string domain_name with
     | Error _ ->
         Log.warn (fun m -> m "%a is not a valid DNS cache file." Fpath.pp fpath) ;
-        R.error_msgf "Invalid filename as a DNS cache: %a" Fpath.pp fpath
+        error_msgf "Invalid filename as a DNS cache: %a" Fpath.pp fpath
     | Ok domain_name ->
         let ic = open_in (Fpath.to_string fpath) in
         let rec go acc =
@@ -69,8 +69,8 @@ let of_fpath local fpath =
           | exception End_of_file -> List.rev acc
           | exception Invalid_line _ -> go acc in
         let records = go [] in
-        R.ok (Domain_name.Map.add domain_name records local)
-  else R.error_msgf "Invalid filename as a DNS cache: %a" Fpath.pp fpath
+        Ok (Domain_name.Map.add domain_name records local)
+  else error_msgf "Invalid filename as a DNS cache: %a" Fpath.pp fpath
 
 let of_directory directory =
   let fold fpath local =
@@ -88,7 +88,7 @@ let getaddrinfo : type a.
     'v Domain_name.t ->
     (a, [> `Msg of string ]) result =
  fun local record domain_name ->
-  let none = R.msgf "record does not exist locally" in
+  let none = msgf "record does not exist locally" in
   Domain_name.Map.find (Domain_name.raw domain_name) local
   |> Option.map (assoc record)
   |> Option.to_result ~none
@@ -140,7 +140,7 @@ let get_resource_record : type a.
   in
   match cached with
   | Some v -> Ok v
-  | None -> R.error_msgf "record does not exist locally"
+  | None -> error_msgf "record does not exist locally"
 
 let get_resource_record : type a.
     t -> a Dns.Rr_map.rr -> 'v Domain_name.t -> (a, [> error ]) result =

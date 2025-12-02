@@ -12,7 +12,7 @@ doc: "https://dinosaure.github.io/blaze/"
 bug-reports: "https://github.com/dinosaure/blaze/issues"
 depends: [
   "ocaml" {>= "5.4.0"}
-  "mrmime" {>= "0.5.0"}
+  "mrmime" {>= "0.7.1"}
   "bstr"
   "emile"
   "domain-name"
@@ -23,20 +23,19 @@ depends: [
   "dns"
   "cmdliner" {>= "1.1.0"}
   "colombe" {>= "0.7.0"}
-  "sendmail"
+  "sendmail" {>= "0.12.1"}
   "ca-certs"
-  "tls" {>= "0.15.0"}
-  "dkim" {>= "0.4.0"}
-  "dns-client" {>= "5.0.1"}
+  "tls"
+  "dkim" {>= "0.9.0"}
+  "dns-client" {>= "10.2.0"}
   "dns-client-miou-unix"
   "dune" {>= "2.8.5"}
-  "fmt" {>= "0.8.9"}
-  "fpath" {>= "0.7.3"}
-  "logs" {>= "0.7.0"}
+  "fmt"
+  "fpath"
+  "logs"
   "ocamlgraph" {>= "2.0.0"}
-  "ptime" {>= "0.8.5"}
-  "received" {>= "0.5.0"}
-  "rresult" {>= "0.6.0"}
+  "ptime"
+  "received"
   "uspf" {>= "0.0.2"}
   "uri" {>= "4.2.0"}
   "ipaddr" {>= "5.2.0"}

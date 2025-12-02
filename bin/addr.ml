@@ -1,6 +1,6 @@
 open Mrmime
 
-let ( % ) f g x = f (g x)
+let ( <.> ) f g x = f (g x)
 
 let default =
   let open Field_name in
@@ -105,7 +105,7 @@ let run want_to_decode_rfc2047 newline without_name fields input =
   match parse_header newline p ic with
   | Ok addresses ->
       List.iter
-        (print_endline % Fmt.str "%a" (pp_mailbox ~without_name))
+        (print_endline <.> Fmt.str "%a" (pp_mailbox ~without_name))
         addresses ;
       `Ok ()
   | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)

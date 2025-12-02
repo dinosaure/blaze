@@ -1,5 +1,3 @@
-open Rresult
-
 let stream_of_in_channel ic () =
   match input_line ic with
   | line -> Some (line ^ "\r\n", 0, String.length line + 2)
@@ -94,6 +92,7 @@ let extract dot input =
     | "-" -> (stdin, ignore)
     | filename -> (open_in filename, close_in) in
   let stream = stream_of_in_channel ic in
+  let ( >>| ) x fn = Result.map fn x in
   match
     Received.of_stream stream >>| fun res ->
     close ic ;
@@ -162,9 +161,10 @@ let zone = Arg.conv (Mrmime.Date.Zone.of_string, Mrmime.Date.Zone.pp)
 let domain = Arg.conv (Colombe.Domain.of_string, Colombe.Domain.pp)
 
 let path =
+  let ( >>= ) = Result.bind in
   let parser str =
     Emile.of_string str
-    |> R.reword_error (fun _ -> R.msg "Invalid path")
+    |> Result.map_error (fun _ -> `Msg "Invalid path")
     >>= Colombe_emile.to_path in
   Arg.conv (parser, Colombe.Path.pp)
 

@@ -1,4 +1,5 @@
-open Rresult
+let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
+let msgf fmt = Fmt.kstr (fun msg -> `Msg msg) fmt
 
 module Caml_scheduler = Colombe.Sigs.Make (struct
   type +'a t = 'a
@@ -24,7 +25,7 @@ let submit authenticator he
   |> Result.map_error @@ function
      | `Msg _ as msg -> msg
      | #Sendmail_with_starttls.error as err ->
-         R.msgf "%a" Sendmail_with_starttls.pp_error err
+         msgf "%a" Sendmail_with_starttls.pp_error err
 
 let make_rdwr_from_strings lst =
   let lst = ref (List.map (fun str -> str ^ "\r\n") lst) in
@@ -71,7 +72,7 @@ let dry_run authentication domain sender recipients mail =
   Sendmail.sendmail caml rdwr () ctx ?authentication ~domain sender recipients
     mail
   |> Caml_scheduler.prj
-  |> R.reword_error @@ fun err -> R.msgf "%a" Sendmail.pp_error err
+  |> Result.map_error @@ fun err -> msgf "%a" Sendmail.pp_error err
 
 let stream_of_stdin () =
   match input_line stdin with
@@ -201,9 +202,10 @@ let authenticator =
 
 let sender =
   let parser str =
-    match R.(Emile.of_string str >>= Colombe_emile.to_path) with
+    let ( >>= ) = Result.bind in
+    match Emile.of_string str >>= Colombe_emile.to_path with
     | Ok v -> Ok v
-    | Error _ -> R.error_msgf "Invalid sender: %S" str in
+    | Error _ -> error_msgf "Invalid sender: %S" str in
   let pp = Colombe.Path.pp in
   Arg.conv (parser, pp)
 
@@ -227,12 +229,14 @@ let submission =
                 (str', Some port)
               with _ -> (str, None))
           | _ -> (str, None) in
-        match
+        let result =
+          let ( >>= ) = Result.bind in
           (Domain_name.of_string str >>= Domain_name.host, Ipaddr.of_string str)
-        with
+        in
+        match result with
         | Ok v, _ -> Ok (`Submission (`Host v, port))
         | _, Ok v -> Ok (`Submission (`Inet_addr v, port))
-        | _ -> R.error_msgf "Invalid submission server: %S" str) in
+        | _ -> error_msgf "Invalid submission server: %S" str) in
   let pp ppf = function
     | `Dry_run -> Fmt.string ppf "-"
     | `Submission (`Host peer, Some port) ->
@@ -286,9 +290,10 @@ let hostname =
   value & opt hostname default_hostname & info [ "h"; "hostname" ] ~doc
 
 let recipient =
+  let ( >>= ) = Result.bind in
   let parser str =
     Emile.of_string str
-    |> R.reword_error (fun _err -> R.msgf "Invalid email %S" str)
+    |> Result.map_error (fun _err -> msgf "Invalid email %S" str)
     >>= Colombe_emile.to_forward_path in
   Arg.conv (parser, Colombe.Forward_path.pp)
 
@@ -305,7 +310,7 @@ let mail =
     | str ->
     match Fpath.of_string str with
     | Ok v when Sys.file_exists str -> Ok (Some v)
-    | Ok v -> R.error_msgf "%a not found" Fpath.pp v
+    | Ok v -> error_msgf "%a not found" Fpath.pp v
     | Error _ as err -> err in
   Arg.conv (parser, Fmt.option ~none:(Fmt.any "-") Fpath.pp)
 

@@ -2,7 +2,7 @@
  (name dns_static)
  (public_name blaze.dns-static)
  (modules dns_static)
- (libraries bos logs rresult dns dns-client-miou-unix fpath astring))
+ (libraries bos logs dns dns-client-miou-unix fpath astring))
 
 (library
  (name email)

@@ -1,5 +1,6 @@
-open Rresult
 open Mrmime
+
+let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 
 let default =
   let open Field_name in
@@ -76,7 +77,7 @@ let parser ic =
   let parser = Mrmime.Mail.stream ~g:default emitters in
   let rec loop ic ke = function
     | Angstrom.Unbuffered.Done (_, v) -> Ok v
-    | Fail _ -> R.error_msgf "Invalid incoming email"
+    | Fail _ -> error_msgf "Invalid incoming email"
     | Partial { committed; continue } -> begin
         Ke.Rke.N.shift_exn ke committed ;
         if committed = 0 then Ke.Rke.compress ke ;
@@ -185,7 +186,7 @@ let existing_file =
     | str ->
     match Fpath.of_string str with
     | Ok v when Sys.file_exists str -> Ok (Some v)
-    | Ok v -> Rresult.R.error_msgf "%a not found" Fpath.pp v
+    | Ok v -> error_msgf "%a not found" Fpath.pp v
     | Error _ as err -> err in
   Arg.conv (parser, Fmt.option ~none:(Fmt.any "-") Fpath.pp)
 

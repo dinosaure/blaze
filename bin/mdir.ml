@@ -1,5 +1,3 @@
-open Rresult
-
 let rec transmit ic oc =
   let tmp = Bytes.create 0x1000 in
   go tmp ic oc
@@ -12,6 +10,7 @@ and go tmp ic oc =
     go tmp ic oc)
 
 let random g () = Random.State.int64 g Int64.max_int
+let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 
 let get _ g hostname maildir new_message message output =
   let message = if new_message then Maildir.with_new message else message in
@@ -65,7 +64,7 @@ let maildir =
   let parser str =
     match Fpath.of_string str with
     | Ok _ as v when Sys.is_directory str -> v
-    | Ok v -> R.error_msgf "%a is not an existing directory" Fpath.pp v
+    | Ok v -> error_msgf "%a is not an existing directory" Fpath.pp v
     | Error _ as err -> err in
   Arg.conv (parser, Fpath.pp)
 

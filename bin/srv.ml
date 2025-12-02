@@ -1,6 +1,4 @@
-open Rresult
-
-let ( % ) f g x = f (g x)
+let ( <.> ) f g x = f (g x)
 let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 
 let add_sub str ~start ~stop acc =
@@ -120,11 +118,11 @@ let run : Unix.file_descr -> ('a, 'err) Colombe.State.t -> ('a, 'err) result =
   let rec go = function
     | Colombe.State.Read { buffer; off; len; k } -> (
         match Unix.read flow buffer off len with
-        | 0 -> (go % k) `End
-        | len -> (go % k) (`Len len))
+        | 0 -> (go <.> k) `End
+        | len -> (go <.> k) (`Len len))
     | Colombe.State.Write { buffer; off; len; k } ->
         let len = Unix.write flow (Bytes.unsafe_of_string buffer) off len in
-        (go % k) len
+        (go <.> k) len
     | Colombe.State.Return v -> Ok v
     | Colombe.State.Error err -> Error err in
   go state
@@ -233,9 +231,9 @@ let handle ~sockaddr ~domain flow =
       let rec go = function
         | Encoder.Done -> State.Return ()
         | Encoder.Write { continue; buffer; off; len } ->
-            State.Write { k = go % continue; buffer; off; len }
+            State.Write { k = go <.> continue; buffer; off; len }
         | Encoder.Error err -> State.Error err in
-      (go % fiber) w
+      (go <.> fiber) w
 
     let decode : type a. decoder -> a recv -> (a, [> Decoder.error ]) State.t =
      fun decoder w ->
@@ -254,7 +252,7 @@ let handle ~sockaddr ~domain flow =
       let rec go = function
         | Decoder.Done v -> k v
         | Decoder.Read { buffer; off; len; continue } ->
-            State.Read { k = go % continue; buffer; off; len }
+            State.Read { k = go <.> continue; buffer; off; len }
         | Decoder.Error { error; _ } -> State.Error error in
       go (Request.Decoder.request ~relax:true decoder)
   end in
@@ -296,9 +294,9 @@ let handle_with_starttls ~tls ~sockaddr ~domain flow =
       let rec go = function
         | Encoder.Done -> State.Return ()
         | Encoder.Write { continue; buffer; off; len } ->
-            State.Write { k = go % continue; buffer; off; len }
+            State.Write { k = go <.> continue; buffer; off; len }
         | Encoder.Error err -> State.Error err in
-      (go % fiber) w
+      (go <.> fiber) w
 
     let decode : type a. decoder -> a recv -> (a, [> Decoder.error ]) State.t =
      fun decoder w ->
@@ -317,16 +315,16 @@ let handle_with_starttls ~tls ~sockaddr ~domain flow =
       let rec go = function
         | Decoder.Done v -> k v
         | Decoder.Read { buffer; off; len; continue } ->
-            State.Read { k = go % continue; buffer; off; len }
+            State.Read { k = go <.> continue; buffer; off; len }
         | Decoder.Error { error; _ } -> State.Error error in
       go (Request.Decoder.request ~relax:true decoder)
 
     let encode_without_tls ctx v w =
       let rec go = function
         | State.Read { k; buffer; off; len } ->
-            State.Read { k = go % k; buffer; off; len }
+            State.Read { k = go <.> k; buffer; off; len }
         | State.Write { k; buffer; off; len } ->
-            State.Write { k = go % k; buffer; off; len }
+            State.Write { k = go <.> k; buffer; off; len }
         | State.Return v -> Return v
         | State.Error err -> Error err in
       go (encode ctx v w)
@@ -334,9 +332,9 @@ let handle_with_starttls ~tls ~sockaddr ~domain flow =
     let decode_without_tls ctx w =
       let rec go = function
         | State.Read { k; buffer; off; len } ->
-            State.Read { k = go % k; buffer; off; len }
+            State.Read { k = go <.> k; buffer; off; len }
         | State.Write { k; buffer; off; len } ->
-            State.Write { k = go % k; buffer; off; len }
+            State.Write { k = go <.> k; buffer; off; len }
         | State.Return v -> Return v
         | State.Error err -> Error err in
       go (decode ctx w)
@@ -467,7 +465,7 @@ let sockaddr_of_bind_name = function
   | `Host (host, port) ->
   match Unix.gethostbyname (Domain_name.to_string host) with
   | { Unix.h_addr_list = [||]; _ } ->
-      R.error_msgf "Unknown domain-name %a" Domain_name.pp host
+      error_msgf "Unknown domain-name %a" Domain_name.pp host
   | { Unix.h_addr_list; _ } -> Ok (Unix.ADDR_INET (h_addr_list.(0), port))
 
 type output =
@@ -497,6 +495,7 @@ open Cmdliner
 open Blaze_cli
 
 let bind_name =
+  let ( >>= ) = Result.bind in
   let parser str =
     match Fpath.of_string str with
     | Ok v when Sys.file_exists str -> Ok (`Unix v)
@@ -510,16 +509,16 @@ let bind_name =
         with
         | Ok inet_addr, _, port -> Ok (`Inet_addr (inet_addr, port))
         | _, Ok host, port -> Ok (`Host (host, port))
-        | _ -> R.error_msgf "Invalid bind address: %S" str
-        | exception _ -> R.error_msgf "Invalid bind address: %S" str)
+        | _ -> error_msgf "Invalid bind address: %S" str
+        | exception _ -> error_msgf "Invalid bind address: %S" str)
     | [ addr ] -> (
         match
           (Ipaddr.of_string addr, Domain_name.(of_string addr >>= host))
         with
         | Ok inet_addr, _ -> Ok (`Inet_addr (inet_addr, 25))
         | _, Ok host -> Ok (`Host (host, 25))
-        | _ -> R.error_msgf "Invalid bind address: %S" str)
-    | _ -> R.error_msgf "Invalid bind address: %S" str in
+        | _ -> error_msgf "Invalid bind address: %S" str)
+    | _ -> error_msgf "Invalid bind address: %S" str in
   let pp ppf = function
     | `Inet_addr (inet_addr, 25) -> Fmt.pf ppf "%a" Ipaddr.pp inet_addr
     | `Inet_addr (inet_addr, port) ->
@@ -593,7 +592,7 @@ let setup_output =
   let open Term in
   term_result ~usage:true (const setup_output $ output $ fmt)
 
-let default_domain = R.get_ok (Domain_name.of_string (Unix.gethostname ()))
+let default_domain = Result.get_ok (Domain_name.of_string (Unix.gethostname ()))
 let domain = Arg.conv (Domain_name.of_string, Domain_name.pp)
 
 let domain =

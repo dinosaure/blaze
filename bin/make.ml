@@ -1,5 +1,7 @@
 open Mrmime
-open Rresult
+
+let msgf fmt = Fmt.kstr (fun msg -> `Msg msg) fmt
+let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 
 let stream_of_filename_with_crlf filename =
   let ic = open_in filename in
@@ -148,7 +150,7 @@ let rec list_hd_map_or ~f ~default = function
   | x :: r ->
   match f x with Some x -> x | None -> list_hd_map_or ~f ~default r
 
-let mime_version = R.failwith_error_msg (Unstructured.of_string " 1.0\r\n")
+let mime_version = Result.get_ok (Unstructured.of_string " 1.0\r\n")
 
 let default =
   let open Field_name in
@@ -219,6 +221,7 @@ let wrap fields g boundary subty input output =
     | exception End_of_file ->
         Hd.src decoder "" 0 0 ;
         go hdr in
+  let ( >>= ) = Result.bind in
   go [] >>= fun (prelude, hdr) ->
   let content_type =
     list_hd_map_or
@@ -308,6 +311,7 @@ let stream_of_in_channel_without_close_delimiter ~boundary ic () =
 
 let put headers content_encoding mime_type content_parameters body input output
     =
+  let ( >>= ) = Result.bind in
   let ic, ic_close =
     match input with
     | "-" -> (stdin, ignore)
@@ -316,8 +320,7 @@ let put headers content_encoding mime_type content_parameters body input output
   let queue = Queue.create () in
   let rec go () =
     match Hd.decode decoder with
-    | `End _ ->
-        R.error_msgf "The given email does not have a Content-Type field"
+    | `End _ -> error_msgf "The given email does not have a Content-Type field"
     | `Malformed err -> Error (`Msg err)
     | `Field field -> (
         match Location.prj field with
@@ -340,13 +343,13 @@ let put headers content_encoding mime_type content_parameters body input output
         go () in
   go () >>= fun content_type ->
   ok_if (Content_type.is_multipart content_type) ~error:(fun () ->
-      R.error_msgf "The given email does not contain multiple parts")
+      error_msgf "The given email does not contain multiple parts")
   >>= fun () ->
   let parameters =
     Content_type.Parameters.of_list content_type.Content_type.parameters in
+  let none = msgf "Content-Type does not contain a boundary parameter" in
   Content_type.Parameters.(find (k "boundary") parameters)
-  |> R.of_option ~none:(fun () ->
-      R.error_msgf "Content-Type does not contain a boundary parameter")
+  |> Option.to_result ~none
   >>= fun boundary ->
   let boundary = match boundary with `Token v -> v | `String v -> v in
   let hdrs = Header.of_list headers in
@@ -392,10 +395,10 @@ let add_field _ headers content_encoding mime_type content_parameters from _to
     match (mime_type, content_parameters) with
     | Some (ty, subty), parameters ->
         let parameters = Content_type.Parameters.of_list parameters in
-        R.ok (Some (Content_type.make ty subty parameters))
+        Ok (Some (Content_type.make ty subty parameters))
     | None, _ :: _ ->
-        R.error_msgf "Impossible to add a Content-Type field without MIME type"
-    | None, [] -> R.ok None in
+        error_msgf "Impossible to add a Content-Type field without MIME type"
+    | None, [] -> Ok None in
   let hdrs =
     match content_encoding with
     | Some encoding ->
@@ -493,9 +496,9 @@ let field =
             Ok
               (Field.make field_name Field.Unstructured
                  (unstrctrd :> Unstructured.elt list))
-        | Error _, _ -> R.error_msgf "Invalid field-name: %S" field_name
-        | _, Error _ -> R.error_msgf "Invalid unstructred value: %S" value)
-    | _ -> R.error_msgf "Invalid field: %S" str in
+        | Error _, _ -> error_msgf "Invalid field-name: %S" field_name
+        | _, Error _ -> error_msgf "Invalid unstructred value: %S" value)
+    | _ -> error_msgf "Invalid field: %S" str in
   let pp ppf (Field.Field (field_name, w, v)) =
     match w with
     | Field.Unstructured ->
@@ -506,12 +509,13 @@ let field =
 let content_encoding = Arg.conv (Content_encoding.of_string, Content_encoding.pp)
 
 let content_type =
+  let ( >>= ) = Result.bind in
   let parser str =
     match String.split_on_char '/' str with
     | [ ty; subty ] ->
         Content_type.Type.of_string ty >>= fun ty ->
-        Content_type.Subtype.iana ty subty >>= fun subty -> R.ok (ty, subty)
-    | _ -> R.error_msgf "Invalid content-type: %S" str in
+        Content_type.Subtype.iana ty subty >>= fun subty -> Ok (ty, subty)
+    | _ -> error_msgf "Invalid content-type: %S" str in
   let pp ppf (ty, subty) =
     Fmt.pf ppf "%a/%a" Content_type.Type.pp ty Content_type.Subtype.pp subty
   in
@@ -526,7 +530,7 @@ let mailboxes =
       | Ok acc ->
       match Emile.of_string str with
       | Ok mailbox -> Ok (mailbox :: acc)
-      | Error _ -> R.error_msgf "Invalid mailbox: %S" str in
+      | Error _ -> error_msgf "Invalid mailbox: %S" str in
     List.fold_left f (Ok []) lst in
   let pp ppf lst = Fmt.pf ppf "%a" Fmt.(Dump.list Emile.pp_mailbox) lst in
   Arg.conv (parser, pp)
@@ -535,17 +539,18 @@ let mailbox =
   let parser str =
     match Emile.of_string str with
     | Ok _ as v -> v
-    | Error _ -> R.error_msgf "Invalid mailbox: %S" str in
+    | Error _ -> error_msgf "Invalid mailbox: %S" str in
   Arg.conv (parser, Emile.pp_mailbox)
 
 let address =
   let parser str =
     match Emile.set_of_string str with
     | Ok _ as v -> v
-    | Error _ -> R.error_msgf "Invalid address: %S" str in
+    | Error _ -> error_msgf "Invalid address: %S" str in
   Arg.conv (parser, Emile.pp)
 
 let filename =
+  let ( >>| ) x fn = Result.map fn x in
   let parser = function
     | "-" -> Ok None
     | str -> Fpath.of_string str >>| fun v -> Some v in
@@ -573,12 +578,13 @@ let date =
   Arg.conv (parser, pp)
 
 let content_parameter =
+  let ( >>= ) = Result.bind in
   let parser str =
     match String.split_on_char '=' str with
     | [ k; v ] ->
         Content_type.Parameters.key k >>= fun key ->
-        Content_type.Parameters.value v >>= fun value -> R.ok (key, value)
-    | _ -> R.error_msgf "Invalid parameter: %S" str in
+        Content_type.Parameters.value v >>= fun value -> Ok (key, value)
+    | _ -> error_msgf "Invalid parameter: %S" str in
   let pp ppf (k, v) =
     Fmt.pf ppf "%a=%a" Content_type.Parameters.pp_key k
       Content_type.Parameters.pp_value v in

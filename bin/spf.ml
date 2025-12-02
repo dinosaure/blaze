@@ -1,5 +1,3 @@
-open Rresult
-
 let rec transmit ic oc =
   let tmp = Bytes.create 0x1000 in
   go tmp ic oc
@@ -10,6 +8,8 @@ and go tmp ic oc =
   then (
     output oc tmp 0 len ;
     go tmp ic oc)
+
+let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 
 let unstrctrd_to_utf_8_string_with_lf l =
   let buf = Buffer.create 0x100 in
@@ -62,7 +62,7 @@ let extract_received_spf ?(newline = `LF) ic =
   let rec go extract =
     match Uspf.Extract.extract extract with
     | `Fields fields -> Ok fields
-    | `Malformed _ -> R.error_msgf "Invalid email"
+    | `Malformed _ -> error_msgf "Invalid email"
     | `Await extract ->
     match input ic buf 0 (Bytes.length buf) with
     | 0 -> go (Uspf.Extract.src extract "" 0 0)
@@ -238,7 +238,7 @@ let existing_file =
     | str ->
     match Fpath.of_string str with
     | Ok v when Sys.file_exists str -> Ok (Some v)
-    | Ok v -> R.error_msgf "%a not found" Fpath.pp v
+    | Ok v -> error_msgf "%a not found" Fpath.pp v
     | Error _ as err -> err in
   Arg.conv (parser, Fmt.option ~none:(Fmt.any "-") Fpath.pp)
 
@@ -292,9 +292,10 @@ let hostname =
 
 let sender =
   let parser str =
-    match R.(Emile.of_string str >>= Colombe_emile.to_path) with
+    let ( >>= ) = Result.bind in
+    match Emile.of_string str >>= Colombe_emile.to_path with
     | Ok v -> Ok v
-    | Error _ -> R.error_msgf "Invalid sender: %S" str in
+    | Error _ -> error_msgf "Invalid sender: %S" str in
   let pp = Colombe.Path.pp in
   Arg.conv (parser, pp)
 
