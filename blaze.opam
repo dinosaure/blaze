@@ -61,4 +61,5 @@ pin-depends: [
   [ "carton-miou.dev"        "git+https://github.com/robur-coop/carton.git#f3d9d905d8de849a660b3ec8193c791bfb655918" ]
   [ "flux.dev"               "git+https://github.com/robur-coop/flux.git#0bc30aa56d83f7bdd9ddcb750282749aaeb05e53" ]
   [ "stem.dev"               "git+https://github.com/robur-coop/stem.git#22a9588d0090c151c6905d721a533177dd92a4bc" ]
+  [ "bm25.dev"               "git+https://github.com/robur-coop/stem.git#22a9588d0090c151c6905d721a533177dd92a4bc" ]
 ]
