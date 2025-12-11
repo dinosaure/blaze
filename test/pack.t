@@ -10,10 +10,10 @@ Test about the PACK file
   > 04.eml
   > EOF
   $ blaze pack index pack.pack
-  $ blaze pack get pack.pack 264f851c7be86a4e4d9a93ec0a2c781027b9eda5 > 001.eml
-  $ blaze pack get pack.pack ebd007451f3c780e28542e44b6e2773aaee02113 > 002.eml
-  $ blaze pack get pack.pack 38e557e1906cc574b41440110cc1b64c402d360a > 003.eml
-  $ blaze pack get pack.pack f7d6961360997bbcd2fb1053e9049a9dcb844496 > 004.eml
+  $ blaze pack get pack.pack ccfebcbe87d582eb6897f526ab98d40827398ddd > 001.eml
+  $ blaze pack get pack.pack 9afdd2f7a07de00e5de93bc1f706a2ab2f5caee9 > 002.eml
+  $ blaze pack get pack.pack 2f630dd27d847c56e51ea7b3528f63962f896c04 > 003.eml
+  $ blaze pack get pack.pack 573847dc0ca288f10a37da35e71a6292cd1e1aba > 004.eml
   $ diff 001.eml 01.eml
   $ diff 002.eml 02.eml
   $ diff 003.eml 03.eml

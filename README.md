@@ -142,6 +142,33 @@ $ blaze mbox archive.mbox -o pack.pack
 $ blaze pack index pack.pack
 ```
 
+### Emails and isomorphism
+
+`blaze` has a unique way of storing emails: it breaks them down! An email is
+essentially structured in two parts: the headers and the body. However, it can
+(often) happen that an email contains several parts (such as attached files)
+which themselves contain headers and a body. `blaze` offers a tool for
+describing the structure of an email:
+```sh
+$ blaze descr 001.eml
+┌── alternative
+│   ├── text/plain
+│   └── text/html
+```
+
+Then, when it comes to saving the email in an archive, we serialise its
+structure and each node in this structure points to content that can be a
+headers or a body.
+
+There is therefore an isomorphism rule (so as not to break checks such as
+DKIM). In short, `blaze` can check whether our way of serialising/deserialising
+emails is isomorphic:
+```sh
+$ blaze iso 001.eml > out.eml
+$ diff 001.eml out.eml
+$ echo $?
+```
+
 ## How to search emails?
 
 From an email archive, it is possible to search for an email based on a query.

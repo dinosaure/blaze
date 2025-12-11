@@ -78,6 +78,9 @@ let fetch_over_ssh ~user ~server ?(port = 22) path =
   let ctx = Protocol.ctx () in
   let from =
     Flux.Source.with_task ~size:0x7ff @@ fun q ->
+    let resource = Miou.Ownership.create ~finally:Flux.Bqueue.close q in
+    Miou.Ownership.own resource ;
+    let@ () = fun () -> Miou.Ownership.release resource in
     let t = Smart.clone ~protocol:`SSH ctx q in
     let ic, oc = Unix.open_process cmd in
     let git_result = through (ic, oc) t in

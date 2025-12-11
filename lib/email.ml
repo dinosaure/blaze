@@ -379,11 +379,33 @@ module Parser = struct
         advance 1 *> m >>= fun sstr ->
         return (to_delimiter :: String.make 1 chr :: sstr)
 
+  let boundary_or_crlf boundary =
+    let open Angstrom in
+    let boundary = "\r\n--" ^ boundary in
+    peek_string (String.length boundary) >>= fun str ->
+    if boundary = str
+    then return `Boundary
+    else char '\r' *> char '\n' *> return `CRLF
+
+  let body_part boundary octet =
+    let open Angstrom in
+    let open Mrmime in
+    pos >>= fun start_hdrs ->
+    Header.Decoder.header None >>= fun hdrs ->
+    pos >>= fun stop_hdrs ->
+    commit >>= fun () ->
+    boundary_or_crlf boundary >>= function
+    | `CRLF -> octet hdrs (start_hdrs, stop_hdrs)
+    | `Boundary ->
+        let body = Skeleton.Single None in
+        return { Skeleton.headers = (start_hdrs, stop_hdrs); body }
+
   let encapsulation boundary octet =
     let open Angstrom in
     crlf >>= fun _ ->
     string ("--" ^ boundary) *> transport_padding >>= fun transport_padding ->
-    crlf *> commit *> octet >>= fun part -> return (transport_padding, part)
+    crlf *> commit *> body_part boundary octet >>= fun part ->
+    return (transport_padding, part)
 
   let epilogue = function
     | Some boundary ->
@@ -395,7 +417,7 @@ module Parser = struct
     let open Angstrom in
     to_dash_boundary boundary >>| String.concat "" >>= fun preamble ->
     string ("--" ^ boundary) *> transport_padding >>= fun transport_padding0 ->
-    crlf *> commit *> octet >>= fun part ->
+    crlf *> commit *> body_part boundary octet >>= fun part ->
     many (encapsulation boundary octet) >>= fun r ->
     crlf *> commit *> string ("--" ^ boundary ^ "--") *> transport_padding
     >>= fun transport_padding1 ->
@@ -413,49 +435,64 @@ module Parser = struct
     let content_type = Header.content_type hdrs in
     Content_type.boundary content_type
 
-  let rec part boundary =
+  let mail =
     let open Angstrom in
     let open Mrmime in
-    pos >>= fun start_hdrs ->
-    Header.Decoder.header None >>= fun hdrs ->
-    pos >>= fun stop_hdrs ->
-    commit
-    *>
-    match Content_type.ty (Header.content_type hdrs) with
-    | `Ietf_token _ | `X_token _ | #Content_type.Type.discrete -> (
-        match boundary with
-        | Some boundary ->
-            pos >>= fun start_body ->
-            skip_until_delimiter boundary *> pos >>= fun stop_body ->
-            let body =
-              if start_body == stop_body
-              then Skeleton.Single None
-              else Skeleton.Single (Some (start_body, stop_body)) in
-            return { Skeleton.headers = (start_hdrs, stop_hdrs); body }
-        | None ->
-            pos >>= fun start_body ->
-            skip_while (Fun.const true) *> pos >>= fun stop_body ->
-            let body =
-              if start_body == stop_body
-              then Skeleton.Single None
-              else Skeleton.Single (Some (start_body, stop_body)) in
-            return { Skeleton.headers = (start_hdrs, stop_hdrs); body })
-    | `Multipart -> (
-        match find_boundary hdrs with
-        | Some boundary' ->
-            multipart ?parent:boundary boundary' (part (Some boundary'))
-            >>= fun multipart ->
-            return
-              {
-                Skeleton.headers = (start_hdrs, stop_hdrs);
-                body = Multipart multipart;
-              }
-        | None -> fail "Invalid email: boundary expected")
-    | `Message ->
-        part boundary >>| fun t ->
-        { Skeleton.headers = (start_hdrs, stop_hdrs); body = Message t }
+    let rec body boundary hdrs (start_hdrs, stop_hdrs) =
+      match Content_type.ty (Header.content_type hdrs) with
+      | `Ietf_token _ | `X_token _ | #Content_type.Type.discrete -> (
+          match boundary with
+          | Some boundary ->
+              pos >>= fun start_body ->
+              skip_until_delimiter boundary *> pos >>= fun stop_body ->
+              let body = Skeleton.Single (Some (start_body, stop_body)) in
+              return { Skeleton.headers = (start_hdrs, stop_hdrs); body }
+          | None ->
+              pos >>= fun start_body ->
+              skip_while (Fun.const true) *> pos >>= fun stop_body ->
+              let body = Skeleton.Single (Some (start_body, stop_body)) in
+              return { Skeleton.headers = (start_hdrs, stop_hdrs); body })
+      | `Multipart -> (
+          match find_boundary hdrs with
+          | Some boundary' ->
+              multipart ?parent:boundary boundary' (body (Some boundary'))
+              >>= fun multipart ->
+              return
+                {
+                  Skeleton.headers = (start_hdrs, stop_hdrs);
+                  body = Multipart multipart;
+                }
+          | None -> fail "Invalid email: boundary expected")
+      | `Message ->
+          part boundary >>| fun t ->
+          { Skeleton.headers = (start_hdrs, stop_hdrs); body = Message t }
+    and part boundary =
+      let open Angstrom in
+      let open Mrmime in
+      pos >>= fun start_hdrs ->
+      Header.Decoder.header None <* char '\r' <* char '\n' >>= fun hdrs ->
+      pos >>= fun stop_hdrs ->
+      commit >>= fun () ->
+      match Content_type.ty (Header.content_type hdrs) with
+      | `Ietf_token _ | `X_token _ | #Content_type.Type.discrete ->
+          body boundary hdrs (start_hdrs, stop_hdrs)
+      | `Multipart -> (
+          match find_boundary hdrs with
+          | Some boundary' ->
+              multipart ?parent:boundary boundary' (body (Some boundary'))
+              >>= fun multipart ->
+              return
+                {
+                  Skeleton.headers = (start_hdrs, stop_hdrs);
+                  body = Multipart multipart;
+                }
+          | None -> fail "Invalid email: boundary expected")
+      | `Message ->
+          part boundary >>| fun t ->
+          { Skeleton.headers = (start_hdrs, stop_hdrs); body = Message t } in
+    part None
 
-  let t = part None
+  let t = mail
 end
 
 let blit src src_off dst dst_off len =
@@ -642,6 +679,23 @@ let join a b =
   | Ok a, Ok b -> Ok (a, b)
   | Error err, _ | _, Error err -> Error err
 
+let rec pp_mrmime ppf = function
+  | Mrmime.Mail.Leaf _elt -> Fmt.string ppf "Leaf"
+  | Multipart lst ->
+      let pp_elt ppf = function
+        | _hdrs, None -> Fmt.string ppf "<none>"
+        | _hdrs, Some t -> pp_mrmime ppf t in
+      Fmt.pf ppf "@[<1>(Multipart@ @[<hov>%a@])@]" Fmt.(Dump.list pp_elt) lst
+  | Message (_hdrs, t) -> Fmt.pf ppf "@[<1>(Message@ @[<hov>%a@])@]" pp_mrmime t
+
+let rec pp_skeleton ppf { Skeleton.body; _ } =
+  match body with
+  | Skeleton.Single _ -> Fmt.string ppf "Single"
+  | Multipart { parts; _ } ->
+      let pp_elt ppf (_transport_padding, t) = pp_skeleton ppf t in
+      Fmt.pf ppf "@[<1>(Multipart@ @[<hov>%a@])@]" Fmt.(Dump.list pp_elt) parts
+  | Message t -> Fmt.pf ppf "@[<1>(Message@ @[<hov>%a@])@]" pp_skeleton t
+
 let rec map_from_skeleton skeleton mrmime =
   let open Skeleton in
   let open Mrmime.Mail in
@@ -654,6 +708,8 @@ let rec map_from_skeleton skeleton mrmime =
         let fn (_, skeleton) (headers', part') =
           match (skeleton, part') with
           | { body = Single None; _ }, None -> Ok (headers', None)
+          | { body = Single (Some _); _ }, None -> Ok (headers', None)
+          | { body = Single None; _ }, Some _ -> Ok (headers', None)
           | _, None -> Error `No_symmetry
           | skeleton, Some part' ->
               let* headers', parts' =
@@ -663,12 +719,22 @@ let rec map_from_skeleton skeleton mrmime =
         if List.exists Result.is_error parts
         then Error `No_symmetry
         else Ok (headers, Multipart (List.map Result.get_ok parts))
-      with _ -> Error `No_symmetry
+      with _exn ->
+        Log.err (fun m ->
+            m
+              "Skeleton has %d item(s) and our semantic view has only %d \
+               item(s)"
+              (List.length parts) (List.length parts')) ;
+        Log.err (fun m -> m "We failed with: %s" (Printexc.to_string _exn)) ;
+        Error `No_symmetry
     end
   | { body = Message t; _ }, (headers, Message (hdrs', t')) ->
       let* hdrs, t = map_from_skeleton t (hdrs', t') in
       Ok (headers, Message (hdrs, t))
-  | _ -> assert false
+  | a, (_, b) ->
+      Log.err (fun m ->
+          m "asymmetry between %a and %a" pp_skeleton a pp_mrmime b) ;
+      assert false
 
 let of_filename ?lang filename =
   let filename = Fpath.to_string filename in
@@ -678,12 +744,16 @@ let of_filename ?lang filename =
   let into =
     let open Flux.Sink.Syntax in
     let+ s = sink_of_parser Parser.t
-    and+ m = sink_of_parser (Mrmime.Mail.stream ~g emitters) in
+    and+ m =
+      sink_of_parser (Mrmime.Mail.stream ~transfer_encoding:false ~g emitters)
+    in
     join s m in
   let result, leftover = Flux.Stream.run ~from ~via ~into in
   Option.iter Flux.Source.dispose leftover ;
   let ( let* ) = Result.bind in
   let* skeleton, mrmime = result in
+  Log.debug (fun m -> m "skeleton: @[<hov>%a@]" pp_skeleton skeleton) ;
+  Log.debug (fun m -> m "mrmime: @[<hov>%a@]" pp_mrmime (snd mrmime)) ;
   let* mrmime = map_from_skeleton skeleton mrmime in
   let documents = documents_of_mrmime ?lang mrmime in
   Ok (skeleton, documents)
@@ -702,13 +772,17 @@ let output_bigstring oc bstr =
   go bstr
 
 let rec to_seq ~load t =
-  let rec go part =
+  let rec go ?(inner = false) part =
     let hdr = load part.Skeleton.headers in
     match part.body with
     | Single None -> Seq.return (`Value hdr)
     | Single (Some v) ->
         let body = load v in
-        Seq.cons (`Value hdr) (Seq.return (`Value body))
+        if inner
+        then
+          Seq.cons (`Value hdr)
+            (Seq.cons (`String "\r\n") (Seq.return (`Value body)))
+        else Seq.cons (`Value hdr) (Seq.return (`Value body))
     | Multipart { preamble; epilogue; boundary; parts } ->
         let suffix =
           [ "\r\n"; "--" ^ boundary ^ "--"; fst epilogue; snd epilogue ] in
@@ -721,7 +795,7 @@ let rec to_seq ~load t =
           let prefix = if not !first then "\r\n" :: prefix else prefix in
           first := false ;
           let prefix = List.map (fun str -> `String str) prefix in
-          List.fold_right Seq.cons prefix (go part) in
+          List.fold_right Seq.cons prefix (go ~inner:true part) in
         let parts = Seq.map fn parts in
         let lst =
           [

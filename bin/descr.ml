@@ -74,10 +74,13 @@ let blit src src_off dst dst_off len =
 
 let parser ic =
   let emitters _headers = (Fun.const (), ()) in
-  let parser = Mrmime.Mail.stream ~g:default emitters in
+  let parser = Mrmime.Mail.stream ~transfer_encoding:false ~g:default emitters in
   let rec loop ic ke = function
     | Angstrom.Unbuffered.Done (_, v) -> Ok v
-    | Fail _ -> error_msgf "Invalid incoming email"
+    | Fail (_, stack, msg) ->
+        Logs.err (fun m ->
+            m "Invalid email (%a): %S" Fmt.(Dump.list string) stack msg) ;
+        error_msgf "Invalid email"
     | Partial { committed; continue } -> begin
         Ke.Rke.N.shift_exn ke committed ;
         if committed = 0 then Ke.Rke.compress ke ;

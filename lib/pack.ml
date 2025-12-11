@@ -71,8 +71,8 @@ let freqs_of_document fd ?(off = 0) ?len lang =
   let finally () = Snowball.remove stemmer in
   Fun.protect ~finally @@ fun () ->
   let fn word =
-    let stem = Snowball.stem stemmer word in
-    let stem = none_if_stop lang stem in
+    let stem = try Some (Snowball.stem stemmer word) with _ -> None in
+    let stem = Option.bind stem (none_if_stop lang) in
     let count = Option.bind stem (Hashtbl.find_opt tbl) in
     match (stem, count) with
     | None, _ -> ()

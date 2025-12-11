@@ -232,25 +232,6 @@ let run_list _quiet filename =
   let (), leftover = Flux.Stream.run ~from ~via ~into in
   Option.iter Flux.Source.dispose leftover
 
-(*
-  let seq =
-    let output = De.bigstring_create De.io_buffer_size in
-    let allocate bits = De.make_window ~bits in
-    Carton.First_pass.of_seq ~output ~allocate ~ref_length ~digest:Pack.sha1 seq
-  in
-  let pack = Carton_miou_unix.make ~ref_length (Fpath.v filename) in
-  let mails_by_offsets = Hashtbl.create 0x100 in
-  let mails_by_refs = Hashtbl.create 0x100 in
-  let is_a_mail ?offset ?ref () =
-    match (offset, ref) with
-    | None, None -> false
-    | Some offset, _ -> Hashtbl.mem mails_by_offsets offset
-    | None, Some ref -> Hashtbl.mem mails_by_refs ref in
-  let filter_map = function
-  let seq = Seq.filter_map filter_map seq in
-  Seq.iter show seq
-*)
-
 let entries_of_pack cfg pack =
   let matrix, hash = Pack.verify_from_pack ~cfg pack in
   let fn _idx = function
