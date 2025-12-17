@@ -5,6 +5,12 @@
  (libraries bos logs dns dns-client-miou-unix fpath astring))
 
 (library
+ (name blaze_tmp)
+ (public_name blaze.tmp)
+ (modules blaze_tmp)
+ (libraries unix fpath fmt))
+
+(library
  (name email)
  (public_name blaze.email)
  (modules email)

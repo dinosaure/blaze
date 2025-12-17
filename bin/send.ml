@@ -8,7 +8,7 @@ let caml =
 
 let msgf fmt = Fmt.kstr (fun msg -> `Msg msg) fmt
 let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
-let ( <.> ) f g x = f (g x)
+let ( % ) f g x = f (g x)
 
 let to_msg_error =
   Result.map_error @@ function
@@ -25,7 +25,7 @@ module Sendmail_unix = struct
 
   let miou =
     let open Miou_scheduler in
-    { Sigs.bind = (fun x f -> (f <.> prj) x); return = inj }
+    { Sigs.bind = (fun x f -> (f % prj) x); return = inj }
 
   type error = [ `Msg of string | Sendmail_with_starttls.error ]
 

@@ -353,8 +353,12 @@ let verify =
   let open Term in
   let info = Cmd.info "verify" ~doc ~man in
   let term =
-    const verify $ setup_logs $ setup_extra $ newline $ setup_resolver $ input
-  in
+    const verify
+    $ setup_logs
+    $ setup_extra
+    $ newline ()
+    $ setup_resolver
+    $ input in
   Cmd.v info (ret term)
 
 let priv_of_seed ?(bits = 4096) (alg : Dkim.algorithm) seed : Dkim.key =
@@ -582,7 +586,7 @@ let sign =
   let open Term in
   const sign
   $ setup_logs
-  $ newline
+  $ newline ()
   $ setup_resolver
   $ setup_ctx
   $ setup_seal

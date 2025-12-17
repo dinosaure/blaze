@@ -1,4 +1,5 @@
 let () = Printexc.record_backtrace true
+let ( let@ ) finally fn = Fun.protect ~finally fn
 
 let rec clean acc orphans =
   match Miou.care orphans with
@@ -100,22 +101,53 @@ let with_reporter ~config ?total quiet =
       let finally () = Progress.Display.finalise display in
       (on, finally)
 
-let run_make quiet progress without_progress threads mails_from_stdin
+let output_align align oc =
+  let pos = pos_out oc in
+  match align with
+  | Some align when align mod pos <> 0 ->
+      let len = (((pos / align) + 1) * align) - pos in
+      let trailing = String.make len '\000' in
+      output_string oc trailing
+  | _ -> ()
+
+let copy_and_align align src dst =
+  match Unix.rename src dst with
+  | exception Unix.Unix_error (Unix.EXDEV, _, _) ->
+      let tmp = Bytes.create 0x10000 in
+      let ic = open_in_bin src in
+      let oc = open_out_bin dst in
+      let@ () =
+       fun () ->
+        close_in ic ;
+        close_out oc in
+      let rec go () =
+        match input ic tmp 0 (Bytes.length tmp) with
+        | 0 ->
+            output_align align oc ;
+            flush oc
+        | len ->
+            output_substring oc (Bytes.unsafe_to_string tmp) 0 len ;
+            go () in
+      go ()
+  | () ->
+      let oc = open_out_bin dst in
+      let@ () = fun () -> close_out oc in
+      let stop = out_channel_length oc in
+      seek_out oc stop ;
+      output_align align oc ;
+      flush oc
+
+let run_make quiet () progress without_progress threads mails_from_stdin
     mails_from_cmdline output align =
   Miou_unix.run ~domains:threads @@ fun () ->
   let ( let* ) = Result.bind in
   let mails_from_cmdline = List.map Fpath.v mails_from_cmdline in
   let mails = List.rev_append mails_from_stdin mails_from_cmdline in
-  Logs.debug (fun m ->
-      m "Serialize incoming emails to skeleton/semantic entries") ;
   let* mails = parallel ~fn:Pack.filename_to_email mails in
-  Logs.debug (fun m -> m "Explode skeleton/semantic entries to PACK entries") ;
   let* entries = parallel ~fn:Pack.email_to_entries mails in
-  Logs.debug (fun m -> m "Delete duplicates") ;
   let entries = delete_duplicates ~quiet entries in
-  let with_header =
-    List.fold_left (fun acc entries -> acc + List.length entries) 0 entries
-  in
+  let fn acc entries = acc + List.length entries in
+  let with_header = List.fold_left fn 0 entries in
   let entries = List.map List.to_seq entries in
   let entries = List.to_seq entries in
   let entries = Seq.concat entries in
@@ -124,32 +156,44 @@ let run_make quiet progress without_progress threads mails_from_stdin
   let on, finally =
     with_reporter ~config:progress ~total:with_header (quiet || without_progress)
   in
-  Fun.protect ~finally @@ fun () ->
-  let targets =
-    Seq.map
-      (fun value ->
-        on 1 ;
-        value)
-      targets in
+  let fn value =
+    on 1 ;
+    value in
+  let targets = Seq.map fn targets in
   let pack = Pack.to_pack ~with_header ~with_signature ~load targets in
-  let oc, finally =
+  let filename =
+    match output with
+    | Some filename -> filename
+    | None -> Blaze_tmp.temp_filepath "pack-%06x.pack" in
+  let () =
+    let oc = open_out_bin filename in
+    let@ () =
+     fun () ->
+      finally () ;
+      close_out oc in
+    Seq.iter (output_string oc) pack ;
+    flush oc in
+  let hash =
+    let ic = open_in_bin filename in
+    let@ () = fun () -> close_in ic in
+    let len = in_channel_length ic in
+    seek_in ic (len - 20) ;
+    let raw = Bytes.create 20 in
+    really_input ic raw 0 20 ;
+    Bytes.unsafe_to_string raw in
+  let () =
     match output with
     | Some filename ->
-        let oc = open_out filename in
-        let finally () = close_out oc in
-        (oc, finally)
-    | None -> (stdout, ignore) in
-  Fun.protect ~finally @@ fun () ->
-  Seq.iter (output_string oc) pack ;
-  flush oc ;
-  let () =
-    let pos = pos_out oc in
-    match align with
-    | Some align when align mod pos <> 0 ->
-        let len = (((pos / align) + 1) * align) - pos in
-        let trailing = String.make len '\000' in
-        output_string oc trailing
-    | _ -> () in
+        let oc = open_out_gen [ Open_binary; Open_append ] 0o600 filename in
+        let@ () = fun () -> close_out oc in
+        let len = out_channel_length oc in
+        seek_out oc len ;
+        output_align align oc ;
+        flush oc
+    | None ->
+        let dst = Fmt.str "pack-%s.pack" (Ohex.encode hash) in
+        copy_and_align align filename dst ;
+        if not quiet then print_endline dst in
   Ok ()
 
 let seq_of_filename filename =
@@ -555,6 +599,7 @@ let make_term =
   let term =
     const run_make
     $ setup_logs
+    $ setup_tmp
     $ setup_progress
     $ without_progress
     $ threads ~min:2 ()

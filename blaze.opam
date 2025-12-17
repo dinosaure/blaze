@@ -57,9 +57,10 @@ build: [
 dev-repo: "git+https://github.com/dinosaure/blaze.git"
 pin-depends: [
   [ "maildir.dev"            "git+https://github.com/dinosaure/ocaml-maildir.git#597823c7d2d4fd2aef26a581f6828f2b458371ea" ]
-  [ "carton.dev"             "git+https://github.com/robur-coop/carton.git#f3d9d905d8de849a660b3ec8193c791bfb655918" ]
-  [ "carton-miou.dev"        "git+https://github.com/robur-coop/carton.git#f3d9d905d8de849a660b3ec8193c791bfb655918" ]
-  [ "flux.dev"               "git+https://github.com/robur-coop/flux.git#0bc30aa56d83f7bdd9ddcb750282749aaeb05e53" ]
-  [ "stem.dev"               "git+https://github.com/robur-coop/stem.git#22a9588d0090c151c6905d721a533177dd92a4bc" ]
-  [ "bm25.dev"               "git+https://github.com/robur-coop/stem.git#22a9588d0090c151c6905d721a533177dd92a4bc" ]
+  [ "carton.dev"             "git+https://github.com/robur-coop/carton.git#a7543fadc0c67c684a647551bf869faefe6b66b5" ]
+  [ "carton-miou.dev"        "git+https://github.com/robur-coop/carton.git#a7543fadc0c67c684a647551bf869faefe6b66b5" ]
+  [ "flux.dev"               "git+https://github.com/robur-coop/flux.git#55af39880aa080059396259fc126bb857374a989" ]
+  [ "stem.dev"               "git+https://github.com/robur-coop/stem.git#66ce4f85ec2ad317ef2bd01bad71c93c0af68210" ]
+  [ "bm25.dev"               "git+https://github.com/robur-coop/stem.git#66ce4f85ec2ad317ef2bd01bad71c93c0af68210" ]
+  [ "mrmime.dev"             "git+https://github.com/mirage/mrmime.git#ffce7951d3df81d5555c0686489535e21e6443da" ]
 ]

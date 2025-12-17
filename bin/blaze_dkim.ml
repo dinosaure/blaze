@@ -397,7 +397,7 @@ let verify =
   let term =
     const verify
     $ setup_logs
-    $ newline
+    $ newline ()
     $ fields
     $ setup_extra
     $ setup_resolver
@@ -544,8 +544,13 @@ let sign =
   let open Term in
   let info = Cmd.info "sign" ~doc ~man in
   let term =
-    const sign $ setup_logs $ newline $ input $ output $ setup_key $ setup_dkim
-  in
+    const sign
+    $ setup_logs
+    $ newline ()
+    $ input
+    $ output
+    $ setup_key
+    $ setup_dkim in
   Cmd.v info (ret term)
 
 let output =

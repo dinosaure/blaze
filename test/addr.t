@@ -34,11 +34,13 @@ Tests on addresses
   romain@foo.com
   $ blaze addr 001.mail
   Thomas Gazagnaire <notifications@github.com>
-  mirage/irmin <reply+0004e976450d3015e434a818b602473d45afa079962ab62292cf00000001143b44b392a169ce0b37f3a2@reply.github.com>
+  mirage/irmin
+   <reply+0004e976450d3015e434a818b602473d45afa079962ab62292cf00000001143b44b392a169ce0b37f3a2@reply.github.com>
   mirage/irmin <irmin@noreply.github.com>
   $ blaze addr -d 002.mail
   Yann Régis Gianas <notifications@github.com>
-  mirage/decompress <reply+0004e976d9ee97bc1d2d238f13f646219cc36441871e86af92cf000000011820dbf092a169ce1722a3ee@reply.github.com>
+  mirage/decompress
+   <reply+0004e976d9ee97bc1d2d238f13f646219cc36441871e86af92cf000000011820dbf092a169ce1722a3ee@reply.github.com>
   mirage/decompress <decompress@noreply.github.com>
   Mention <mention@noreply.github.com>
   Calascibetta Romain <romain.calascibetta@gmail.com>

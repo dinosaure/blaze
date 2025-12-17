@@ -7,6 +7,43 @@ module Log = (val Logs.src_log src : Logs.LOG)
 let () = Logs_threaded.enable ()
 let ( % ) f g x = f (g x)
 let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
+
+(* Basics and unqualified [cmdliner] values. *)
+
+let existing_directory =
+  let parser str =
+    match Fpath.of_string str with
+    | Ok v when Sys.is_directory str -> Ok (Fpath.to_dir_path v)
+    | Ok v ->
+        error_msgf "%a does not exist or it's not a valid directory" Fpath.pp v
+    | Error _ as err -> err in
+  Arg.conv (parser, Fpath.pp)
+
+let non_existing_file =
+  let parser str =
+    let normalized = Fpath.of_string str in
+    if Result.is_ok normalized && Sys.file_exists str = false
+    then Ok str
+    else error_msgf "Invalid path: %S" str in
+  Arg.conv (parser, Fmt.string)
+
+let domain_name = Arg.conv (Domain_name.of_string, Domain_name.pp)
+
+(* Temporary files. *)
+
+let tmp =
+  let doc = "The directory to keep temporary files produced by $(tname)." in
+  let env = Cmd.Env.info "BLAZE_TMP" in
+  let open Arg in
+  value
+  & opt existing_directory (Fpath.v "/tmp")
+  & info [ "tmp" ] ~env ~doc ~docv:"DIRECTORY"
+
+let setup_tmp tmp = Blaze_tmp.set_temp_dirname (Fpath.to_string tmp)
+let setup_tmp = Term.(const setup_tmp $ tmp)
+
+(* Logs options (see [logs]). *)
+
 let output_options = "OUTPUT OPTIONS"
 
 let verbosity =
@@ -54,6 +91,8 @@ let file =
     then Ok str
     else error_msgf "%s does not exist" str in
   Arg.conv (parser, Fmt.string)
+
+(* Happy-eyeballs options (see [happy-eyeballs]). *)
 
 let docs_dns = "DOMAIN NAME SERVICE"
 
@@ -151,6 +190,8 @@ let setup_happy_eyeballs =
   $ resolve_retries
   $ without_happy_eyeballs
 
+(* Nameservers (for DNS) options. *)
+
 let nameserver_of_string str =
   let ( let* ) = Result.bind in
   match String.split_on_char ':' str with
@@ -220,6 +261,17 @@ let setup_nameservers nameservers =
 
 let setup_nameservers = Term.(ret (const setup_nameservers $ nameservers))
 
+(* Domains option. *)
+
+let default_threads = Int.min 4 (Stdlib.Domain.recommended_domain_count () - 1)
+
+let threads ?(min = default_threads) () =
+  let doc = "The number of threads to allocate for the computation." in
+  let open Arg in
+  value & opt int min & info [ "t"; "threads" ] ~doc ~docv:"NUMBER"
+
+(* DNS options (see [ldns]). *)
+
 let dns =
   let open Arg in
   let system =
@@ -233,30 +285,6 @@ let dns =
        nameservers." in
     info [ "internal" ] ~doc ~docs:docs_dns in
   value & vflag `System [ (`System, system); (`Internal, internal) ]
-
-let existing_directory =
-  let parser str =
-    match Fpath.of_string str with
-    | Ok v when Sys.is_directory str -> Ok (Fpath.to_dir_path v)
-    | Ok v ->
-        error_msgf "%a does not exist or it's not a valid directory" Fpath.pp v
-    | Error _ as err -> err in
-  Arg.conv (parser, Fpath.pp)
-
-let non_existing_file =
-  let parser str =
-    let normalized = Fpath.of_string str in
-    if Result.is_ok normalized && Sys.file_exists str = false
-    then Ok str
-    else error_msgf "Invalid path: %S" str in
-  Arg.conv (parser, Fmt.string)
-
-let default_threads = Int.min 4 (Stdlib.Domain.recommended_domain_count () - 1)
-
-let threads ?(min = default_threads) () =
-  let doc = "The number of threads to allocate for the computation." in
-  let open Arg in
-  value & opt int min & info [ "t"; "threads" ] ~doc ~docv:"NUMBER"
 
 let dns_static =
   let env = Cmd.Env.info "BLAZE_DNS_STATIC" in
@@ -320,6 +348,8 @@ let setup_resolver =
   $ setup_nameservers
   $ setup_dns_static
 
+(* Random option. *)
+
 let string_to_int_array str =
   let res = Array.make (String.length str / 2) 0 in
   for i = 0 to (String.length str / 2) - 1 do
@@ -353,6 +383,9 @@ let setup_random = function
   | Some seed -> Random.State.make seed
 
 let setup_random = Term.(const setup_random $ seed)
+
+(** Progress options (see [progress]). *)
+
 let setup_progress max_width = Progress.Config.v ~max_width ()
 
 let width =
@@ -367,7 +400,11 @@ let without_progress =
   let doc = "Don't print progress bar." in
   Arg.(value & flag & info [ "without-progress" ] ~doc)
 
-let newline =
+(** Newline option. *)
+
+let newline_options = "EMAILS AND NEWLINE"
+
+let newline ?(default = `LF) () =
   let parser str =
     match String.lowercase_ascii str with
     | "crlf" -> Ok `CRLF
@@ -379,7 +416,11 @@ let newline =
   let newline = Arg.conv (parser, pp) in
   let doc = "The newline used by emails." in
   let open Arg in
-  value & opt newline `LF & info [ "newline" ] ~doc ~docv:"NEWLINE"
+  value
+  & opt newline default
+  & info [ "newline" ] ~doc ~docs:newline_options ~docv:"NEWLINE"
+
+(** Crypto keys options (see [mirage-crypto]). *)
 
 type key =
   [ `RSA of Mirage_crypto_pk.Rsa.priv
@@ -452,6 +493,8 @@ let base64 =
   let pp ppf seed = Fmt.string ppf (Base64.encode_exn ~pad:true seed) in
   Arg.conv (parser, pp)
 
+(* Canonicalization options (see [dkim]). *)
+
 let canon =
   let parser str =
     let v = String.trim str in
@@ -469,7 +512,8 @@ let canon =
     | `Relaxed, `Simple -> Fmt.string ppf "relaxed/simple" in
   Arg.conv (parser, pp)
 
-let domain_name = Arg.conv (Domain_name.of_string, Domain_name.pp)
+(* Hexdump options (see [hxd]). *)
+
 let docs_hexdump = "HEX OUTPUT"
 
 let colorscheme =
@@ -528,6 +572,8 @@ let setup_hxd cols groupsize len uppercase =
   Hxd.xxd ?cols ?groupsize ?long:len ~uppercase colorscheme
 
 let setup_hxd = Term.(const setup_hxd $ cols $ groupsize $ len $ uppercase)
+
+(* Languages and tokenizers options (see [stem]). *)
 
 let language_from_string str =
   let algs = Snowball.languages in

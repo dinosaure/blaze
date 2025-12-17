@@ -365,7 +365,7 @@ let analyze =
     ] in
   let open Term in
   let info = Cmd.info "analyze" ~doc ~man in
-  let term = const analyze $ setup_logs $ newline $ setup_resolver $ input in
+  let term = const analyze $ setup_logs $ newline () $ setup_resolver $ input in
   Cmd.v info (ret term)
 
 let default = Term.(ret (const (`Help (`Pager, None))))

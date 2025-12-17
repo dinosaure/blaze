@@ -1,5 +1,4 @@
 let const x _ = x
-let ( <.> ) f g x = f (g x)
 let emitter_of_queue q = function Some str -> Queue.push str q | None -> ()
 let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 

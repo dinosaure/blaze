@@ -1,4 +1,4 @@
-let ( <.> ) f g x = f (g x)
+let ( % ) f g x = f (g x)
 let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 
 let add_sub str ~start ~stop acc =
@@ -118,11 +118,11 @@ let run : Unix.file_descr -> ('a, 'err) Colombe.State.t -> ('a, 'err) result =
   let rec go = function
     | Colombe.State.Read { buffer; off; len; k } -> (
         match Unix.read flow buffer off len with
-        | 0 -> (go <.> k) `End
-        | len -> (go <.> k) (`Len len))
+        | 0 -> (go % k) `End
+        | len -> (go % k) (`Len len))
     | Colombe.State.Write { buffer; off; len; k } ->
         let len = Unix.write flow (Bytes.unsafe_of_string buffer) off len in
-        (go <.> k) len
+        (go % k) len
     | Colombe.State.Return v -> Ok v
     | Colombe.State.Error err -> Error err in
   go state
@@ -231,9 +231,9 @@ let handle ~sockaddr ~domain flow =
       let rec go = function
         | Encoder.Done -> State.Return ()
         | Encoder.Write { continue; buffer; off; len } ->
-            State.Write { k = go <.> continue; buffer; off; len }
+            State.Write { k = go % continue; buffer; off; len }
         | Encoder.Error err -> State.Error err in
-      (go <.> fiber) w
+      (go % fiber) w
 
     let decode : type a. decoder -> a recv -> (a, [> Decoder.error ]) State.t =
      fun decoder w ->
@@ -252,7 +252,7 @@ let handle ~sockaddr ~domain flow =
       let rec go = function
         | Decoder.Done v -> k v
         | Decoder.Read { buffer; off; len; continue } ->
-            State.Read { k = go <.> continue; buffer; off; len }
+            State.Read { k = go % continue; buffer; off; len }
         | Decoder.Error { error; _ } -> State.Error error in
       go (Request.Decoder.request ~relax:true decoder)
   end in
@@ -294,9 +294,9 @@ let handle_with_starttls ~tls ~sockaddr ~domain flow =
       let rec go = function
         | Encoder.Done -> State.Return ()
         | Encoder.Write { continue; buffer; off; len } ->
-            State.Write { k = go <.> continue; buffer; off; len }
+            State.Write { k = go % continue; buffer; off; len }
         | Encoder.Error err -> State.Error err in
-      (go <.> fiber) w
+      (go % fiber) w
 
     let decode : type a. decoder -> a recv -> (a, [> Decoder.error ]) State.t =
      fun decoder w ->
@@ -315,16 +315,16 @@ let handle_with_starttls ~tls ~sockaddr ~domain flow =
       let rec go = function
         | Decoder.Done v -> k v
         | Decoder.Read { buffer; off; len; continue } ->
-            State.Read { k = go <.> continue; buffer; off; len }
+            State.Read { k = go % continue; buffer; off; len }
         | Decoder.Error { error; _ } -> State.Error error in
       go (Request.Decoder.request ~relax:true decoder)
 
     let encode_without_tls ctx v w =
       let rec go = function
         | State.Read { k; buffer; off; len } ->
-            State.Read { k = go <.> k; buffer; off; len }
+            State.Read { k = go % k; buffer; off; len }
         | State.Write { k; buffer; off; len } ->
-            State.Write { k = go <.> k; buffer; off; len }
+            State.Write { k = go % k; buffer; off; len }
         | State.Return v -> Return v
         | State.Error err -> Error err in
       go (encode ctx v w)
@@ -332,9 +332,9 @@ let handle_with_starttls ~tls ~sockaddr ~domain flow =
     let decode_without_tls ctx w =
       let rec go = function
         | State.Read { k; buffer; off; len } ->
-            State.Read { k = go <.> k; buffer; off; len }
+            State.Read { k = go % k; buffer; off; len }
         | State.Write { k; buffer; off; len } ->
-            State.Write { k = go <.> k; buffer; off; len }
+            State.Write { k = go % k; buffer; off; len }
         | State.Return v -> Return v
         | State.Error err -> Error err in
       go (decode ctx w)

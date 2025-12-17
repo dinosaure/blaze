@@ -5,6 +5,7 @@
  (libraries
   logs.threaded
   blaze.dns-static
+  blaze.tmp
   fpath
   ipaddr
   ipaddr.unix

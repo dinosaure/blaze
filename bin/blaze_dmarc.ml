@@ -371,7 +371,7 @@ let verify =
     const verify
     $ setup_logs
     $ setup_ctx
-    $ newline
+    $ newline ()
     $ hostname
     $ setup_resolver
     $ input
@@ -397,7 +397,7 @@ let collect =
   let man = [ `S Manpage.s_description ] in
   let open Term in
   let info = Cmd.info "collect" ~doc ~man in
-  let term = const collect $ setup_logs $ newline $ input in
+  let term = const collect $ setup_logs $ newline () $ input in
   Cmd.v info (ret term)
 
 let default = Term.(ret (const (`Help (`Pager, None))))
