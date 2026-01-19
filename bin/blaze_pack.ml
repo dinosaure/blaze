@@ -72,6 +72,7 @@ let load _uid = function
         Stem.to_string ((uid :> string), (blob :> string), length, tbl) in
       Carton.Value.of_string ~kind:`C str
   | Pack.Mail str -> Carton.Value.of_string ~kind:`A str
+  | Pack.Tree str -> Carton.Value.of_string ~kind:`D str
   | Pack.Body (filename, pos, len) ->
       let fd =
         Unix.openfile (Fpath.to_string filename) Unix.[ O_RDONLY ] 0o644 in
@@ -137,15 +138,52 @@ let copy_and_align align src dst =
       output_align align oc ;
       flush oc
 
+let message_id_to_string (local, domain) =
+  let pp_elt ppf = function
+    | `Atom str -> Fmt.string ppf str
+    | `String str ->
+        Fmt.pf ppf "\"" ;
+        let escape = function
+          | '\\' -> Fmt.string ppf "\\\\"
+          | '"' -> Fmt.string ppf "\\\""
+          | '\000' -> Fmt.string ppf "\\\000"
+          | '\x07' -> Fmt.string ppf "\\a"
+          | '\b' -> Fmt.string ppf "\\b"
+          | '\t' -> Fmt.string ppf "\\t"
+          | '\n' -> Fmt.string ppf "\\n"
+          | '\x0b' -> Fmt.string ppf "\\v"
+          | '\x0c' -> Fmt.string ppf "\\f"
+          | '\r' -> Fmt.string ppf "\\r"
+          | chr -> Fmt.char ppf chr in
+        String.iter escape str ;
+        Fmt.pf ppf "\"" in
+  let pp_local = Fmt.list ~sep:(Fmt.any ".") pp_elt in
+  let pp_domain ppf = function
+    | `Domain vs -> Fmt.list ~sep:(Fmt.any ".") Fmt.string ppf vs
+    | `Literal str -> Fmt.pf ppf "[%s]" str in
+  Fmt.str "<%a@%a>" pp_local local pp_domain domain
+
 let run_make quiet () progress without_progress threads mails_from_stdin
     mails_from_cmdline output align =
   Miou_unix.run ~domains:threads @@ fun () ->
   let ( let* ) = Result.bind in
   let mails_from_cmdline = List.map Fpath.v mails_from_cmdline in
   let mails = List.rev_append mails_from_stdin mails_from_cmdline in
-  let* mails = parallel ~fn:Pack.filename_to_email mails in
-  let* entries = parallel ~fn:Pack.email_to_entries mails in
-  let entries = delete_duplicates ~quiet entries in
+  let* mails = parallel ~fn:Pack.filepath_to_email mails in
+  let to_tree_task = Flux.Bqueue.(create with_close 0x7ff) in
+  let prm =
+    Miou.call @@ fun () ->
+    let seq = Seq.of_dispenser (fun () -> Flux.Bqueue.get to_tree_task) in
+    Tree.compute seq |> List.map Pack.entry_of_tree in
+  let fn (filepath, email, metadata) =
+    let entries = Pack.email_to_entries filepath email in
+    let uid = Cartonnage.Entry.uid (List.hd entries) in
+    Flux.Bqueue.put to_tree_task (uid, metadata) ;
+    Pack.email_to_entries filepath email in
+  let* entries = parallel ~fn mails in
+  Flux.Bqueue.close to_tree_task ;
+  let trees = Miou.await_exn prm in
+  let entries = delete_duplicates ~quiet (trees :: entries) in
   let fn acc entries = acc + List.length entries in
   let with_header = List.fold_left fn 0 entries in
   let entries = List.map List.to_seq entries in
@@ -211,67 +249,19 @@ let seq_of_filename filename =
 
 let run_list _quiet filename =
   Miou_unix.run @@ fun () ->
-  let ref_length = Digestif.SHA1.digest_size in
-  let zero = Carton.Size.zero in
-  let pack = Pack.make (Fpath.v filename) in
-  let from = Flux.Source.file ~filename 0x7ff in
-  let mails_by_offsets = Hashtbl.create 0x100 in
-  let mails_by_refs = Hashtbl.create 0x100 in
-  let is_a_mail ?offset ?ref () =
-    match (offset, ref) with
-    | None, None -> false
-    | Some offset, _ -> Hashtbl.mem mails_by_offsets offset
-    | None, Some ref -> Hashtbl.mem mails_by_refs ref in
-  let fn = function
-    | `Number _ | `Hash _ -> None
-    | `Entry { Carton.First_pass.kind = Base `A; offset; size; _ } ->
-        Hashtbl.add mails_by_offsets offset () ;
-        let blob = Carton.Blob.make ~size in
-        let value = Carton.of_offset pack blob ~cursor:offset in
-        let uid = Pack.uid_of_value value in
-        Hashtbl.add mails_by_refs uid () ;
-        Some (offset, value)
-    | `Entry { Carton.First_pass.kind = Ofs { sub; _ }; offset; _ } ->
-        let parent = offset - sub in
-        if is_a_mail ~offset:parent ()
-        then begin
-          Hashtbl.add mails_by_offsets offset () ;
-          let size = Carton.size_of_offset pack ~cursor:offset zero in
-          let blob = Carton.Blob.make ~size in
-          let value = Carton.of_offset pack blob ~cursor:offset in
-          let uid = Pack.uid_of_value value in
-          Hashtbl.add mails_by_refs uid () ;
-          Some (offset, value)
-        end
-        else None
-    | `Entry { Carton.First_pass.kind = Ref { ptr; _ }; offset; _ } ->
-        (* TODO(dinosaure): we don't handle a cascade of [OBJ_REF]! Our [pack]
-           was not made with an [index]. *)
-        if is_a_mail ~ref:ptr ()
-        then begin
-          Hashtbl.add mails_by_offsets offset () ;
-          let size = Carton.size_of_offset pack ~cursor:offset zero in
-          let blob = Carton.Blob.make ~size in
-          let value = Carton.of_offset pack blob ~cursor:offset in
-          let uid = Pack.uid_of_value value in
-          Hashtbl.add mails_by_refs uid () ;
-          Some (offset, value)
-        end
-        else None
-    | _ -> None in
+  let filename = Fpath.v filename in
   let show (offset, value) =
     assert (Carton.Value.kind value = `A) ;
     let bstr = Carton.Value.bigstring value in
     let bstr = Bigarray.Array1.sub bstr 0 (Carton.Value.length value) in
     let uid = Pack.uid_of_value value in
-    match Email.of_bigstring bstr with
+    match Email.of_bstr bstr with
     | Ok _t -> Fmt.pr "%08x %a\n%!" offset Carton.Uid.pp uid
     | Error (`Msg msg) -> Fmt.failwith "%s" msg in
   let via =
     let open Flux.Flow in
-    Carton_miou_flux.first_pass ~digest:Pack.sha1 ~ref_length
-    << filter_map fn
-    << tap show in
+    Pack.list filename << tap show in
+  let from = Flux.Source.file ~filename:(Fpath.to_string filename) 0x7ff in
   let into = Flux.Sink.drain in
   let (), leftover = Flux.Stream.run ~from ~via ~into in
   Option.iter Flux.Source.dispose leftover
@@ -358,7 +348,7 @@ let run_get quiet idx hxd format identifier =
           let seq = Email.to_seq ~load t in
           let fn = function
             | `String str -> output_string stdout str
-            | `Value bstr -> Email.output_bigstring stdout bstr in
+            | `Value bstr -> Email.output_bstr stdout bstr in
           Seq.iter fn seq
     end
 
@@ -521,12 +511,14 @@ let setup_mails_from_in_channel ic =
 let mails =
   let doc = "Emails to encode into a PACK file." in
   let open Arg in
-  value & opt_all Blaze_cli.file [] & info [ "m"; "mail" ] ~doc ~docv:"MAIL"
+  value
+  & opt_all Blaze_cli.file_or_stdin []
+  & info [ "m"; "mails" ] ~doc ~docv:"MAILS"
 
 let list_of_mails =
   let doc = "A file (or $(i,stdin)) containing a list of emails." in
   let open Arg in
-  value & pos 0 Blaze_cli.file "-" & info [] ~doc ~docv:"FILE"
+  value & pos 0 Blaze_cli.file_or_stdin "-" & info [] ~doc ~docv:"FILE"
 
 let setup_mails_from_in_channel = function
   | "-" -> setup_mails_from_in_channel stdin
@@ -549,7 +541,9 @@ let output =
 let pack =
   let doc = "The PACKv2 file." in
   let open Arg in
-  required & pos 0 (some file) None & info [] ~doc ~docv:"PACK"
+  required
+  & pos 0 (some Blaze_cli.file_or_stdin) None
+  & info [] ~doc ~docv:"PACK"
 
 let uid_of_string_opt str =
   match Ohex.decode ~skip_whitespace:true str with

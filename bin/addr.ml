@@ -1,8 +1,7 @@
-open Mrmime
-
-let ( % ) f g x = f (g x)
+let ( let@ ) finally fn = Fun.protect ~finally fn
 
 let default =
+  let open Mrmime in
   let open Field_name in
   Map.empty
   |> Map.add from Field.(Witness Mailboxes)
@@ -74,55 +73,61 @@ let pp_mailbox ~without_name =
   | false -> pp_mailbox
 
 let parse_header newline p ic =
-  let decoder = Hd.decoder p in
-  let rec go (addresses : Emile.mailbox list) =
-    match Hd.decode decoder with
-    | `Malformed err -> Error (`Msg err)
-    | `Field field -> (
-        match Location.prj field with
-        | Field (_field_name, Mailboxes, vs) -> go (vs @ addresses)
-        | Field (_field_name, Mailbox, v) -> go (v :: addresses)
-        | Field (_field_name, Addresses, vs) ->
-            let vs =
-              let f = function
-                | `Group { Emile.mailboxes; _ } -> mailboxes
-                | `Mailbox m -> [ m ] in
-              List.concat (List.map f vs) in
-            go (vs @ addresses)
-        | _ -> go addresses)
-    | `End _prelude -> Ok (List.rev addresses)
-    | `Await ->
-    match input_line ic with
-    | line ->
-        let line =
-          match newline with `CRLF -> line ^ "\n" | `LF -> line ^ "\r\n" in
-        Hd.src decoder line 0 (String.length line) ;
-        go addresses
-    | exception End_of_file ->
-        Hd.src decoder "" 0 0 ;
-        go addresses in
-  go []
+  let ( let* ) = Result.bind in
+  let lines ic =
+    match newline with
+    | `LF ->
+        let init = Fun.const ic
+        and pull ic =
+          match input_line ic with
+          | line -> Some (line ^ "\r\n", ic)
+          | exception End_of_file -> None
+        and stop = Fun.const () in
+        Flux.Source { init; pull; stop }
+    | `CRLF ->
+        let init = Fun.const ic
+        and pull ic =
+          match input_line ic with
+          | line -> Some (line ^ "\n", ic)
+          | exception End_of_file -> None
+        and stop = Fun.const () in
+        Flux.Source { init; pull; stop } in
+  let src = lines ic in
+  let into = Header.parser p in
+  let* _prelude, hdrs = Flux.Stream.from src |> Flux.Stream.into into in
+  let fn : _ -> Emile.mailbox list = function
+    | Mrmime.Field.Field (_, Mailboxes, vs) -> vs
+    | Field (_, Mailbox, v) -> [ v ]
+    | Field (_, Addresses, vs) ->
+        let fn = function
+          | `Group { Emile.mailboxes; _ } -> mailboxes
+          | `Mailbox m -> [ m ] in
+        List.concat_map fn vs
+    | _ -> [] in
+  let addresses = List.concat_map fn (Mrmime.Header.to_list hdrs) in
+  Ok addresses
 
 let run want_to_decode_rfc2047 newline without_name margin fields input =
   Option.iter Format.set_margin margin ;
   decode_rfc2047 := want_to_decode_rfc2047 ;
-  let ic, close =
+  let open Mrmime in
+  let ic, ic_close =
     match input with
     | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
     | None -> (stdin, ignore) in
-  let finally () = close ic in
-  Fun.protect ~finally @@ fun () ->
+  let@ () = fun () -> ic_close ic in
   let p =
     List.fold_left
       (fun p v -> Field_name.Map.add v Field.(Witness Addresses) p)
       default fields in
   match parse_header newline p ic with
   | Ok addresses ->
-      List.iter
-        (print_endline % Fmt.str "%a" (pp_mailbox ~without_name))
-        addresses ;
+      let fn =
+        Fun.compose print_endline (Fmt.str "%a" (pp_mailbox ~without_name))
+      in
+      List.iter fn addresses ;
       `Ok ()
-  | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
+  | Error _ -> `Error (false, "Invalid email.")
 
 open Cmdliner
 open Blaze_cli
@@ -137,7 +142,9 @@ let existing_file =
     | Error _ as err -> err in
   Arg.conv (parser, Fmt.option ~none:(Fmt.any "-") Fpath.pp)
 
-let field_name = Arg.conv (Field_name.of_string, Field_name.pp)
+let field_name =
+  let open Mrmime in
+  Arg.conv (Field_name.of_string, Field_name.pp)
 
 let input =
   let doc = "The email to analyze." in

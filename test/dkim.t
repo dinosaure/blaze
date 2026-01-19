@@ -4,7 +4,7 @@ Tests on DKIM fields
   [OK]: sendgrid.info
   [OK]: github.com
   $ blaze dkim verify 002.mail
-  [EX]: github.com
+  [OK]: github.com
   $ blaze dkim verify 003.mail
   [OK]: janestreet.com
   $ blaze dkim verify -q 001.mail
@@ -29,5 +29,8 @@ Tests on DKIM fields
   Subject
   To
   Content-Type
+Invalid DKIM-Signature without expiration
   $ blaze dkim verify 004.mail
-  [EX]: discoursemail.com
+  [ER]: discoursemail.com
+  blaze: Invalid DKIM signature.
+  [124]

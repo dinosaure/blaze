@@ -56,14 +56,11 @@ module Dot = Graph.Graphviz.Dot (struct
   include Gr
 
   let vertex_name v = Fmt.str "%a" Fmt.(quote Colombe.Domain.pp) v
-  let edge_attributes _ = [ `Color 0xffffff ]
+  let edge_attributes _ = []
   let default_edge_attributes _ = []
-
-  let vertex_attributes _ =
-    [ `Color 0xffffff; `Fontcolor 0xffffff; `Shape `Box ]
-
+  let vertex_attributes _ = []
   let default_vertex_attributes _ = []
-  let graph_attributes _ = [ `BgcolorWithTransparency 0x0l; `Ratio `Compress ]
+  let graph_attributes _ = []
   let get_subgraph _ = None
 end)
 
@@ -170,7 +167,7 @@ let path =
 
 let input =
   let doc = "The email to analyze. Use $(b,-) for $(b,stdin)." in
-  Arg.(value & pos 1 Blaze_cli.file "-" & info [] ~doc)
+  Arg.(value & pos 1 Blaze_cli.file_or_stdin "-" & info [] ~doc)
 
 let dot =
   let doc = "Print a $(i,dot) graph." in
@@ -209,7 +206,7 @@ let stamp =
 
 let input =
   let doc = "The email to analyze. Use $(b,-) for $(b,stdin)." in
-  Arg.(value & pos 0 Blaze_cli.file "-" & info [] ~doc)
+  Arg.(value & pos 0 Blaze_cli.file_or_stdin "-" & info [] ~doc)
 
 let extract =
   let doc = "Extract Received fields" in

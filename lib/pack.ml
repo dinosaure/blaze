@@ -8,7 +8,7 @@ let pp_kind ppf = function
   | `A -> Fmt.string ppf "mail"
   | `B -> Fmt.string ppf "blob"
   | `C -> Fmt.string ppf "stem"
-  | `D -> Fmt.string ppf "deadbeef"
+  | `D -> Fmt.string ppf "tree"
 
 let mail_identify =
   let open Digestif in
@@ -29,25 +29,29 @@ let uid_of_value value =
   let ctx = mail_identify.feed (Bigarray.Array1.sub bstr 0 len) ctx in
   mail_identify.Carton.First_pass.serialize ctx
 
-let filename_to_email filename =
-  match Email.of_filename filename with
-  | Ok t -> (filename, t)
-  | Error `Invalid ->
-      Log.err (fun m -> m "%a is an invalid email" Fpath.pp filename) ;
+let filepath_to_email filepath =
+  match Email.of_filepath filepath with
+  | Ok (t, metadata) -> (filepath, t, metadata)
+  | Error `Invalid_email ->
+      Log.err (fun m -> m "%a is an invalid email" Fpath.pp filepath) ;
       Fmt.failwith "Invalid email"
   | Error `No_symmetry ->
       Log.err (fun m ->
           m "%a has no symmetry between skeleton and Mr.MIME semantic layout"
-            Fpath.pp filename) ;
+            Fpath.pp filepath) ;
       Fmt.failwith "Invalid email: no symmetry"
   | Error `Not_enough ->
-      Log.err (fun m -> m "%a is probably truncated" Fpath.pp filename) ;
+      Log.err (fun m -> m "%a is probably truncated" Fpath.pp filepath) ;
       Fmt.failwith "Invalid email: truncated email"
+  | Error (`Msg msg) ->
+      Log.err (fun m -> m "%a: %s" Fpath.pp filepath msg) ;
+      Fmt.failwith "Invalid email: %s" msg
 
 type src =
   | Mail of string
   | Body of Fpath.t * int * int
   | Stem of Carton.Uid.t * Carton.Uid.t * int * (string, int) Hashtbl.t
+  | Tree of string
 
 let none_if_stop lang =
   match List.assoc_opt lang Stopwords.words with
@@ -82,9 +86,9 @@ let freqs_of_document fd ?(off = 0) ?len lang =
   let length = Hashtbl.length tbl in
   (length, tbl)
 
-let email_to_entries (filename, t) =
+let email_to_entries filepath t =
   let open Cartonnage in
-  let fd = Unix.openfile (Fpath.to_string filename) Unix.[ O_RDONLY ] 0o644 in
+  let fd = Unix.openfile (Fpath.to_string filepath) Unix.[ O_RDONLY ] 0o644 in
   let finally () = Unix.close fd in
   Fun.protect ~finally @@ fun () ->
   let fn (pos, pos_end) =
@@ -101,7 +105,7 @@ let email_to_entries (filename, t) =
   let t = Email.map fn t in
   let fn0 entries (pos, len, hash) =
     let kind = `B in
-    let entry = Entry.make ~kind ~length:len hash (Body (filename, pos, len)) in
+    let entry = Entry.make ~kind ~length:len hash (Body (filepath, pos, len)) in
     entry :: entries in
   (* NOTE(dinosaure): our [skeleton] has everything and our [semantic] has few
      documents which must be available into our [skeleton]. To collect all
@@ -130,6 +134,20 @@ let email_to_entries (filename, t) =
     entry :: entries in
   let entries1 = Email.Semantic.fold (fn2 hash) [] (snd t) in
   entry :: List.rev_append entries1 entries0
+
+let entry_of_tree t =
+  let emitter = Encore.to_lavoisier Tree.Format.t in
+  let serialized = Encore.Lavoisier.emit_string ~chunk:0x7ff t emitter in
+  let hash =
+    let hdr = Fmt.str "mail %d\000" (String.length serialized) in
+    let ctx = Digestif.SHA1.empty in
+    let ctx = Digestif.SHA1.feed_string ctx hdr in
+    let ctx = Digestif.SHA1.feed_string ctx serialized in
+    Digestif.SHA1.get ctx in
+  let hash = Digestif.SHA1.to_raw_string hash in
+  let hash = Carton.Uid.unsafe_of_string hash in
+  Cartonnage.Entry.make ~kind:`D ~length:(String.length serialized) hash
+    (Tree serialized)
 
 let sha1_with_ctx (ctx : Digestif.SHA1.ctx) =
   let module Hash = Digestif.SHA1 in
@@ -176,3 +194,56 @@ let verify_from_pack ~cfg filename =
 
 let verify_from_idx ~cfg filename =
   Carton_miou_unix.verify_from_idx ~cfg ~digest:sha1 filename
+
+let list ?(kind = `A) filename =
+  let ref_length = Digestif.SHA1.digest_size in
+  let zero = Carton.Size.zero in
+  let pack = make filename in
+  let objects_by_offsets = Hashtbl.create 0x7ff in
+  let objects_by_refs = Hashtbl.create 0x7ff in
+  let is_a_object ?offset ?ref () =
+    match (offset, ref) with
+    | None, None -> false
+    | Some offset, _ -> Hashtbl.mem objects_by_offsets offset
+    | None, Some ref -> Hashtbl.mem objects_by_refs ref in
+  let fn = function
+    | `Number _ | `Hash _ -> None
+    | `Entry { Carton.First_pass.kind = Base kind'; offset; size; _ }
+      when kind = kind' ->
+        Hashtbl.add objects_by_offsets offset () ;
+        let blob = Carton.Blob.make ~size in
+        let value = Carton.of_offset pack blob ~cursor:offset in
+        let uid = uid_of_value value in
+        Hashtbl.add objects_by_refs uid () ;
+        Some (offset, value)
+    | `Entry { Carton.First_pass.kind = Base _; _ } -> None
+    | `Entry { Carton.First_pass.kind = Ofs { sub; _ }; offset; _ } ->
+        let parent = offset - sub in
+        if is_a_object ~offset:parent ()
+        then begin
+          Hashtbl.add objects_by_offsets offset () ;
+          let size = Carton.size_of_offset pack ~cursor:offset zero in
+          let blob = Carton.Blob.make ~size in
+          let value = Carton.of_offset pack blob ~cursor:offset in
+          let uid = uid_of_value value in
+          Hashtbl.add objects_by_refs uid () ;
+          Some (offset, value)
+        end
+        else None
+    | `Entry { Carton.First_pass.kind = Ref { ptr; _ }; offset; _ } ->
+        (* TODO(dinosaure): we don't handle a cascade of [OBJ_REF]! Our [pack]
+           was not made with an [index]. *)
+        if is_a_object ~ref:ptr ()
+        then begin
+          Hashtbl.add objects_by_offsets offset () ;
+          let size = Carton.size_of_offset pack ~cursor:offset zero in
+          let blob = Carton.Blob.make ~size in
+          let value = Carton.of_offset pack blob ~cursor:offset in
+          let uid = uid_of_value value in
+          Hashtbl.add objects_by_refs uid () ;
+          Some (offset, value)
+        end
+        else None
+    | _ -> None in
+  let open Flux.Flow in
+  Carton_miou_flux.first_pass ~digest:sha1 ~ref_length << filter_map fn

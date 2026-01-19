@@ -32,5 +32,6 @@ let () =
         Blaze_dmarc.cmd;
         Blaze_arc.cmd;
         Okapi.cmd;
+        Blaze_rowex.cmd;
       ] in
   Cmd.(exit (eval cmd))

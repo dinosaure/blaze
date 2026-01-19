@@ -1,6 +1,3 @@
-type bigstring =
-  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
-
 module Skeleton : sig
   type transport_padding = string
 
@@ -39,6 +36,7 @@ module Semantic : sig
 end
 
 type 'octet t = 'octet Skeleton.t * 'octet Semantic.t
+type with_offsets = (int * int) t
 
 val map : ('a -> 'b) -> 'a t -> 'b t
 
@@ -50,18 +48,31 @@ module Parser : sig
   val t : (int * int) Skeleton.t Angstrom.t
 end
 
-val of_filename :
+type metadata = {
+  message_id : Mrmime.MessageID.t option;
+  in_reply_to : Mrmime.MessageID.t option;
+  from : Mrmime.Mailbox.t list;
+  sender : Mrmime.Mailbox.t option;
+  reply_to : Mrmime.Address.t list;
+  _to : Mrmime.Address.t list;
+  date : (Ptime.t * Ptime.tz_offset_s) option;
+  subject : Unstrctrd.t option;
+}
+
+type error = [ `Invalid_email | `No_symmetry | `Not_enough | `Msg of string ]
+
+val of_filepath :
   ?lang:Snowball.Language.t ->
   Fpath.t ->
-  ((int * int) t, [> `Invalid | `No_symmetry | `Not_enough ]) result
+  (with_offsets * metadata, [> error ]) result
 
 val to_seq :
   load:('a -> 'b) -> 'a Skeleton.t -> [ `String of string | `Value of 'b ] Seq.t
 
 val of_string : string -> (string t, [> `Msg of string ]) result
-val of_bigstring : bigstring -> (string t, [> `Msg of string ]) result
+val of_bstr : Bstr.t -> (string t, [> `Msg of string ]) result
 val to_string : string t -> string
 
 (**/**)
 
-val output_bigstring : out_channel -> bigstring -> unit
+val output_bstr : out_channel -> Bstr.t -> unit

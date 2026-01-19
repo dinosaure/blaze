@@ -242,7 +242,7 @@ open Blaze_cli
 
 let input =
   let doc = "The email to verify. use $(b,-) for $(b,stdin)." in
-  Arg.(value & pos 0 Blaze_cli.file "-" & info [] ~doc)
+  Arg.(value & pos 0 Blaze_cli.file_or_stdin "-" & info [] ~doc)
 
 let setup_resolver happy_eyeballs_cfg nameservers local () =
   let happy_eyeballs =
@@ -533,7 +533,7 @@ let to_domain domain_name =
 let input =
   let doc = "The email to sign. Use $(b,-) for $(b,stdin)." in
   let open Arg in
-  value & pos 0 Blaze_cli.file "-" & info [] ~doc ~docv:"FILE"
+  value & pos 0 Blaze_cli.file_or_stdin "-" & info [] ~doc ~docv:"FILE"
 
 let setup_ctx sender helo ip =
   match (sender, helo, ip) with

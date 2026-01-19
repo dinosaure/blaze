@@ -26,19 +26,19 @@
  (name addr)
  (modules addr)
  (public_name blaze.addr)
- (libraries blaze.cli cmdliner fpath mrmime bigstringaf emile))
+ (libraries flux blaze.header blaze.cli cmdliner fpath mrmime bigstringaf emile))
 
 (library
  (name hdr)
  (modules hdr)
  (public_name blaze.hdr)
- (libraries cmdliner fpath mrmime bigstringaf fmt))
+ (libraries blaze.header cmdliner fpath mrmime fmt))
 
 (library
  (name map)
  (modules map)
  (public_name blaze.map)
- (libraries bstr cmdliner blaze.cli fpath mrmime))
+ (libraries fluxt.angstrom bstr cmdliner blaze.cli fpath mrmime))
 
 (library
  (name mdir)
@@ -144,13 +144,13 @@
  (name make)
  (modules make)
  (public_name blaze.make)
- (libraries unix blaze.cli cmdliner fpath ptime.clock.os mrmime))
+ (libraries blaze.header flux unix blaze.cli cmdliner fpath ptime.clock.os mrmime))
 
 (library
  (name descr)
  (modules descr)
  (public_name blaze.descr)
- (libraries bstr blaze.cli cmdliner mrmime fpath))
+ (libraries fluxt.angstrom bstr blaze.cli cmdliner mrmime fpath))
 
 (library
  (name rand)
@@ -185,6 +185,9 @@
   blaze.pack
   carton-miou.unix
   carton-miou.flux
+  ocamlgraph
+  art
+  blaze.tree
   blaze.email))
 
 (library
@@ -229,6 +232,12 @@
   carton-miou.unix
   blaze.email))
 
+(library
+ (name blaze_rowex)
+ (modules blaze_rowex)
+ (public_name blaze.rowex)
+ (libraries blaze.cli art bancos blaze.pack blaze.tree))
+
 (executable
  (name blaze)
  (modules blaze)
@@ -255,4 +264,5 @@
   blaze.dmarc
   blaze.arc
   blaze.okapi
+  blaze.rowex
   cmdliner))

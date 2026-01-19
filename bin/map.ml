@@ -1,6 +1,7 @@
 let const x _ = x
 let emitter_of_queue q = function Some str -> Queue.push str q | None -> ()
 let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
+let ( let@ ) finally fn = Fun.protect ~finally fn
 
 let stream_of_queue q () =
   match Queue.pop q with
@@ -12,6 +13,15 @@ let blit src src_off dst dst_off len =
 
 let empty_part ~header = Mrmime.Mt.part ~header (const None)
 
+let lines ic =
+  let init () = ic
+  and stop = Fun.const ()
+  and pull ic =
+    match input_line ic with
+    | line -> Some (line ^ "\r\n", ic)
+    | exception End_of_file -> None in
+  Flux.Source { init; stop; pull }
+
 let parser ic =
   let uid = ref (-1) in
   let tbl = Hashtbl.create 0x10 in
@@ -22,32 +32,12 @@ let parser ic =
     Hashtbl.add tbl v contents ;
     (emitter_of_queue contents, v) in
   let parser = Mrmime.Mail.stream emitters in
-  let rec loop ic ke = function
-    | Angstrom.Unbuffered.Done (_, (header, mail)) -> Ok (header, mail, tbl)
-    | Fail _ -> error_msgf "Invalid incoming email"
-    | Partial { committed; continue } -> (
-        Ke.Rke.N.shift_exn ke committed ;
-        if committed = 0 then Ke.Rke.compress ke ;
-        match input_line ic with
-        | line ->
-            Ke.Rke.N.push ke ~blit ~length:String.length ~off:0
-              ~len:(String.length line) line ;
-            Ke.Rke.push ke '\r' ;
-            Ke.Rke.push ke '\n' ;
-            let[@warning "-8"] (slice :: _) = Ke.Rke.N.peek ke in
-            loop ic ke
-              (continue slice ~off:0 ~len:(Bstr.length slice) Incomplete)
-        | exception End_of_file ->
-            let buf =
-              match Ke.Rke.length ke with
-              | 0 -> Bstr.empty
-              | _ ->
-                  Ke.Rke.compress ke ;
-                  List.hd (Ke.Rke.N.peek ke) in
-            loop ic ke (continue buf ~off:0 ~len:(Bstr.length buf) Complete))
-  in
-  let ke = Ke.Rke.create ~capacity:0x1000 Bigarray.char in
-  loop ic ke (Angstrom.Unbuffered.parse parser)
+  let parser = Flux_angstrom.parser parser in
+  let src = lines ic in
+  let stream = Flux.Stream.from src in
+  match Flux.Stream.into parser stream with
+  | Ok (header, mail) -> Ok (header, mail, tbl)
+  | Error _ -> error_msgf "Invalid incoming email"
 
 let encoder header mail tbl =
   let open Mrmime in
@@ -91,12 +81,12 @@ let crlf = Astring.String.Sub.v "\r\n"
 let rec transmit state oc stream =
   match stream () with
   | Some (_, _, 0) -> transmit state oc stream
-  | Some (str, off, len) when state = `CR && str.[0] = '\n' -> (
+  | Some (str, off, len) when state = `CR && str.[0] = '\n' -> begin
       output_char oc '\n' ;
+      let open Astring.String in
       let lines =
-        List.map Astring.String.Sub.to_string
-          Astring.String.(
-            Sub.cuts ~sep:crlf (sub_with_range ~first:(off + 1) ~len str)) in
+        List.map Sub.to_string
+          (Sub.cuts ~sep:crlf (sub_with_range ~first:(off + 1) ~len str)) in
       let lines = String.concat "\n" lines in
       match str.[off + len - 1] with
       | '\r' ->
@@ -104,12 +94,13 @@ let rec transmit state oc stream =
           transmit `CR oc stream
       | _ ->
           output_string oc lines ;
-          transmit `None oc stream)
-  | Some (str, off, len) -> (
+          transmit `None oc stream
+    end
+  | Some (str, off, len) -> begin
+      let open Astring.String in
       let lines =
-        List.map Astring.String.Sub.to_string
-          Astring.String.(
-            Sub.cuts ~sep:crlf (sub_with_range ~first:off ~len str)) in
+        List.map Sub.to_string
+          (Sub.cuts ~sep:crlf (sub_with_range ~first:off ~len str)) in
       let lines = String.concat "\n" lines in
       match str.[off + len - 1] with
       | '\r' ->
@@ -117,22 +108,24 @@ let rec transmit state oc stream =
           transmit `CR oc stream
       | _ ->
           output_string oc lines ;
-          transmit `None oc stream)
+          transmit `None oc stream
+    end
   | None -> ()
 
-let mailmap _ diff input output =
+let run _ diff input output =
   let ic, close_ic =
     match input with
-    | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
+    | Some filepath -> (open_in_bin filepath, close_in)
     | None -> (stdin, ignore) in
+  let@ () = fun () -> close_ic ic in
   let v = parser ic in
-  close_ic ic ;
   match (v, diff) with
   | Ok (header, mail, tbl), false ->
       let mail' = encoder header mail tbl in
+      let output = Option.map Fpath.to_string output in
       let oc, close_oc =
         match output with
-        | Some fpath -> (open_out (Fpath.to_string fpath), close_out)
+        | Some filepath -> (open_out_bin filepath, close_out)
         | None -> (stdout, ignore) in
       transmit `None oc (Mrmime.Mt.to_stream mail') ;
       close_oc oc ;
@@ -146,12 +139,10 @@ open Blaze_cli
 let existing_file =
   let parser = function
     | "-" -> Ok None
-    | str ->
-    match Fpath.of_string str with
-    | Ok v when Sys.file_exists str -> Ok (Some v)
-    | Ok v -> error_msgf "%a not found" Fpath.pp v
-    | Error _ as err -> err in
-  Arg.conv (parser, Fmt.option ~none:(Fmt.any "-") Fpath.pp)
+    | str when Sys.file_exists str && Sys.is_regular_file str -> Ok (Some str)
+    | str -> error_msgf "%S is not an existing and/or regular file" str in
+  let pp = Fmt.option ~none:(Fmt.any "-") Fmt.string in
+  Arg.conv (parser, pp)
 
 let input =
   let doc = "The email to decode & encode." in
@@ -175,5 +166,8 @@ let cmd =
       `S Manpage.s_description;
       `P "From the given email, we try to decode and encode it.";
     ] in
-  Cmd.v (Cmd.info "map" ~doc ~man)
-    Term.(ret (const mailmap $ setup_logs $ diff $ input $ output))
+  let term =
+    let open Term in
+    ret (const run $ setup_logs $ diff $ input $ output) in
+  let info = Cmd.info "map" ~doc ~man in
+  Cmd.v info term

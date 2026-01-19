@@ -19,6 +19,14 @@ let existing_directory =
     | Error _ as err -> err in
   Arg.conv (parser, Fpath.pp)
 
+let existing_file =
+  let parser str =
+    match Fpath.of_string str with
+    | Ok v when Sys.file_exists str && Sys.is_regular_file str -> Ok v
+    | Ok v -> error_msgf "%a is not an existing and/or regular file" Fpath.pp v
+    | Error _ as err -> err in
+  Arg.conv (parser, Fpath.pp)
+
 let non_existing_file =
   let parser str =
     let normalized = Fpath.of_string str in
@@ -82,8 +90,9 @@ let setup_logs utf_8 style_renderer level =
   Option.is_none level
 
 let setup_logs = Term.(const setup_logs $ utf_8 $ renderer $ verbosity)
+let file = Arg.conv (Fpath.of_string, Fpath.pp)
 
-let file =
+let file_or_stdin =
   let parser str =
     if str = "-"
     then Ok str

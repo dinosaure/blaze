@@ -69,58 +69,26 @@ let pp ppf = function
             go r in
       go children
 
-let blit src src_off dst dst_off len =
-  Bstr.blit_from_string src ~src_off dst ~dst_off ~len
+let lines ic =
+  let init () = ic
+  and stop = Fun.const ()
+  and pull ic =
+    match input_line ic with
+    | "" -> Some ("\n", ic)
+    | line when line.[String.length line - 1] = '\r' -> Some (line ^ "\n", ic)
+    | line -> Some (line ^ "\r\n", ic)
+    | exception End_of_file -> None in
+  Flux.Source { init; stop; pull }
 
 let parser ic =
-  let emitters _headers = (Fun.const (), ()) in
-  let parser = Mrmime.Mail.stream ~transfer_encoding:false ~g:default emitters in
-  let rec loop ic ke = function
-    | Angstrom.Unbuffered.Done (_, v) -> Ok v
-    | Fail (_, stack, msg) ->
-        Logs.err (fun m ->
-            m "Invalid email (%a): %S" Fmt.(Dump.list string) stack msg) ;
-        error_msgf "Invalid email"
-    | Partial { committed; continue } -> begin
-        Ke.Rke.N.shift_exn ke committed ;
-        if committed = 0 then Ke.Rke.compress ke ;
-        match input_line ic with
-        | "" ->
-            Ke.Rke.push ke '\n' ;
-            let[@warning "-8"] (slice :: _) = Ke.Rke.N.peek ke in
-            let off = 0 and len = Bstr.length slice in
-            let state = continue slice ~off ~len Incomplete in
-            loop ic ke state
-        | line when line.[String.length line - 1] = '\r' ->
-            Ke.Rke.N.push ke ~blit ~length:String.length ~off:0
-              ~len:(String.length line) line ;
-            Ke.Rke.push ke '\n' ;
-            let[@warning "-8"] (slice :: _) = Ke.Rke.N.peek ke in
-            let off = 0 and len = Bstr.length slice in
-            let state = continue slice ~off ~len Incomplete in
-            loop ic ke state
-        | line ->
-            Ke.Rke.N.push ke ~blit ~length:String.length ~off:0
-              ~len:(String.length line) line ;
-            Ke.Rke.push ke '\r' ;
-            Ke.Rke.push ke '\n' ;
-            let[@warning "-8"] (slice :: _) = Ke.Rke.N.peek ke in
-            let off = 0 and len = Bstr.length slice in
-            let state = continue slice ~off ~len Incomplete in
-            loop ic ke state
-        | exception End_of_file ->
-            let buf =
-              match Ke.Rke.length ke with
-              | 0 -> Bstr.empty
-              | _ ->
-                  Ke.Rke.compress ke ;
-                  List.hd (Ke.Rke.N.peek ke) in
-            let off = 0 and len = Bstr.length buf in
-            let state = continue buf ~off ~len Complete in
-            loop ic ke state
-      end in
-  let ke = Ke.Rke.create ~capacity:0x1000 Bigarray.char in
-  loop ic ke (Angstrom.Unbuffered.parse parser)
+  let emitters _header = (Fun.const (), ()) in
+  let parser = Mrmime.Mail.stream emitters in
+  let parser = Flux_angstrom.parser parser in
+  let src = lines ic in
+  let stream = Flux.Stream.from src in
+  match Flux.Stream.into parser stream with
+  | Ok (header, mail) -> Ok (header, mail)
+  | Error _ -> error_msgf "Invalid incoming email"
 
 let mime_from_headers hdrs =
   let open Mrmime in

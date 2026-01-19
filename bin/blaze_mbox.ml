@@ -26,6 +26,7 @@ let parallel ~fn lst =
 let load _uid = function
   | Pack.Stem (_uid, _blob, _length, _tbl) -> assert false (* TODO *)
   | Pack.Mail str -> Carton.Value.of_string ~kind:`A str
+  | Pack.Tree str -> Carton.Value.of_string ~kind:`D str
   | Pack.Body (filename, pos, len) ->
       let fd =
         Unix.openfile (Fpath.to_string filename) Unix.[ O_RDONLY ] 0o644 in
@@ -113,8 +114,9 @@ let run_pack quiet progress without_progress threads mbox output =
   Fun.protect ~finally:ic_finally @@ fun () ->
   let seq = Mbox.of_in_channel ic in
   let mails = explode seq in
-  let* mails = parallel ~fn:Pack.filename_to_email mails in
-  let* entries = parallel ~fn:Pack.email_to_entries mails in
+  let* mails = parallel ~fn:Pack.filepath_to_email mails in
+  let fn (filepath, t, _) = Pack.email_to_entries filepath t in
+  let* entries = parallel ~fn mails in
   let entries = delete_duplicates ~quiet entries in
   let with_header =
     List.fold_left (fun acc entries -> acc + List.length entries) 0 entries
@@ -152,7 +154,7 @@ open Blaze_cli
 let mbox =
   let doc = "The mbox file to manipulate." in
   let open Arg in
-  value & pos 0 Blaze_cli.file "-" & info [] ~doc ~docv:"FILE"
+  value & pos 0 Blaze_cli.file_or_stdin "-" & info [] ~doc ~docv:"FILE"
 
 let output =
   let doc = "The output file where to save the PACK file." in

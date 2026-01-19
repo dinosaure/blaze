@@ -42,17 +42,17 @@ Tests on addresses
   mirage/decompress
    <reply+0004e976d9ee97bc1d2d238f13f646219cc36441871e86af92cf000000011820dbf092a169ce1722a3ee@reply.github.com>
   mirage/decompress <decompress@noreply.github.com>
-  Mention <mention@noreply.github.com>
   Calascibetta Romain <romain.calascibetta@gmail.com>
+  Mention <mention@noreply.github.com>
   $ blaze addr -d 003.mail
   Thomas Braibant <tbraibant@janestreet.com>
-  Romain Calascibetta <romain.calascibetta@gmail.com>
-  Gabriel Scherer <gabriel.scherer@inria.fr>
-  Louis Roché <louis@cryptosense.com>
   Roberto Di Cosmo <roberto@dicosmo.org>
+  Louis Roché <louis@cryptosense.com>
+  Gabriel Scherer <gabriel.scherer@inria.fr>
+  Romain Calascibetta <romain.calascibetta@gmail.com>
   $ blaze addr --without-name 002.mail
   notifications@github.com
   reply+0004e976d9ee97bc1d2d238f13f646219cc36441871e86af92cf000000011820dbf092a169ce1722a3ee@reply.github.com
   decompress@noreply.github.com
-  mention@noreply.github.com
   romain.calascibetta@gmail.com
+  mention@noreply.github.com

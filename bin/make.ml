@@ -1,7 +1,6 @@
-open Mrmime
-
 let msgf fmt = Fmt.kstr (fun msg -> `Msg msg) fmt
 let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
+let ( let@ ) finally fn = Fun.protect ~finally fn
 
 let stream_of_filename_with_crlf filename =
   let ic = open_in filename in
@@ -71,12 +70,13 @@ let rec stream_to_stdout stream =
 
 let zone_of_tz_offset_s tz_offset_s =
   let hh, mm = (tz_offset_s / 3600, tz_offset_s mod 3600 / 60) in
-  match Date.Zone.tz hh mm with
+  match Mrmime.Date.Zone.tz hh mm with
   | Ok tz -> tz
   | Error _ -> Fmt.failwith "Invalid local time-zone: %d second(s)" tz_offset_s
 
 let make _ headers content_encoding mime_type content_parameters from _to cc bcc
     zone with_date body output =
+  let open Mrmime in
   let hdrs = Header.of_list headers in
   let content_type =
     let ty, subty = mime_type in
@@ -150,9 +150,12 @@ let rec list_hd_map_or ~f ~default = function
   | x :: r ->
   match f x with Some x -> x | None -> list_hd_map_or ~f ~default r
 
-let mime_version = Result.get_ok (Unstructured.of_string " 1.0\r\n")
+let mime_version =
+  let open Mrmime in
+  Result.get_ok (Unstructured.of_string " 1.0\r\n")
 
 let default =
+  let open Mrmime in
   let open Field_name in
   Map.empty
   |> Map.add from Field.(Witness Unstructured)
@@ -196,33 +199,28 @@ let stream_of_in_channel ic () =
   | line -> Some (line ^ "\r\n", 0, String.length line + 2)
   | exception End_of_file -> None
 
+let lines ic =
+  let init () = ic
+  and stop = Fun.const ()
+  and pull ic =
+    match input_line ic with
+    | "" -> Some ("\n", ic)
+    | line when line.[String.length line - 1] = '\r' -> Some (line ^ "\n", ic)
+    | line -> Some (line ^ "\r\n", ic)
+    | exception End_of_file -> None in
+  Flux.Source { init; stop; pull }
+
 let wrap fields g boundary subty input output =
   let ic, ic_close =
     match input with
     | "-" -> (stdin, ignore)
     | filename -> (open_in filename, close_in) in
-  let decoder = Hd.decoder default in
-  let rec go hdr =
-    match Hd.decode decoder with
-    | `End prelude -> Ok (prelude, Header.of_list (List.rev hdr))
-    | `Field field ->
-        let field = Location.prj field in
-        go (field :: hdr)
-    | `Malformed err -> Error (`Msg err)
-    | `Await ->
-    match input_line ic with
-    | line ->
-        let line =
-          if String.length line > 0 && line.[String.length line - 1] = '\r'
-          then line ^ "\n"
-          else line ^ "\r\n" in
-        Hd.src decoder line 0 (String.length line) ;
-        go hdr
-    | exception End_of_file ->
-        Hd.src decoder "" 0 0 ;
-        go hdr in
-  let ( >>= ) = Result.bind in
-  go [] >>= fun (prelude, hdr) ->
+  let@ () = fun () -> ic_close ic in
+  let ( let* ) = Result.bind in
+  let* prelude, hdrs =
+    let src = Flux.Stream.from (lines ic) in
+    Flux.Stream.into (Header.parser default) src in
+  let open Mrmime in
   let content_type =
     list_hd_map_or
       ~f:(function
@@ -230,7 +228,7 @@ let wrap fields g boundary subty input output =
             Some (content_type : Content_type.t)
         | _ -> None)
       ~default:Content_type.default
-      (Header.assoc Field_name.content_type hdr) in
+      (Header.assoc Field_name.content_type hdrs) in
   let content_encoding =
     list_hd_map_or
       ~f:(function
@@ -238,7 +236,7 @@ let wrap fields g boundary subty input output =
             Some (content_encoding : Content_encoding.t)
         | _ -> None)
       ~default:Content_encoding.default
-      (Header.assoc Field_name.content_encoding hdr) in
+      (Header.assoc Field_name.content_encoding hdrs) in
   let boundary =
     match (g, boundary) with
     | None, None -> Mt.rng ?g:None 8
@@ -248,7 +246,7 @@ let wrap fields g boundary subty input output =
     let content_type =
       Content_type.make `Multipart subty
         Content_type.Parameters.(of_list [ (k "boundary", v boundary) ]) in
-    hdr
+    hdrs
     |> Header.remove_assoc Field_name.content_type
     |> Header.remove_assoc Field_name.content_encoding
     |> Header.add_unless_exists Field_name.mime_version
@@ -284,12 +282,13 @@ let wrap _ fields seed boundary subty input output =
         Some (Array.init (String.length seed) (fun idx -> Char.code seed.[idx]))
     | None -> None in
   match wrap fields g boundary subty input output with
-  | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
+  | Error (`Invalid_email | `Not_enough) -> `Error (false, "Invalid email.")
   | Ok () -> `Ok ()
 
-let ok_if test ~error = match test with true -> Ok () | false -> error ()
+let guard fn ~err = match fn () with true -> Ok () | false -> err
 
 let default =
+  let open Mrmime in
   let open Field_name in
   Map.empty |> Map.add content_type Field.(Witness Content)
 
@@ -309,48 +308,41 @@ let stream_of_in_channel_without_close_delimiter ~boundary ic () =
       else Some (line ^ "\r\n", 0, String.length line + 2)
   | exception End_of_file -> None
 
+let queue =
+  let init () = Queue.create ()
+  and push q v =
+    Queue.push v q ;
+    q
+  and full = Fun.const false
+  and stop = Fun.id in
+  Flux.Sink { init; push; full; stop }
+
 let put headers content_encoding mime_type content_parameters body input output
     =
-  let ( >>= ) = Result.bind in
   let ic, ic_close =
     match input with
     | "-" -> (stdin, ignore)
     | filename -> (open_in filename, close_in) in
-  let decoder = Hd.decoder Field_name.Map.empty in
-  let queue = Queue.create () in
-  let rec go () =
-    match Hd.decode decoder with
-    | `End _ -> error_msgf "The given email does not have a Content-Type field"
-    | `Malformed err -> Error (`Msg err)
-    | `Field field -> (
-        match Location.prj field with
-        | Field.Field (field_name, Field.Content, content_type)
-          when Field_name.equal field_name Field_name.content_type ->
-            Ok (content_type : Content_type.t)
-        | _ -> go ())
-    | `Await ->
-    match input_line ic with
-    | line ->
-        let line =
-          if String.length line > 0 && line.[String.length line - 1] = '\r'
-          then line ^ "\n"
-          else line ^ "\r\n" in
-        Queue.push line queue ;
-        Hd.src decoder line 0 (String.length line) ;
-        go ()
-    | exception End_of_file ->
-        Hd.src decoder "" 0 0 ;
-        go () in
-  go () >>= fun content_type ->
-  ok_if (Content_type.is_multipart content_type) ~error:(fun () ->
-      error_msgf "The given email does not contain multiple parts")
-  >>= fun () ->
+  let@ () = fun () -> ic_close ic in
+  let into =
+    let open Flux.Sink.Syntax in
+    let+ result = Header.parser Mrmime.Field_name.Map.empty and+ q = queue in
+    match result with
+    | Ok (_prelude, hdrs) -> Ok (q, Mrmime.Header.content_type hdrs)
+    | Error _ as err -> err in
+  let ( let* ) = Result.bind in
+  let open Mrmime in
+  let src = lines ic in
+  let* queue, content_type = Flux.Stream.into into (Flux.Stream.from src) in
+  let* () =
+    let err = error_msgf "The given email does not contain multiple parts" in
+    guard ~err @@ fun () -> Content_type.is_multipart content_type in
   let parameters =
     Content_type.Parameters.of_list content_type.Content_type.parameters in
   let none = msgf "Content-Type does not contain a boundary parameter" in
-  Content_type.Parameters.(find (k "boundary") parameters)
-  |> Option.to_result ~none
-  >>= fun boundary ->
+  let* boundary =
+    Content_type.Parameters.(find (k "boundary") parameters)
+    |> Option.to_result ~none in
   let boundary = match boundary with `Token v -> v | `String v -> v in
   let hdrs = Header.of_list headers in
   let content_type =
@@ -385,11 +377,11 @@ let put headers content_encoding mime_type content_parameters body input output
   (match output with
   | Some filename -> stream_to_filename stream (Fpath.to_string filename)
   | None -> stream_to_stdout stream) ;
-  ic_close ic ;
   Ok ()
 
 let add_field _ headers content_encoding mime_type content_parameters from _to
     cc bcc zone with_date input output =
+  let open Mrmime in
   let hdrs = Header.of_list headers in
   let content_type =
     match (mime_type, content_parameters) with
@@ -479,7 +471,7 @@ let put _ headers content_encoding mime_type content_parameters body input
     put headers content_encoding mime_type content_parameters body input output
   with
   | Ok () -> `Ok ()
-  | Error (`Msg err) -> `Error (false, Fmt.str "%s." err)
+  | Error _ -> `Error (false, "Invalid email.")
 
 open Cmdliner
 open Blaze_cli
@@ -487,34 +479,40 @@ open Blaze_cli
 let field =
   let parser str =
     match String.split_on_char ':' str with
-    | [ field_name; value ] -> (
-        match
-          ( Field_name.of_string field_name,
-            Unstructured.of_string (value ^ "\r\n") )
-        with
+    | [ field_name; value ] -> begin
+        let open Mrmime in
+        let fd = Field_name.of_string field_name
+        and unstrctrd = Unstructured.of_string (value ^ "\r\n") in
+        match (fd, unstrctrd) with
         | Ok field_name, Ok unstrctrd ->
             Ok
               (Field.make field_name Field.Unstructured
                  (unstrctrd :> Unstructured.elt list))
         | Error _, _ -> error_msgf "Invalid field-name: %S" field_name
-        | _, Error _ -> error_msgf "Invalid unstructred value: %S" value)
+        | _, Error _ -> error_msgf "Invalid unstructred value: %S" value
+      end
     | _ -> error_msgf "Invalid field: %S" str in
-  let pp ppf (Field.Field (field_name, w, v)) =
+  let pp ppf (Mrmime.Field.Field (field_name, w, v)) =
+    let open Mrmime in
     match w with
-    | Field.Unstructured ->
+    | Mrmime.Field.Unstructured ->
         Fmt.pf ppf "%a:%a" Field_name.pp field_name Unstructured.pp v
     | _ -> assert false in
   Arg.conv (parser, pp)
 
-let content_encoding = Arg.conv (Content_encoding.of_string, Content_encoding.pp)
+let content_encoding =
+  let open Mrmime in
+  Arg.conv (Content_encoding.of_string, Content_encoding.pp)
 
 let content_type =
-  let ( >>= ) = Result.bind in
+  let open Mrmime in
+  let ( let* ) = Result.bind in
   let parser str =
     match String.split_on_char '/' str with
     | [ ty; subty ] ->
-        Content_type.Type.of_string ty >>= fun ty ->
-        Content_type.Subtype.iana ty subty >>= fun subty -> Ok (ty, subty)
+        let* ty = Content_type.Type.of_string ty in
+        let* subty = Content_type.Subtype.iana ty subty in
+        Ok (ty, subty)
     | _ -> error_msgf "Invalid content-type: %S" str in
   let pp ppf (ty, subty) =
     Fmt.pf ppf "%a/%a" Content_type.Type.pp ty Content_type.Subtype.pp subty
@@ -578,12 +576,14 @@ let date =
   Arg.conv (parser, pp)
 
 let content_parameter =
-  let ( >>= ) = Result.bind in
+  let open Mrmime in
+  let ( let* ) = Result.bind in
   let parser str =
     match String.split_on_char '=' str with
     | [ k; v ] ->
-        Content_type.Parameters.key k >>= fun key ->
-        Content_type.Parameters.value v >>= fun value -> Ok (key, value)
+        let* key = Content_type.Parameters.key k in
+        let* value = Content_type.Parameters.value v in
+        Ok (key, value)
     | _ -> error_msgf "Invalid parameter: %S" str in
   let pp ppf (k, v) =
     Fmt.pf ppf "%a=%a" Content_type.Parameters.pp_key k
@@ -599,7 +599,9 @@ let setup_zone = function
       let tz_offset_s = int_of_float (local -. gmt) in
       zone_of_tz_offset_s tz_offset_s
 
-let zone = Arg.conv (Date.Zone.of_string, Date.Zone.pp)
+let zone =
+  let open Mrmime in
+  Arg.conv (Date.Zone.of_string, Date.Zone.pp)
 
 let zone =
   let env = Cmd.Env.info "BLAZE_ZONE" in
@@ -614,11 +616,12 @@ let headers =
 
 let content_parameters =
   let doc = "Parameter for the Content-Type value." in
-  Arg.(
-    value
-    & opt_all content_parameter
-        Content_type.Parameters.[ (key_exn "charset", value_exn "utf-8") ]
-    & info [ "p"; "parameter" ] ~doc)
+  let open Mrmime in
+  let open Arg in
+  value
+  & opt_all content_parameter
+      Content_type.Parameters.[ (key_exn "charset", value_exn "utf-8") ]
+  & info [ "p"; "parameter" ] ~doc
 
 let from =
   let doc = "The sender of the email." in
@@ -642,7 +645,7 @@ let date =
 
 let body =
   let doc = "Body of the email. Use $(b,-) for $(b,stdin)." in
-  Arg.(value & pos ~rev:true 0 Blaze_cli.file "-" & info [] ~doc)
+  Arg.(value & pos ~rev:true 0 Blaze_cli.file_or_stdin "-" & info [] ~doc)
 
 let output =
   let doc = "The filename where you want to save the email." in
@@ -654,10 +657,10 @@ let make_info, make_term =
     Arg.(value & opt content_encoding `Bit7 & info [ "encoding" ] ~doc) in
   let mime_type =
     let doc = "MIME type of the body." in
-    Arg.(
-      value
-      & opt content_type (`Text, Content_type.Subtype.v `Text "plain")
-      & info [ "type" ] ~doc) in
+    let open Arg in
+    value
+    & opt content_type (`Text, Mrmime.Content_type.Subtype.v `Text "plain")
+    & info [ "type" ] ~doc in
   let doc = "Craft an email with an header." in
   let man =
     [
@@ -685,7 +688,7 @@ let make_info, make_term =
 
 let input =
   let doc = "The email to be modified. Use $(b,-) for $(b,stdin)." in
-  Arg.(value & pos ~rev:true 0 Blaze_cli.file "-" & info [] ~doc)
+  Arg.(value & pos ~rev:true 0 Blaze_cli.file_or_stdin "-" & info [] ~doc)
 
 let add_field =
   let content_encoding =
@@ -725,7 +728,7 @@ let add_field =
 let input =
   let doc =
     "The email to wrap into a multipart one. Use $(b,-) for $(b,stdin)." in
-  Arg.(value & pos ~rev:true 0 Blaze_cli.file "-" & info [] ~doc)
+  Arg.(value & pos ~rev:true 0 Blaze_cli.file_or_stdin "-" & info [] ~doc)
 
 let seed =
   let doc = "Seed used by the random number generator." in
@@ -736,6 +739,7 @@ let seed =
   Arg.(value & opt (some base64) None & info [ "s"; "seed" ] ~doc)
 
 let boundary =
+  let open Mrmime in
   let doc = "Boundary used to delimit parts." in
   let content_type_value =
     Arg.conv (Content_type.Parameters.value, Content_type.Parameters.pp_value)
@@ -743,6 +747,7 @@ let boundary =
   Arg.(value & opt (some content_type_value) None & info [ "boundary" ] ~doc)
 
 let subty =
+  let open Mrmime in
   let mixed = Content_type.Subtype.v `Multipart "mixed" in
   let flags =
     [
@@ -783,11 +788,11 @@ let wrap =
 let input =
   let doc =
     "The email to wrap into a multipart one. Use $(b,-) for $(b,stdin)." in
-  Arg.(value & pos 1 Blaze_cli.file "-" & info [] ~doc)
+  Arg.(value & pos 1 Blaze_cli.file_or_stdin "-" & info [] ~doc)
 
 let body =
   let doc = "Body of the email." in
-  Arg.(value & pos 0 Blaze_cli.file "-" & info [] ~doc)
+  Arg.(value & pos 0 Blaze_cli.file_or_stdin "-" & info [] ~doc)
 
 let put =
   let content_encoding =
@@ -795,10 +800,10 @@ let put =
     Arg.(value & opt content_encoding `Bit7 & info [ "encoding" ] ~doc) in
   let mime_type =
     let doc = "MIME type of the body." in
-    Arg.(
-      value
-      & opt content_type (`Text, Content_type.Subtype.v `Text "plain")
-      & info [ "type" ] ~doc) in
+    let open Arg in
+    value
+    & opt content_type (`Text, Mrmime.Content_type.Subtype.v `Text "plain")
+    & info [ "type" ] ~doc in
   let doc = "Put a new part into the given multipart email." in
   let man =
     [

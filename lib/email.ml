@@ -1,6 +1,3 @@
-type bigstring =
-  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
-
 let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
 
 let display_tree =
@@ -178,6 +175,8 @@ module Semantic = struct
 end
 
 type 'octet t = 'octet Skeleton.t * 'octet Semantic.t
+type with_offsets = (int * int) t
+type error = [ `Invalid_email | `No_symmetry | `Not_enough | `Msg of string ]
 
 let map fn ((skeleton, semantic) : 'a t) =
   (Skeleton.map fn skeleton, Option.map (Semantic.map fn) semantic)
@@ -495,9 +494,6 @@ module Parser = struct
   let t = mail
 end
 
-let blit src src_off dst dst_off len =
-  Bstr.blit_from_string src ~src_off dst ~dst_off ~len
-
 let g =
   let open Mrmime in
   let open Field_name in
@@ -602,53 +598,6 @@ let multipart_from_headers hdrs =
       Content_type.Subtype.to_string v.Content_type.subty
   | _ -> "none"
 
-let sink_of_parser parser =
-  let init () =
-    let ke = Ke.Rke.create ~capacity:0x100 Bigarray.char in
-    let state = Angstrom.Unbuffered.parse parser in
-    (ke, `Continue state) in
-  let push (ke, state) str =
-    let open Angstrom.Unbuffered in
-    if String.length str > 0
-    then
-      match state with
-      | `Continue (Done (_, v)) -> (ke, `Full v)
-      | `Continue (Fail _) -> (ke, `Error)
-      | `Continue (Partial { committed; continue }) ->
-          Ke.Rke.N.shift_exn ke committed ;
-          if committed = 0 then Ke.Rke.compress ke ;
-          let length = String.length in
-          let len = String.length str in
-          Ke.Rke.N.push ke ~blit ~length ~off:0 ~len str ;
-          let[@warning "-8"] (slice :: _) = Ke.Rke.N.peek ke in
-          let off = 0 and len = Bstr.length slice in
-          let state = continue slice ~off ~len Incomplete in
-          (ke, `Continue state)
-      | (`Full _ | `Error) as value -> (ke, value)
-    else (ke, state) in
-  let full (_ke, state) =
-    match state with `Continue _ -> false | `Full _ | `Error -> true in
-  let stop (ke, state) =
-    let open Angstrom.Unbuffered in
-    match state with
-    | `Full v | `Continue (Done (_, v)) -> Ok v
-    | `Error | `Continue (Fail _) -> Error `Invalid
-    | `Continue (Partial { committed; continue }) -> begin
-        Ke.Rke.N.shift_exn ke committed ;
-        let rem =
-          match Ke.Rke.length ke with
-          | 0 -> Bstr.empty
-          | _ ->
-              Ke.Rke.compress ke ;
-              List.hd (Ke.Rke.N.peek ke) in
-        let off = 0 and len = Bstr.length rem in
-        match continue rem ~off ~len Complete with
-        | Done (_, v) -> Ok v
-        | Fail _ -> Error `Invalid
-        | Partial _ -> Error `Not_enough
-      end in
-  Flux.Sink { init; push; full; stop }
-
 let documents_of_mrmime ?lang (headers, t) =
   let ( let* ) = Option.bind in
   let rec go ~headers = function
@@ -736,38 +685,105 @@ let rec map_from_skeleton skeleton mrmime =
           m "asymmetry between %a and %a" pp_skeleton a pp_mrmime b) ;
       assert false
 
-let of_filename ?lang filename =
-  let filename = Fpath.to_string filename in
+type metadata = {
+  message_id : Mrmime.MessageID.t option;
+  in_reply_to : Mrmime.MessageID.t option;
+  from : Mrmime.Mailbox.t list;
+  sender : Mrmime.Mailbox.t option;
+  reply_to : Mrmime.Address.t list;
+  _to : Mrmime.Address.t list;
+  date : (Ptime.t * Ptime.tz_offset_s) option;
+  subject : Unstrctrd.t option;
+}
+
+let to_message_id unstrctrd =
+  let str = Unstrctrd.to_utf_8_string unstrctrd in
+  Mrmime.MessageID.of_string str |> Result.to_option
+
+let to_mailboxes unstrctrd =
+  Angstrom.parse_string ~consume:Prefix Mrmime.Mailbox.Decoder.mailbox_list
+    (Unstrctrd.to_utf_8_string unstrctrd)
+  |> Result.to_option
+
+let to_mailbox unstrctrd =
+  let str = Unstrctrd.to_utf_8_string unstrctrd in
+  Mrmime.Mailbox.of_string str |> Result.to_option
+
+let to_addresses unstrctrd =
+  Angstrom.parse_string ~consume:Prefix Mrmime.Address.Decoder.address_list
+    (Unstrctrd.to_utf_8_string unstrctrd)
+  |> Result.to_option
+
+let to_date unstrctrd =
+  Angstrom.parse_string ~consume:Prefix Mrmime.Date.Decoder.date_time
+    (Unstrctrd.to_utf_8_string unstrctrd)
+  |> Result.to_option
+
+let metadata_of_headers hdrs =
+  let open Mrmime in
+  let hdrs = Header.to_list hdrs in
+  let get field_name =
+    let fn = function
+      | Field.Field (field_name', Unstructured, v) ->
+          if Field_name.equal field_name field_name'
+          then Some (to_unstrctrd v)
+          else None
+      | _ -> None in
+    List.find_map fn hdrs in
+  let message_id = get (Field_name.v "Message-ID") in
+  let message_id = Option.bind message_id to_message_id in
+  let in_reply_to = get (Field_name.v "In-Reply-To") in
+  let in_reply_to = Option.bind in_reply_to to_message_id in
+  let from = get (Field_name.v "From") in
+  let from = Option.bind from to_mailboxes in
+  let from = Option.fold ~none:[] ~some:Fun.id from in
+  let sender = get (Field_name.v "Sender") in
+  let sender = Option.bind sender to_mailbox in
+  let reply_to = get (Field_name.v "Reply-To") in
+  let reply_to = Option.bind reply_to to_addresses in
+  let reply_to = Option.fold ~none:[] ~some:Fun.id reply_to in
+  let _to = get (Field_name.v "To") in
+  let _to = Option.bind _to to_addresses in
+  let _to = Option.fold ~none:[] ~some:Fun.id _to in
+  let date = get (Field_name.v "Date") in
+  let date = Option.bind date to_date in
+  let date =
+    Option.bind date (Fun.compose Result.to_option Mrmime.Date.to_ptime) in
+  let subject = get (Field_name.v "Subject") in
+  { message_id; in_reply_to; from; sender; reply_to; _to; date; subject }
+
+let of_filepath ?lang filepath =
+  Log.debug (fun m ->
+      m "Parse %a (as an email, CRLF encoded)" Fpath.pp filepath) ;
+  let filename = Fpath.to_string filepath in
   let from = Flux.Source.file ~filename 0x7ff in
   let via = Flux.Flow.identity in
   let emitters _hdrs = (Fun.const (), ()) in
   let into =
     let open Flux.Sink.Syntax in
-    let+ s = sink_of_parser Parser.t
-    and+ m =
-      sink_of_parser (Mrmime.Mail.stream ~transfer_encoding:false ~g emitters)
-    in
+    let p = Mrmime.Mail.stream ~transfer_encoding:false ~g emitters in
+    let+ s = Flux_angstrom.parser Parser.t and+ m = Flux_angstrom.parser p in
     join s m in
   let result, leftover = Flux.Stream.run ~from ~via ~into in
   Option.iter Flux.Source.dispose leftover ;
   let ( let* ) = Result.bind in
-  let* skeleton, mrmime = result in
-  Log.debug (fun m -> m "skeleton: @[<hov>%a@]" pp_skeleton skeleton) ;
-  Log.debug (fun m -> m "mrmime: @[<hov>%a@]" pp_mrmime (snd mrmime)) ;
+  let* skeleton, ((hdrs, _) as mrmime) =
+    Result.map_error (fun _ -> `Invalid_email) result in
+  let metadata = metadata_of_headers hdrs in
   let* mrmime = map_from_skeleton skeleton mrmime in
   let documents = documents_of_mrmime ?lang mrmime in
-  Ok (skeleton, documents)
+  Ok ((skeleton, documents), metadata)
 
-let output_bigstring oc bstr =
+let output_bstr oc bstr =
   let buf = Bytes.create 0x7ff in
   let rec go bstr =
-    let dim = Bigarray.Array1.dim bstr in
+    let dim = Bstr.length bstr in
     if dim > 0
     then begin
       let len = Int.min (Bytes.length buf) dim in
       Bstr.blit_to_bytes bstr ~src_off:0 buf ~dst_off:0 ~len ;
       output_substring oc (Bytes.unsafe_to_string buf) 0 len ;
-      go (Bigarray.Array1.sub bstr len (dim - len))
+      go (Bstr.sub bstr ~off:len ~len:(dim - len))
     end in
   go bstr
 
@@ -815,7 +831,7 @@ let of_string str =
   | Ok t -> Ok t
   | Error _ -> error_msgf "Invalid object"
 
-let of_bigstring bstr =
+let of_bstr bstr =
   let parser = Encore.to_angstrom Format.t in
   match Angstrom.parse_bigstring ~consume:All parser bstr with
   | Ok t -> Ok t

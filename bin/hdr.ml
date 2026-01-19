@@ -1,9 +1,9 @@
-open Mrmime
-
 let identity x = x
 let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
+let ( let@ ) finally fn = Fun.protect ~finally fn
 
 let default =
+  let open Mrmime in
   let open Field_name in
   Map.empty
   |> Map.add from Field.(Witness Mailboxes)
@@ -66,22 +66,19 @@ let pp_address ppf = function
   | `Group g -> pp_group ppf g
   | `Mailbox m -> pp_mailbox ppf m
 
-let parse_header p ic =
-  let decoder = Hd.decoder p in
-  let rec go hdr =
-    match Hd.decode decoder with
-    | `Malformed err -> Error (`Msg err)
-    | `Field field -> go (Location.prj field :: hdr)
-    | `End _prelude -> Ok (List.rev hdr)
-    | `Await ->
+let lines ic =
+  let init () = ic
+  and stop = Fun.const ()
+  and pull ic =
     match input_line ic with
-    | line ->
-        Hd.src decoder (line ^ "\r\n") 0 (String.length line + 2) ;
-        go hdr
-    | exception End_of_file ->
-        Hd.src decoder "" 0 0 ;
-        go hdr in
-  go []
+    | line -> Some (line ^ "\r\n", ic)
+    | exception End_of_file -> None in
+  Flux.Source { init; stop; pull }
+
+let parse_header p ic =
+  let from = lines ic in
+  let into = Header.parser p in
+  Flux.Stream.from from |> Flux.Stream.into into
 
 let pp_value ppf = function
   | `String v -> Fmt.pf ppf "%a" Fmt.(quote string) v
@@ -93,13 +90,15 @@ let pp_parameters ppf = function
       let pp_binding ppf (k, v) = Fmt.pf ppf "%s=%a" k pp_value v in
       Fmt.pf ppf "; %a" Fmt.(list ~sep:(any ";@,") pp_binding) lst
 
-let pp_content_type ppf { Content_type.ty; subty; parameters } =
+let pp_content_type ppf { Mrmime.Content_type.ty; subty; parameters } =
+  let open Mrmime in
   Fmt.pf ppf "%s/%s@[<v>%a@]"
     (Content_type.Type.to_string ty)
     (Content_type.Subtype.to_string subty)
     pp_parameters parameters
 
 let filter hdr fields =
+  let open Mrmime in
   let rem field_name fields =
     let delete (a, deleted) x =
       if deleted
@@ -116,6 +115,7 @@ let filter hdr fields =
   List.fold_left filter ([], fields) hdr |> fun (res, _fields) -> List.rev res
 
 let show ~prefix hdr fields =
+  let open Mrmime in
   let open Field in
   let pp ppf = function
     | Field (field_name, Date, v) ->
@@ -152,6 +152,7 @@ let show ~prefix hdr fields =
   List.iter (Fmt.pr "%s%a\n%!" prefix pp) hdr
 
 let show_parameter ~prefix contents key =
+  let open Mrmime in
   let open Content_type in
   let show_line = function
     | Field.Field (_, Content, content) -> (
@@ -164,16 +165,18 @@ let show_parameter ~prefix contents key =
   List.iter show_line contents
 
 let run fields want_to_decode_rfc2047 prefix parameter input =
+  let open Mrmime in
   let prefix =
     match (prefix, input) with
-    | true, Some fpath -> Fpath.to_string fpath ^ "\t"
+    | true, Some filepath -> filepath ^ "\t"
     | true, None -> ">\t"
     | _ -> "" in
   decode_rfc2047 := want_to_decode_rfc2047 ;
-  let ic, close =
+  let ic, ic_close =
     match input with
-    | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
+    | Some filepath -> (open_in_bin filepath, close_in)
     | None -> (stdin, ignore) in
+  let@ () = fun () -> ic_close ic in
   let p =
     match parameter with
     | None -> default
@@ -187,33 +190,30 @@ let run fields want_to_decode_rfc2047 prefix parameter input =
         List.fold_left
           (fun a x -> Map.add x Field.(Witness Content) a)
           Map.empty fields in
-  let result =
-    let ( >>| ) x fn = Result.map fn x in
-    parse_header p ic >>| fun value ->
-    close ic ;
-    value in
+  let result = parse_header p ic in
   match (result, parameter) with
-  | Ok hdr, None ->
-      show ~prefix hdr fields ;
+  | Ok (_prelude, hdrs), None ->
+      let hdrs = Header.to_list hdrs in
+      show ~prefix hdrs fields ;
       `Ok ()
-  | Ok hdr, Some parameter ->
-      show_parameter ~prefix hdr parameter ;
+  | Ok (_prelude, hdrs), Some parameter ->
+      let hdrs = Header.to_list hdrs in
+      show_parameter ~prefix hdrs parameter ;
       `Ok ()
-  | Error (`Msg err), _ -> `Error (false, Fmt.str "%s." err)
+  | Error (`Invalid_email | `Not_enough), _ -> `Error (false, "Invalid email.")
 
 open Cmdliner
 
 let existing_file =
   let parser = function
     | "-" -> Ok None
-    | str ->
-    match Fpath.of_string str with
-    | Ok v when Sys.file_exists str -> Ok (Some v)
-    | Ok v -> error_msgf "%a not found" Fpath.pp v
-    | Error _ as err -> err in
-  Arg.conv (parser, Fmt.option ~none:(Fmt.any "-") Fpath.pp)
+    | str when Sys.file_exists str && Sys.is_regular_file str -> Ok (Some str)
+    | str -> error_msgf "%S is not an existing and/or regular file" str in
+  Arg.conv (parser, Fmt.option ~none:(Fmt.any "-") Fmt.string)
 
-let field_name = Arg.conv (Field_name.of_string, Field_name.pp)
+let field_name =
+  let open Mrmime in
+  Arg.conv (Field_name.of_string, Field_name.pp)
 
 let input =
   let doc = "The email to analyze." in
@@ -226,6 +226,7 @@ let fields =
   Arg.(value & opt (some (list ~sep:':' field_name)) None & info [ "h" ] ~doc)
 
 let parameter =
+  let open Mrmime in
   let open Content_type in
   Arg.conv (Parameters.key, Fmt.string)
 

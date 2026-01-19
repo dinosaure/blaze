@@ -14,7 +14,19 @@
  (name email)
  (public_name blaze.email)
  (modules email)
- (libraries flux stem.snowball bstr logs fpath encore mrmime))
+ (libraries flux fluxt.angstrom stem.snowball bstr logs fpath encore mrmime))
+
+(library
+ (name tree)
+ (public_name blaze.tree)
+ (modules tree)
+ (libraries blaze.email ocamlgraph art carton digestif))
+
+(library
+ (name header)
+ (public_name blaze.header)
+ (modules header)
+ (libraries flux mrmime))
 
 (library
  (name protocol)
@@ -59,8 +71,10 @@
   hxd.string
   digestif
   carton-miou.unix
+  carton-miou.flux
   blaze.email
   blaze.stem
+  blaze.tree
   stem.stopwords
   stem.snowball
   stem.tokenizer))

@@ -346,7 +346,7 @@ let fields =
 
 let input =
   let doc = "The email to verify." in
-  Arg.(value & pos 0 Blaze_cli.file "-" & info [] ~doc)
+  Arg.(value & pos 0 Blaze_cli.file_or_stdin "-" & info [] ~doc)
 
 let setup_resolver happy_eyeballs_cfg nameservers local () =
   let happy_eyeballs =
@@ -419,7 +419,7 @@ let setup_key bits alg seed key =
 
 let input =
   let doc = "The email to sign." in
-  Arg.(value & pos 0 Blaze_cli.file "-" & info [] ~doc)
+  Arg.(value & pos 0 Blaze_cli.file_or_stdin "-" & info [] ~doc)
 
 let new_file = Arg.conv (Fpath.of_string, Fpath.pp)
 

@@ -1,5 +1,5 @@
-let to_output_channel_from_filename filename t oc =
-  let fd = Unix.openfile (Fpath.to_string filename) Unix.[ O_RDONLY ] 0o644 in
+let to_output_channel_from_filepath filepath t oc =
+  let fd = Unix.openfile (Fpath.to_string filepath) Unix.[ O_RDONLY ] 0o644 in
   let finally () = Unix.close fd in
   Fun.protect ~finally @@ fun () ->
   let map ~off ~len =
@@ -12,27 +12,28 @@ let to_output_channel_from_filename filename t oc =
   let seq = Email.to_seq ~load t in
   let fn = function
     | `String str -> output_string oc str
-    | `Value bstr -> Email.output_bigstring oc bstr in
+    | `Value bstr -> Email.output_bstr oc bstr in
   Seq.iter fn seq
 
-let run _quiet filename output =
-  let filename = Fpath.v filename in
-  match Email.of_filename filename with
-  | Ok (t, _) ->
+let run _quiet filepath output =
+  let filepath = Fpath.v filepath in
+  match Email.of_filepath filepath with
+  | Ok ((t, _), _) ->
       let oc, finally =
         match output with
-        | Some filename ->
-            let oc = open_out (Fpath.to_string filename) in
+        | Some filepath ->
+            let oc = open_out (Fpath.to_string filepath) in
             let finally () = close_out oc in
             (oc, finally)
         | None -> (stdout, ignore) in
       Fun.protect ~finally @@ fun () ->
-      to_output_channel_from_filename filename t oc ;
+      to_output_channel_from_filepath filepath t oc ;
       `Ok ()
-  | Error `Invalid -> `Error (false, "Invalid email")
+  | Error `Invalid_email -> `Error (false, "Invalid email")
   | Error `No_symmetry ->
       `Error (false, "No symmetry between Mr.MIME and our skeleton")
   | Error `Not_enough -> `Error (false, "Not enough input for an email")
+  | Error (`Msg msg) -> `Error (false, msg)
 
 open Cmdliner
 open Blaze_cli
