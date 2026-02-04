@@ -24,6 +24,7 @@ depends: [
   "art"
   "flux"
   "fluxt"
+  "bancos"
   "cmdliner" {>= "1.1.0"}
   "colombe" {>= "0.7.0"}
   "sendmail" {>= "0.12.1"}
