@@ -22,6 +22,8 @@ depends: [
   "bos"
   "dns"
   "art"
+  "flux"
+  "fluxt"
   "cmdliner" {>= "1.1.0"}
   "colombe" {>= "0.7.0"}
   "sendmail" {>= "0.12.1"}
