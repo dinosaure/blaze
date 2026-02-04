@@ -21,6 +21,7 @@ depends: [
   "base64"
   "bos"
   "dns"
+  "art"
   "cmdliner" {>= "1.1.0"}
   "colombe" {>= "0.7.0"}
   "sendmail" {>= "0.12.1"}
@@ -57,13 +58,9 @@ build: [
 dev-repo: "git+https://github.com/dinosaure/blaze.git"
 pin-depends: [
   [ "maildir.dev"            "git+https://github.com/dinosaure/ocaml-maildir.git#597823c7d2d4fd2aef26a581f6828f2b458371ea" ]
-  [ "carton.dev"             "git+https://github.com/robur-coop/carton.git#9c6c54fc14d2b46024664a91aaac2800f1edb3fd" ]
-  [ "carton-miou.dev"        "git+https://github.com/robur-coop/carton.git#9c6c54fc14d2b46024664a91aaac2800f1edb3fd" ]
-  [ "flux.dev"               "git+https://github.com/robur-coop/flux.git#7c4d8733596fd54f2f865c32747ba0eebdb964da" ]
+  [ "flux.dev"               "git+https://github.com/robur-coop/flux.git#df8f86c990a3f85eaf7d33584e4250c406e4b9b2" ]
+  [ "fluxt.dev"              "git+https://github.com/robur-coop/flux.git#df8f86c990a3f85eaf7d33584e4250c406e4b9b2" ]
   [ "stem.dev"               "git+https://github.com/robur-coop/stem.git#66ce4f85ec2ad317ef2bd01bad71c93c0af68210" ]
   [ "bm25.dev"               "git+https://github.com/robur-coop/stem.git#66ce4f85ec2ad317ef2bd01bad71c93c0af68210" ]
   [ "mrmime.dev"             "git+https://github.com/mirage/mrmime.git#ffce7951d3df81d5555c0686489535e21e6443da" ]
-  [ "bancos.dev"             "git+https://github.com/robur-coop/bancos.git#71c448289b36967fa968160a2ebfa9f12eb8cc85" ]
-  [ "rowex.dev"              "git+https://github.com/robur-coop/bancos.git#71c448289b36967fa968160a2ebfa9f12eb8cc85" ]
-  [ "bank.dev"               "git+https://github.com/robur-coop/bancos.git#71c448289b36967fa968160a2ebfa9f12eb8cc85" ]
 ]
