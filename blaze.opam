@@ -66,4 +66,5 @@ pin-depends: [
   [ "stem.dev"               "git+https://github.com/robur-coop/stem.git#66ce4f85ec2ad317ef2bd01bad71c93c0af68210" ]
   [ "bm25.dev"               "git+https://github.com/robur-coop/stem.git#66ce4f85ec2ad317ef2bd01bad71c93c0af68210" ]
   [ "mrmime.dev"             "git+https://github.com/mirage/mrmime.git#ffce7951d3df81d5555c0686489535e21e6443da" ]
+  [ "dkim.dev"               "git+https://github.com/mirage/ocaml-dkim.git#aedceffe820fcde82473359e2308667cda93126b" ]
 ]
