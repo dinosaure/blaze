@@ -130,6 +130,7 @@
   sendmail-miou-unix
   happy-eyeballs-miou-unix
   dns-client-miou-unix
+  mirage-crypto-rng.unix
   sendmail
   sendmail.starttls
   colombe.emile))

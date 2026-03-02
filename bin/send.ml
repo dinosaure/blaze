@@ -237,6 +237,7 @@ let to_exit_status = function
 
 let run _ authenticator resolver destination domain sender recipients mail =
   Miou_unix.run ~domains:0 @@ fun () ->
+  Mirage_crypto_rng_unix.use_default () ;
   let daemon, happy_eyeballs = resolver () in
   let authenticator = Option.map (fun (fn, _) -> fn now) authenticator in
   let finally () = Happy_eyeballs_miou_unix.kill daemon in
