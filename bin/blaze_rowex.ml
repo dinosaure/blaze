@@ -12,6 +12,7 @@ let run_populate _quiet rowex (uid, pack) =
     match Tree.of_string str with
     | Ok { Tree.msgid; _ } ->
         let value = value_of_uid_and_offset uid offset in
+        let value = Int64.of_int value in
         Some (Bancos.insert rowex (Rowex.key msgid) value)
     | Error _ ->
         Logs.warn (fun m -> m "Invalid tree at %016x" offset) ;
@@ -122,6 +123,7 @@ let run_tree _quiet rowex packs =
   let graph = Gr.create () in
   let index = Art.make () in
   let fn _key value =
+    let value = Int64.to_int value in
     let pack = value lsr 48 in
     if pack < Array.length packs
     then
