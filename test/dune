@@ -6,6 +6,7 @@
   004.mail
   005.mail
   006.mail
+  007.mail
   (source_tree mdir)
   (source_tree cache)
   %{bin:blaze}))

@@ -34,3 +34,5 @@ Invalid DKIM-Signature without expiration
   [ER]: discoursemail.com
   blaze: Invalid DKIM signature.
   [124]
+  $ blaze dkim verify < 007.mail
+  [OK]: football.example.com

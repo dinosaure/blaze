@@ -158,7 +158,7 @@ let zone = Arg.conv (Mrmime.Date.Zone.of_string, Mrmime.Date.Zone.pp)
 let domain = Arg.conv (Colombe.Domain.of_string, Colombe.Domain.pp)
 
 let path =
-  let ( >>= ) = Result.bind in
+  let ( >>= ) x fn = Result.map fn x in
   let parser str =
     Emile.of_string str
     |> Result.map_error (fun _ -> `Msg "Invalid path")

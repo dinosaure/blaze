@@ -46,8 +46,16 @@ module Sendmail_unix = struct
     let rd flow buf off len =
       match Miou_unix.read flow buf ~off ~len with
       | 0 -> inj `End
-      | len -> inj (`Len len)
-    and wr flow buf off len = inj (Miou_unix.write flow buf ~off ~len) in
+      | len ->
+          Logs.debug (fun m ->
+              let str = Bytes.sub_string buf off len in
+              m "<~ @[<hov>%a@]" (Hxd_string.pp Hxd.default) str) ;
+          inj (`Len len)
+    and wr flow buf off len =
+      Logs.debug (fun m ->
+          let str = String.sub buf off len in
+          m "~> @[<hov>%a@]" (Hxd_string.pp Hxd.default) str) ;
+      inj (Miou_unix.write flow buf ~off ~len) in
     { Colombe.Sigs.rd; wr }
 
   let authenticator :
@@ -278,7 +286,7 @@ let authenticator =
 
 let sender =
   let parser str =
-    let ( >>= ) = Result.bind in
+    let ( >>= ) x fn = Result.map fn x in
     match Emile.of_string str >>= Colombe_emile.to_path with
     | Ok v -> Ok v
     | Error _ -> error_msgf "Invalid sender: %S" str in
@@ -366,7 +374,7 @@ let hostname =
   value & opt hostname default_hostname & info [ "h"; "hostname" ] ~doc
 
 let recipient =
-  let ( >>= ) = Result.bind in
+  let ( >>= ) x fn = Result.map fn x in
   let parser str =
     Emile.of_string str
     |> Result.map_error (fun _err -> msgf "Invalid email %S" str)

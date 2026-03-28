@@ -134,7 +134,7 @@ let sign _quiet newline resolver ctx seal msgsig keys receiver input =
   let results = Miou.await_exn prm0 and chain = Miou.await_exn prm1 in
   match (results, chain) with
   | Ok results, Ok chain ->
-      sign seal msgsig keys newline receiver msg results chain ;
+      sign seal msgsig keys newline receiver msg results (`Verified chain) ;
       `Ok ()
   | Error err, _ -> `Error (false, Fmt.str "%a." Dmarc.Verify.pp_error err)
   | _, Error _ -> `Error (false, "Invalid email")
@@ -556,7 +556,7 @@ let sender =
     let path =
       let ( let* ) = Result.bind in
       let* email = Emile.of_string str in
-      Colombe_emile.to_path email in
+      Ok (Colombe_emile.to_path email) in
     match path with
     | Ok v -> Ok v
     | Error _ -> error_msgf "Invalid sender: %S" str in

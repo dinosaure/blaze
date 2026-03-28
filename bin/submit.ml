@@ -202,7 +202,7 @@ let authenticator =
 
 let sender =
   let parser str =
-    let ( >>= ) = Result.bind in
+    let ( >>= ) x fn = Result.map fn x in
     match Emile.of_string str >>= Colombe_emile.to_path with
     | Ok v -> Ok v
     | Error _ -> error_msgf "Invalid sender: %S" str in
@@ -290,7 +290,7 @@ let hostname =
   value & opt hostname default_hostname & info [ "h"; "hostname" ] ~doc
 
 let recipient =
-  let ( >>= ) = Result.bind in
+  let ( >>= ) x fn = Result.map fn x in
   let parser str =
     Emile.of_string str
     |> Result.map_error (fun _err -> msgf "Invalid email %S" str)

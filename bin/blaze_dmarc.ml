@@ -314,7 +314,7 @@ let sender =
     let path =
       let ( let* ) = Result.bind in
       let* email = Emile.of_string str in
-      Colombe_emile.to_path email in
+      Ok (Colombe_emile.to_path email) in
     match path with
     | Ok v -> Ok v
     | Error _ -> error_msgf "Invalid sender: %S" str in

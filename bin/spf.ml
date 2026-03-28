@@ -292,7 +292,7 @@ let hostname =
 
 let sender =
   let parser str =
-    let ( >>= ) = Result.bind in
+    let ( >>= ) x fn = Result.map fn x in
     match Emile.of_string str >>= Colombe_emile.to_path with
     | Ok v -> Ok v
     | Error _ -> error_msgf "Invalid sender: %S" str in
