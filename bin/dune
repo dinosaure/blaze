@@ -26,7 +26,15 @@
  (name addr)
  (modules addr)
  (public_name blaze.addr)
- (libraries flux blaze.header blaze.cli cmdliner fpath mrmime bigstringaf emile))
+ (libraries
+  flux
+  blaze.header
+  blaze.cli
+  cmdliner
+  fpath
+  mrmime
+  bigstringaf
+  emile))
 
 (library
  (name hdr)
@@ -145,7 +153,15 @@
  (name make)
  (modules make)
  (public_name blaze.make)
- (libraries blaze.header flux unix blaze.cli cmdliner fpath ptime.clock.os mrmime))
+ (libraries
+  blaze.header
+  flux
+  unix
+  blaze.cli
+  cmdliner
+  fpath
+  ptime.clock.os
+  mrmime))
 
 (library
  (name descr)

@@ -49,9 +49,10 @@ let check dns ctx =
           | `Softfail -> Option.fold ~none ~some c.softfail
           | `Temperror -> Option.fold ~none ~some c.temperror
           | `Permerror -> Option.fold ~none ~some c.permerror
-          | `Pass m -> begin
-              fun () -> match c.pass with Some fn -> fn m | None -> none ()
-            end in
+          | `Pass m ->
+              begin fun () ->
+                match c.pass with Some fn -> fn m | None -> none ()
+              end in
         go (fn ()) in
     match go t with exception Uspf.Result result -> Some result | _ -> None
   in
@@ -96,11 +97,11 @@ let stamp quiet hostname resolver ctx input output =
     | Some fpath -> (open_out (Fpath.to_string fpath), close_out)
     | None -> (stdout, ignore) in
   match check dns ctx with
-  | Some res when quiet -> begin
-      match res with
+  | Some res when quiet ->
+      begin match res with
       | `Pass _ | `None | `Neutral -> `Ok ()
       | `Fail | `Softfail | `Permerror | `Temperror -> impossible_to_stamp
-    end
+      end
   | Some res ->
       let field_name, unstrctrd = Uspf.to_field ~ctx ~receiver:hostname res in
       Fmt.pr "%a: %s\n%!" Mrmime.Field_name.pp field_name

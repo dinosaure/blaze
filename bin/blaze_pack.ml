@@ -615,8 +615,8 @@ let index_term =
 let pack =
   let parser str =
     match Fpath.of_string str with
-    | Ok value when Sys.file_exists str && Sys.is_directory str = false -> begin
-        match Fpath.get_ext value with
+    | Ok value when Sys.file_exists str && Sys.is_directory str = false ->
+        begin match Fpath.get_ext value with
         | ".pack" -> Ok (`Pack value)
         | ".idx" ->
             let pack = Fpath.set_ext ".pack" value in
@@ -628,7 +628,7 @@ let pack =
               error_msgf "The associated PACK file to %a does not exist"
                 Fpath.pp value
         | _ -> error_msgf "Unexpected file %a" Fpath.pp value
-      end
+        end
     | Ok value -> error_msgf "%a does not exist" Fpath.pp value
     | Error _ as err -> err in
   let pp ppf = function `Pack value | `Idx (value, _) -> Fpath.pp ppf value in

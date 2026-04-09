@@ -652,8 +652,8 @@ let rec map_from_skeleton skeleton mrmime =
   match (skeleton, mrmime) with
   | { body = Single (Some contents); _ }, (headers, Leaf ()) ->
       Ok (headers, Leaf contents)
-  | { body = Multipart { parts; _ }; _ }, (headers, Multipart parts') -> begin
-      try
+  | { body = Multipart { parts; _ }; _ }, (headers, Multipart parts') ->
+      begin try
         let fn (_, skeleton) (headers', part') =
           match (skeleton, part') with
           | { body = Single None; _ }, None -> Ok (headers', None)
@@ -676,7 +676,7 @@ let rec map_from_skeleton skeleton mrmime =
               (List.length parts) (List.length parts')) ;
         Log.err (fun m -> m "We failed with: %s" (Printexc.to_string _exn)) ;
         Error `No_symmetry
-    end
+      end
   | { body = Message t; _ }, (headers, Message (hdrs', t')) ->
       let* hdrs, t = map_from_skeleton t (hdrs', t') in
       Ok (headers, Message (hdrs, t))

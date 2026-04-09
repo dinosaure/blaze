@@ -47,13 +47,13 @@ let is_ok str =
 
 let entry str =
   match Astring.String.cut ~sep:" " str with
-  | Some (sid, uid) -> begin
-      match int_of_string sid with
+  | Some (sid, uid) ->
+      begin match int_of_string sid with
       | sid -> Protocol.return { Uid.sid; uid }
       | exception _ ->
           Log.err (fun m -> m "Invalid UIDL response: %S" str) ;
           pop3f "Invalid UIDL response: %S" str
-    end
+      end
   | None ->
       Log.err (fun m -> m "Invalid UIDL response: %S" str) ;
       pop3f "Invalid UIDL response: %S" str
