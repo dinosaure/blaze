@@ -222,14 +222,6 @@ module Format = struct
       ((((preamble, epilogue), transport_padding), boundary), parts) in
     Bij.v ~fwd ~bwd
 
-  let multipart part =
-    multipart
-    <$> (c_string
-        <*> c_string
-        <*> c_string
-        <*> c_string
-        <*> rep0 (c_string <*> part))
-
   let ctor chr =
     let ctor =
       let fwd str =
@@ -238,6 +230,25 @@ module Format = struct
       let bwd _value = String.make 1 chr in
       Bij.v ~fwd ~bwd in
     ctor <$> const (String.make 1 chr)
+
+  let list elt =
+    let stop =
+      let bij =
+        let fwd () = [] in
+        let bwd = function [] -> () | _ -> raise Bij.Bijection in
+        Bij.v ~fwd ~bwd in
+      bij <$> ctor '\255' in
+    fix @@ fun m ->
+    let cont = Bij.cons <$> (ctor '\254' *> elt <*> m) in
+    cont <|> stop
+
+  let multipart part =
+    multipart
+    <$> (c_string
+        <*> c_string
+        <*> c_string
+        <*> c_string
+        <*> list (c_string <*> part))
 
   let single_none =
     let single_none =
@@ -307,10 +318,10 @@ module Format = struct
         | Semantic.Choose { mime; parts } -> (mime, parts)
         | _ -> raise Bij.Bijection in
       Bij.v ~fwd ~bwd in
-    (* NOTE(dinosaure): we should be able to use [rep1] instead of [rep0]. But
-       we actually failed with empty lists. We should assert that [Choose] as,
-       at least, one part. *)
-    bijection <$> ctor '\006' *> (c_string <*> rep0 document)
+    (* NOTE(dinosaure): [list] is delimited with \xfe & \xff to avoid
+       ambiguities with values. We can extend a bit [list] and verify that we
+       require at least one element but the current situation is good enough. *)
+    bijection <$> ctor '\006' *> (c_string <*> list document)
 
   let document_none =
     let bijection =
@@ -829,13 +840,13 @@ let of_string str =
   let parser = Encore.to_angstrom Format.t in
   match Angstrom.parse_string ~consume:All parser str with
   | Ok t -> Ok t
-  | Error _ -> error_msgf "Invalid object"
+  | Error _ -> error_msgf "Invalid email object"
 
 let of_bstr bstr =
   let parser = Encore.to_angstrom Format.t in
   match Angstrom.parse_bigstring ~consume:All parser bstr with
   | Ok t -> Ok t
-  | Error _ -> error_msgf "Invalid object"
+  | Error _ -> error_msgf "Invalid email object"
 
 let to_string t =
   let emitter = Encore.to_lavoisier Format.t in

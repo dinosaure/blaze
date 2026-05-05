@@ -10,11 +10,23 @@ Test about the PACK file
   > 04.eml
   > EOF
   $ blaze pack index pack.pack
-  $ blaze pack get pack.pack ccfebcbe87d582eb6897f526ab98d40827398ddd > 001.eml
-  $ blaze pack get pack.pack 9afdd2f7a07de00e5de93bc1f706a2ab2f5caee9 > 002.eml
+  $ blaze pack get pack.pack 58274dd7fa55cfbcad4e8506a4eef38372e4603b > 001.eml
+  $ blaze pack get pack.pack 6f56bd209555cc217d0ba3a0f23099c33b9d438e > 002.eml
   $ blaze pack get pack.pack 2f630dd27d847c56e51ea7b3528f63962f896c04 > 003.eml
-  $ blaze pack get pack.pack 573847dc0ca288f10a37da35e71a6292cd1e1aba > 004.eml
+  $ blaze pack get pack.pack 97e4bcb4d4a18decccb1025ea3eab896da340df4 > 004.eml
   $ diff 001.eml 01.eml
   $ diff 002.eml 02.eml
   $ diff 003.eml 03.eml
   $ diff 004.eml 04.eml
+  $ blaze pack list pack.pack
+  0000000c 58274dd7fa55cfbcad4e8506a4eef38372e4603b
+  000013be 6f56bd209555cc217d0ba3a0f23099c33b9d438e
+  00002c92 2f630dd27d847c56e51ea7b3528f63962f896c04
+  000036d5 97e4bcb4d4a18decccb1025ea3eab896da340df4
+  $ blaze pack delete pack.pack 9afdd2f7a07de00e5de93bc1f706a2ab2f5caee9
+  $ rm pack.idx
+  $ blaze pack list pack.pack
+  0000000c 58274dd7fa55cfbcad4e8506a4eef38372e4603b
+  000013be 6f56bd209555cc217d0ba3a0f23099c33b9d438e
+  00002c92 2f630dd27d847c56e51ea7b3528f63962f896c04
+  000036d5 97e4bcb4d4a18decccb1025ea3eab896da340df4
