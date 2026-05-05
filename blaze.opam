@@ -12,7 +12,7 @@ doc: "https://dinosaure.github.io/blaze/"
 bug-reports: "https://github.com/dinosaure/blaze/issues"
 depends: [
   "ocaml" {>= "5.4.0"}
-  "mrmime" {>= "0.7.1"}
+  "mrmime" {>= "0.7.2"}
   "bstr"
   "emile"
   "domain-name"
@@ -30,7 +30,7 @@ depends: [
   "sendmail" {>= "0.12.1"}
   "ca-certs"
   "tls"
-  "dkim" {>= "0.9.0"}
+  "dkim" {>= "0.11.0"}
   "dns-client" {>= "10.2.0"}
   "dns-client-miou-unix"
   "dune" {>= "2.8.5"}
@@ -40,19 +40,19 @@ depends: [
   "ocamlgraph" {>= "2.0.0"}
   "ptime"
   "received"
-  "uspf" {>= "0.0.2"}
+  "uspf" {>= "0.2.1"}
   "uri" {>= "4.2.0"}
   "ipaddr" {>= "5.2.0"}
   "encore"
   "progress"
   "carton-miou"
-  "dmarc"
-  "arc"
+  "dmarc" {>= "0.0.2"}
+  "arc" {>= "0.0.2"}
   "stem"
   "bm25"
   "ke" {>= "0.4"}
   "mirage-crypto-rng-miou-unix"
-  "sendmail-miou-unix"
+  "sendmail-miou-unix" {>= "0.13.0"}
 ]
 build: [
   ["dune" "build" "-p" name "-j" jobs]
@@ -61,16 +61,6 @@ build: [
 dev-repo: "git+https://github.com/dinosaure/blaze.git"
 pin-depends: [
   [ "maildir.dev"            "git+https://github.com/dinosaure/ocaml-maildir.git#597823c7d2d4fd2aef26a581f6828f2b458371ea" ]
-  [ "stem.dev"               "git+https://github.com/robur-coop/stem.git#66ce4f85ec2ad317ef2bd01bad71c93c0af68210" ]
-  [ "bm25.dev"               "git+https://github.com/robur-coop/stem.git#66ce4f85ec2ad317ef2bd01bad71c93c0af68210" ]
-  [ "mrmime.dev"             "git+https://github.com/mirage/mrmime.git#ffce7951d3df81d5555c0686489535e21e6443da" ]
-  [ "dkim.dev"               "git+https://github.com/mirage/ocaml-dkim.git#e9c8d76e6cf3bd75c0d133694c082c433e8ae342" ]
   [ "bancos.dev"             "git+https://github.com/robur-coop/bancos.git#1a17bcf88bde2ef8352d7f35162ab1f0d2849462" ]
   [ "rowex.dev"              "git+https://github.com/robur-coop/bancos.git#1a17bcf88bde2ef8352d7f35162ab1f0d2849462" ]
-  [ "colombe.dev"            "git+https://github.com/mirage/colombe.git#478d109e41ea250982dbecd7ff0b8c7873ad8c51" ]
-  [ "sendmail.dev"           "git+https://github.com/mirage/colombe.git#478d109e41ea250982dbecd7ff0b8c7873ad8c51" ]
-  [ "sendmail-miou-unix.dev" "git+https://github.com/mirage/colombe.git#478d109e41ea250982dbecd7ff0b8c7873ad8c51" ]
-  [ "uspf.dev"               "git+https://github.com/mirage/uspf.git#2dd0900b9629be2f16846ffbe58674f76227da18" ]
-  [ "arc.dev"                "git+https://github.com/robur-coop/ocaml-arc.git#c568290e4318a022d0a0a0b87a626c5e1168463e" ]
-  [ "dkim.dev"               "git+https://github.com/mirage/ocaml-dkim.git#782d29d292095ba6e6f0ff8a0858e06921371bb9" ]
 ]
