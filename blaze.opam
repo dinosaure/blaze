@@ -63,4 +63,6 @@ pin-depends: [
   [ "maildir.dev"            "git+https://github.com/dinosaure/ocaml-maildir.git#597823c7d2d4fd2aef26a581f6828f2b458371ea" ]
   [ "bancos.dev"             "git+https://github.com/robur-coop/bancos.git#1a17bcf88bde2ef8352d7f35162ab1f0d2849462" ]
   [ "rowex.dev"              "git+https://github.com/robur-coop/bancos.git#1a17bcf88bde2ef8352d7f35162ab1f0d2849462" ]
+  [ "carton.dev"             "git+https://github.com/robur-coop/carton.git#67e36f44bba5627e95c4666e7ddb0a2310715737" ]
+  [ "carton-miou.dev"        "git+https://github.com/robur-coop/carton.git#67e36f44bba5627e95c4666e7ddb0a2310715737" ]
 ]

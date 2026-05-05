@@ -180,25 +180,25 @@ let to_pack ?with_header ?with_signature ~load targets =
     | None -> None in
   Carton_miou_unix.to_pack ?with_header ?with_signature ~load targets
 
-let make ?index filename =
+let make ?index filepath =
   let ref_length = Digestif.SHA1.digest_size in
-  Carton_miou_unix.make ~ref_length ?index filename
+  Carton_miou_unix.make ~ref_length ?index filepath
 
-let index filename =
+let index filepath =
   let ref_length = Digestif.SHA1.digest_size in
   let hash_length = ref_length in
-  Carton_miou_unix.index ~hash_length ~ref_length filename
+  Carton_miou_unix.index ~hash_length ~ref_length filepath
 
-let verify_from_pack ~cfg filename =
-  Carton_miou_unix.verify_from_pack ~cfg ~digest:sha1 filename
+let verify_from_pack ~cfg filepath =
+  Carton_miou_unix.verify_from_pack ~cfg ~digest:sha1 filepath
 
-let verify_from_idx ~cfg filename =
-  Carton_miou_unix.verify_from_idx ~cfg ~digest:sha1 filename
+let verify_from_idx ~cfg filepath =
+  Carton_miou_unix.verify_from_idx ~cfg ~digest:sha1 filepath
 
-let list ?(kind = `A) filename =
+let list ?(kind = `A) filepath =
   let ref_length = Digestif.SHA1.digest_size in
   let zero = Carton.Size.zero in
-  let pack = make filename in
+  let pack = make filepath in
   let objects_by_offsets = Hashtbl.create 0x7ff in
   let objects_by_refs = Hashtbl.create 0x7ff in
   let is_a_object ?offset ?ref () =

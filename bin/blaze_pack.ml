@@ -486,6 +486,42 @@ let run_verify quiet progress without_progress threads pagesize pack =
   let pp_status = pp_status tbl ~max_consumed ~max_offset in
   if not quiet then Array.iter (Fmt.pr "%a\n%!" pp_status) matrix
 
+let run_delete _quiet threads pagesize pack uids =
+  Miou_unix.run ~domains:threads @@ fun () ->
+  let cfg = Pack.config ~threads ~pagesize () in
+  let collect (_offset, value) =
+    assert (Carton.Value.kind value = `A) ;
+    let uid = Pack.uid_of_value value in
+    if List.exists (Carton.Uid.equal uid) uids
+    then begin
+      let bstr = Carton.Value.bigstring value in
+      let bstr = Bigarray.Array1.sub bstr 0 (Carton.Value.length value) in
+      match Email.of_bstr bstr with
+      | Ok t ->
+          let skeleton, semantic = Email.map Carton.Uid.unsafe_of_string t in
+          let del = [] in
+          let cons = Fun.flip List.cons in
+          let del = Email.Skeleton.fold cons del skeleton in
+          let cons del (_, _, uid) = uid :: del in
+          let del = Email.Semantic.fold cons del semantic in
+          uid :: del
+      | Error (`Msg _msg) -> [ uid ]
+    end
+    else [] in
+  let filename =
+    match pack with
+    | `Idx (_, filename) -> filename
+    | `Pack filename -> filename in
+  let via =
+    let open Flux.Flow in
+    Pack.list filename << Flux.Flow.map collect in
+  let from = Flux.Source.file ~filename:(Fpath.to_string filename) 0x7ff in
+  let into = Flux.Sink.fold List.rev_append [] in
+  let uids, leftover = Flux.Stream.run ~from ~via ~into in
+  Option.iter Flux.Source.dispose leftover ;
+  let digest = Pack.sha1 in
+  Carton_miou_unix.delete_in_place ~cfg ~digest ~pack:filename uids
+
 open Cmdliner
 open Blaze_cli
 
@@ -716,6 +752,22 @@ let verify_term =
   $ pagesize
   $ pack
 
+let uids =
+  let doc = "UIDs of emails to delete." in
+  let parser str =
+    match Ohex.decode str with
+    | uid when String.length uid = 20 -> Ok (Carton.Uid.unsafe_of_string uid)
+    | _ -> error_msgf "Invalid UID: %s" str
+    | exception _ -> error_msgf "Invalid UID: %S" str in
+  let pp = Carton.Uid.pp in
+  let uid = Arg.conv (parser, pp) in
+  let open Arg in
+  non_empty & pos_right 0 uid [] & info [] ~doc ~docv:"UID"
+
+let delete_term =
+  let open Term in
+  const run_delete $ setup_logs $ threads () $ pagesize $ pack $ uids
+
 let error_to_string exn = Printexc.to_string exn
 
 let make_cmd =
@@ -754,6 +806,12 @@ let verify_cmd =
   let info = Cmd.info "verify" ~doc ~man in
   Cmd.v info verify_term
 
+let delete_cmd =
+  let doc = "A tool to delete an email from a PACK file." in
+  let man = [] in
+  let info = Cmd.info "delete" ~doc ~man in
+  Cmd.v info delete_term
+
 let default = Term.(ret (const (`Help (`Pager, None))))
 
 let cmd =
@@ -761,4 +819,6 @@ let cmd =
   let man = [] in
   Cmd.group ~default
     (Cmd.info "pack" ~doc ~man)
-    [ make_cmd; list_cmd; index_cmd; get_cmd; descr_cmd; verify_cmd ]
+    [
+      make_cmd; list_cmd; index_cmd; get_cmd; descr_cmd; verify_cmd; delete_cmd;
+    ]

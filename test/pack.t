@@ -18,3 +18,14 @@ Test about the PACK file
   $ diff 002.eml 02.eml
   $ diff 003.eml 03.eml
   $ diff 004.eml 04.eml
+  $ blaze pack list pack.pack
+  0000000c ccfebcbe87d582eb6897f526ab98d40827398ddd
+  000013ba 9afdd2f7a07de00e5de93bc1f706a2ab2f5caee9
+  00002c8c 2f630dd27d847c56e51ea7b3528f63962f896c04
+  000036cf 573847dc0ca288f10a37da35e71a6292cd1e1aba
+  $ blaze pack delete pack.pack 9afdd2f7a07de00e5de93bc1f706a2ab2f5caee9
+  $ rm pack.idx
+  $ blaze pack list pack.pack
+  0000000c ccfebcbe87d582eb6897f526ab98d40827398ddd
+  00002c8c 2f630dd27d847c56e51ea7b3528f63962f896c04
+  00005ad5 573847dc0ca288f10a37da35e71a6292cd1e1aba
