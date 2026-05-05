@@ -11,4 +11,4 @@ Test about search engine
   > EOF
   $ blaze pack index pack.pack
   $ blaze okapi pack.idx "decompress" | head -n1 | cut -d':' -f1
-  9afdd2f7a07de00e5de93bc1f706a2ab2f5caee9
+  6f56bd209555cc217d0ba3a0f23099c33b9d438e
