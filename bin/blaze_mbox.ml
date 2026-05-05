@@ -24,7 +24,10 @@ let parallel ~fn lst =
   go (Ok []) lst
 
 let load _uid = function
-  | Pack.Stem (_uid, _blob, _length, _tbl) -> assert false (* TODO *)
+  | Pack.Stem (uid, blob, length, tbl) ->
+      let str =
+        Stem.to_string ((uid :> string), (blob :> string), length, tbl) in
+      Carton.Value.of_string ~kind:`C str
   | Pack.Mail str -> Carton.Value.of_string ~kind:`A str
   | Pack.Tree str -> Carton.Value.of_string ~kind:`D str
   | Pack.Body (filename, pos, len) ->
