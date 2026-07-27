@@ -34,6 +34,7 @@ depends: [
   "dns-client" {>= "10.2.0"}
   "dns-client-miou-unix"
   "dune" {>= "2.8.5"}
+  "decompress" {>= "1.6.0"}
   "fmt"
   "fpath"
   "logs"
