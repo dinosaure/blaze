@@ -65,4 +65,5 @@ pin-depends: [
   [ "rowex.dev"              "git+https://github.com/robur-coop/bancos.git#1a17bcf88bde2ef8352d7f35162ab1f0d2849462" ]
   [ "carton.dev"             "git+https://github.com/robur-coop/carton.git#67e36f44bba5627e95c4666e7ddb0a2310715737" ]
   [ "carton-miou.dev"        "git+https://github.com/robur-coop/carton.git#67e36f44bba5627e95c4666e7ddb0a2310715737" ]
+  [ "arc.dev"                "git+https://git.robur.coop/robur/ocaml-arc.git#9b953d9be120fbbab91a87394f02a44a1cea8142" ]
 ]

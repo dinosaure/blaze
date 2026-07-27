@@ -202,12 +202,10 @@ let collect _quiet newline input =
   | Error (`Msg msg) -> `Error (false, Fmt.str "%s." msg)
 
 let verify quiet newline ctx domain resolver fpath output =
+  Mirage_crypto_rng_unix.use_default () ;
   Miou_unix.run ~domains:0 @@ fun () ->
   let daemon, _he, dns = resolver () in
-  let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
-  let finally () =
-    Happy_eyeballs_miou_unix.kill daemon ;
-    Mirage_crypto_rng_miou_unix.kill rng in
+  let finally () = Happy_eyeballs_miou_unix.kill daemon in
   Fun.protect ~finally @@ fun () ->
   match verify quiet newline ctx domain dns fpath output with
   | Ok () -> `Ok ()
