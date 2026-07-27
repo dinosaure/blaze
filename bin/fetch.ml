@@ -194,13 +194,11 @@ let run cfg =
 let now () = Some (Ptime_clock.now ())
 
 let run quiet authenticator resolver (uri, _) excludes fmt =
+  Mirage_crypto_rng_unix.use_default () ;
   Miou_unix.run ~domains:2 @@ fun () ->
   let daemon, happy_eyeballs = resolver () in
-  let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let authenticator = Option.map (fun (fn, _) -> fn now) authenticator in
-  let finally () =
-    Happy_eyeballs_miou_unix.kill daemon ;
-    Mirage_crypto_rng_miou_unix.kill rng in
+  let finally () = Happy_eyeballs_miou_unix.kill daemon in
   Fun.protect ~finally @@ fun () ->
   run { quiet; authenticator; happy_eyeballs; uri; excludes; fmt }
 

@@ -157,13 +157,11 @@ let to_exit_status = function
 
 let run _ authenticator resolver destination authentication domain sender
     recipients mail =
+  Mirage_crypto_rng_unix.use_default () ;
   Miou_unix.run ~domains:0 @@ fun () ->
   let daemon, happy_eyeballs = resolver () in
   let authenticator = Option.map (fun (fn, _) -> fn now) authenticator in
-  let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
-  let finally () =
-    Happy_eyeballs_miou_unix.kill daemon ;
-    Mirage_crypto_rng_miou_unix.kill rng in
+  let finally () = Happy_eyeballs_miou_unix.kill daemon in
   Fun.protect ~finally @@ fun () ->
   let cfg =
     {

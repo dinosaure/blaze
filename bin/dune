@@ -58,13 +58,7 @@
  (name spf)
  (modules spf)
  (public_name blaze.spf)
- (libraries
-  cmdliner
-  fpath
-  uri
-  blaze.cli
-  mirage-crypto-rng-miou-unix
-  uspf.unix))
+ (libraries cmdliner fpath uri blaze.cli mirage-crypto-rng.unix uspf.unix))
 
 (library
  (name recv)
@@ -96,7 +90,7 @@
   fmt
   uri
   dkim
-  mirage-crypto-rng-miou-unix
+  mirage-crypto-rng.unix
   blaze.cli))
 
 (library
@@ -117,7 +111,7 @@
   happy-eyeballs-miou-unix
   dns-client-miou-unix
   sendmail-miou-unix
-  mirage-crypto-rng-miou-unix
+  mirage-crypto-rng.unix
   colombe.emile))
 
 (library
@@ -214,7 +208,7 @@
  (libraries
   flux
   emile
-  mirage-crypto-rng-miou-unix
+  mirage-crypto-rng.unix
   blaze.cli
   blaze.pop3-miou-unix
   blaze.git-miou-unix))
@@ -229,13 +223,13 @@
  (name blaze_dmarc)
  (modules blaze_dmarc)
  (public_name blaze.dmarc)
- (libraries blaze.cli mirage-crypto-rng-miou-unix dmarc))
+ (libraries blaze.cli mirage-crypto-rng.unix dmarc))
 
 (library
  (name blaze_arc)
  (modules blaze_arc)
  (public_name blaze.arc)
- (libraries blaze.cli flux mirage-crypto-rng-miou-unix arc))
+ (libraries blaze.cli flux mirage-crypto-rng.unix arc))
 
 (library
  (name okapi)

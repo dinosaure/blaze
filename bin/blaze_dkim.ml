@@ -162,12 +162,10 @@ let extra_to_string pk =
 (* TODO(dinosaure): k=ed25519? *)
 
 let verify quiet newline fields () resolver input =
+  Mirage_crypto_rng_unix.use_default () ;
   Miou_unix.run ~domains:0 @@ fun () ->
   let daemon, _, dns = resolver () in
-  let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
-  let finally () =
-    Happy_eyeballs_miou_unix.kill daemon ;
-    Mirage_crypto_rng_miou_unix.kill rng in
+  let finally () = Happy_eyeballs_miou_unix.kill daemon in
   Fun.protect ~finally @@ fun () ->
   match verify quiet newline fields dns input with
   | Ok `Ok -> `Ok ()
@@ -238,24 +236,20 @@ let sign _verbose newline input output key dkim =
   Ok (go ())
 
 let sign _verbose newline input output pk dkim =
+  Mirage_crypto_rng_unix.use_default () ;
   Miou_unix.run ~domains:0 @@ fun () ->
-  let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
-  let finally () = Mirage_crypto_rng_miou_unix.kill rng in
-  Fun.protect ~finally @@ fun () ->
   match sign _verbose newline input output pk dkim with
   | Ok () -> `Ok ()
   | Error (`Msg msg) -> `Error (false, Fmt.str "%s." msg)
 
 let gen bits seed output =
+  Mirage_crypto_rng_unix.use_default () ;
   Miou_unix.run ~domains:0 @@ fun () ->
-  let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let oc, close =
     match output with
     | Some fpath -> (open_out (Fpath.to_string fpath), close_out)
     | None -> (stdout, ignore) in
-  let finally () =
-    Mirage_crypto_rng_miou_unix.kill rng ;
-    close oc in
+  let finally () = close oc in
   Fun.protect ~finally @@ fun () ->
   let seed =
     match seed with

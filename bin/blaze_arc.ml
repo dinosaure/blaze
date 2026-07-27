@@ -98,12 +98,10 @@ let chain dns newline stream =
   go (Arc.Verify.decoder ())
 
 let sign _quiet newline resolver ctx seal msgsig keys receiver input =
+  Mirage_crypto_rng_unix.use_default () ;
   Miou_unix.run ~domains:0 @@ fun () ->
-  let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let daemon, _, dns = resolver () in
-  let finally () =
-    Happy_eyeballs_miou_unix.kill daemon ;
-    Mirage_crypto_rng_miou_unix.kill rng in
+  let finally () = Happy_eyeballs_miou_unix.kill daemon in
   Fun.protect ~finally @@ fun () ->
   let ic, ic_close =
     if input = "-" then (stdin, ignore) else (open_in input, close_in) in
@@ -188,12 +186,10 @@ let rec show_chain ppf = function
           domain_name
 
 let verify quiet () newline resolver input =
+  Mirage_crypto_rng_unix.use_default () ;
   Miou_unix.run ~domains:0 @@ fun () ->
   let daemon, _he, dns = resolver () in
-  let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
-  let finally () =
-    Happy_eyeballs_miou_unix.kill daemon ;
-    Mirage_crypto_rng_miou_unix.kill rng in
+  let finally () = Happy_eyeballs_miou_unix.kill daemon in
   Fun.protect ~finally @@ fun () ->
   let ic, close =
     match input with

@@ -81,12 +81,10 @@ let impossible_to_stamp =
   `Error (false, "Impossible to stamp the incoming email with Received-SPF")
 
 let stamp quiet hostname resolver ctx input output =
+  Mirage_crypto_rng_unix.use_default () ;
   Miou_unix.run ~domains:0 @@ fun () ->
   let daemon, _he, dns = resolver () in
-  let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
-  let finally () =
-    Happy_eyeballs_miou_unix.kill daemon ;
-    Mirage_crypto_rng_miou_unix.kill rng in
+  let finally () = Happy_eyeballs_miou_unix.kill daemon in
   Fun.protect ~finally @@ fun () ->
   let ic, close_ic =
     match input with
@@ -168,16 +166,15 @@ let show_results results =
 (* XXX(dinosaure): [to_exit_codes results]? *)
 
 let analyze quiet newline resolver input =
+  Mirage_crypto_rng_unix.use_default () ;
   Miou_unix.run ~domains:0 @@ fun () ->
   let daemon, _he, dns = resolver () in
   let ic, close_ic =
     match input with
     | Some fpath -> (open_in (Fpath.to_string fpath), close_in)
     | None -> (stdin, ignore) in
-  let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
   let finally () =
     Happy_eyeballs_miou_unix.kill daemon ;
-    Mirage_crypto_rng_miou_unix.kill rng ;
     close_ic ic in
   Fun.protect ~finally @@ fun () ->
   let res = extract_received_spf ~newline ic in
