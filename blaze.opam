@@ -52,7 +52,7 @@ depends: [
   "stem"
   "bm25"
   "ke" {>= "0.4"}
-  "mirage-crypto-rng-miou-unix"
+  "mirage-crypto-rng" {>= "1.2.0"}
   "sendmail-miou-unix" {>= "0.13.0"}
 ]
 build: [
