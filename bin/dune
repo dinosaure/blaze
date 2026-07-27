@@ -58,13 +58,7 @@
  (name spf)
  (modules spf)
  (public_name blaze.spf)
- (libraries
-  cmdliner
-  fpath
-  uri
-  blaze.cli
-  mirage-crypto-rng.unix
-  uspf.unix))
+ (libraries cmdliner fpath uri blaze.cli mirage-crypto-rng.unix uspf.unix))
 
 (library
  (name recv)
