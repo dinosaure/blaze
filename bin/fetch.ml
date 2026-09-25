@@ -8,6 +8,7 @@ type protocol = [ `POP3 | `Git ]
 type remote =
   | Uri of protocol * (string * string) option * string * int option * string
   | Git of string * string * string
+  | Http of string
 
 let decode_host_port str =
   match String.split_on_char ':' str with
@@ -85,9 +86,14 @@ let decode_ssh str =
   | _ -> error_msgf "Invalid SSH endpoint"
 
 let remote_of_string str =
-  match (decode_ssh str, decode_uri str) with
-  | Ok v, _ | _, Ok v -> Ok v
-  | _, (Error _ as err) -> err
+  if
+    String.starts_with ~prefix:"http://" str
+    || String.starts_with ~prefix:"https://" str
+  then Ok (Http str)
+  else
+    match (decode_ssh str, decode_uri str) with
+    | Ok v, _ | _, Ok v -> Ok v
+    | _, (Error _ as err) -> err
 
 type cfg = {
   quiet : bool;
@@ -138,15 +144,17 @@ let run cfg =
     let mails = Stream.into into stream in
     if not cfg.quiet then List.iter print_endline mails in
   match cfg.uri with
-  | Git _ | Uri (`Git, _, _, _, _) ->
+  | Git _ | Http _ | Uri (`Git, _, _, _, _) ->
       let bqueue = Flux.Bqueue.(create with_close) 0x7ff in
       let remote =
         match cfg.uri with
         | Git (user, server, path) -> `SSH (user, server, None, path)
+        | Http uri -> `HTTP uri
         | Uri (_, _, server, port, path) -> `Git (server, port, path) in
       let fetch =
         Miou.async @@ fun () ->
-        Git_miou_unix.fetch remote cfg.happy_eyeballs bqueue
+        Git_miou_unix.fetch ?authenticator:cfg.authenticator remote
+          cfg.happy_eyeballs bqueue
         |> or_failwith (Fmt.str "%a" Git_miou_unix.pp_error) in
       let from = Flux.Source.bqueue bqueue in
       let from = Flux.Stream.from from in
