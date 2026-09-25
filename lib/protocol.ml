@@ -8,7 +8,7 @@ module Decoder = struct
   let make len = { buffer = Bytes.make len '\000'; pos = 0; max = 0 }
 
   let leftover { buffer; pos; max } =
-    let len = pos - max in
+    let len = max - pos in
     Bytes.sub_string buffer pos len
 
   type ('v, 'err) state =
@@ -75,7 +75,12 @@ module Decoder = struct
   (* NOTE(dinosaure): for Git. *)
   let at_least_one_pkt (t : t) =
     let len = t.max - t.pos in
-    if len >= 4 then hex t (Bytes.sub_string t.buffer t.pos 4) <= len else false
+    if len >= 4
+    then
+      match hex t (Bytes.sub_string t.buffer t.pos 4) with
+      | n -> n <= len
+      | exception Leave _ -> true
+    else false
 
   let prompt ~at_least k decoder =
     if decoder.pos > 0

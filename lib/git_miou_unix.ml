@@ -4,6 +4,8 @@ module Log = (val Logs.src_log src : Logs.LOG)
 
 let ( let@ ) finally fn = Fun.protect ~finally fn
 let ( let* ) = Result.bind
+let error_msgf fmt = Fmt.kstr (fun msg -> Error (`Msg msg)) fmt
+let inhibit fn = try fn () with _exn -> ()
 
 type error = [ Smart.error | `Msg of string ]
 
@@ -107,13 +109,117 @@ let fetch_over_tcp ~server ?(port = 9418) path he =
     | Error err -> Log.err (fun m -> m "%a" Smart.pp_error err) in
   Ok from
 
-let fetch remote he producer =
+let rec collect buf = function
+  | Protocol.Write { k; buffer; off; len } ->
+      Buffer.add_substring buf buffer off len ;
+      collect buf (k len)
+  | state -> state
+
+let rec unroll (q, rem) = function
+  | Protocol.Error err -> Result.Error (err :> error)
+  | Return v -> Ok v
+  | Write _ -> Error (`Msg "Unexpected write from the Smart protocol over HTTP")
+  | Read { k; buffer; off; len } -> begin
+      let rec next = function
+        | "" -> Option.bind (Flux.Bqueue.get q) next
+        | str -> Some str in
+      match next rem with
+      | None -> unroll (q, "") (k `End)
+      | Some str ->
+          let len = Int.min len (String.length str) in
+          Bytes.blit_string str 0 buffer off len ;
+          let rem = String.sub str len (String.length str - len) in
+          unroll (q, rem) (k (`Len len))
+    end
+
+let is_redirection (resp : Httpcats.response) =
+  H2.Status.is_redirection resp.Httpcats.status
+
+let request ~resolver ?authenticator ?(meth = `GET) ?(headers = []) ?body uri
+    state =
+  let q = Flux.Bqueue.(create with_close_and_halt) 0x7ff in
+  let push str = inhibit @@ fun () -> Flux.Bqueue.put q str in
+  let fn _meta _req resp () = function
+    | Some str when not (is_redirection resp) -> push str
+    | _ -> () in
+  let prm =
+    Miou.async @@ fun () ->
+    let@ () = fun () -> inhibit @@ fun () -> Flux.Bqueue.close q in
+    let body = Option.map (fun str -> Httpcats.String str) body in
+    Httpcats.request ~resolver ?authenticator ~follow_redirect:true ~meth
+      ~headers ?body ~fn ~uri () in
+  let result = unroll (q, "") state in
+  Flux.Bqueue.halt q ;
+  let status = Miou.await prm in
+  match (result, status) with
+  | result, Ok (Ok (resp, ())) when resp.Httpcats.status = `OK -> result
+  | _, Ok (Ok (resp, ())) ->
+      error_msgf "%s: unexpected response %a" uri H2.Status.pp_hum
+        resp.Httpcats.status
+  | _, Ok (Error err) -> error_msgf "%s: %a" uri Httpcats.pp_error err
+  | _, Error exn -> error_msgf "%s: %s" uri (Printexc.to_string exn)
+
+let user_agent = ("User-Agent", "git/blaze")
+
+let advertise_over_http ~resolver ?authenticator uri =
+  let headers = [ ("Git-Protocol", "version=2"); user_agent ] in
+  let ctx = Protocol.ctx () in
+  request ~resolver ?authenticator ~headers
+    (uri ^ "/info/refs?service=git-upload-pack")
+    (Smart.advertisement ctx)
+
+let post_over_http ~resolver ?authenticator uri state =
+  let headers =
+    [
+      ("Content-Type", "application/x-git-upload-pack-request");
+      ("Accept", "application/x-git-upload-pack-result");
+      ("Git-Protocol", "version=2");
+      user_agent;
+    ] in
+  let buf = Buffer.create 0x7ff in
+  let state = collect buf state in
+  let body = Buffer.contents buf in
+  request ~resolver ?authenticator ~meth:`POST ~headers ~body
+    (uri ^ "/git-upload-pack") state
+
+let fetch_over_http ?authenticator uri he =
+  let resolver = `Happy he in
+  let uri =
+    if String.ends_with ~suffix:"/" uri
+    then String.sub uri 0 (String.length uri - 1)
+    else uri in
+  let from =
+    Flux.Source.with_task ~size:0x7ff @@ fun q ->
+    let resource = Miou.Ownership.create ~finally:Flux.Bqueue.close q in
+    Miou.Ownership.own resource ;
+    let@ () = fun () -> Miou.Ownership.release resource in
+    let result =
+      let* advertisement = advertise_over_http ~resolver ?authenticator uri in
+      match advertisement with
+      | Smart.V1 { refs; capabilities } ->
+          let ctx = Protocol.ctx () in
+          post_over_http ~resolver ?authenticator uri
+            (Smart.fetch_v1 ~capabilities ~want:refs.head q ctx)
+      | Smart.V2 _ ->
+          let* refs =
+            post_over_http ~resolver ?authenticator uri
+              (Smart.ls_refs (Protocol.ctx ())) in
+          let ctx = Protocol.ctx () in
+          post_over_http ~resolver ?authenticator uri
+            (Smart.fetch_v2 ~want:refs.head q ctx) in
+    match result with
+    | Ok false -> ()
+    | Ok true -> Log.warn (fun m -> m "Remote Git server failed")
+    | Error err -> Log.err (fun m -> m "%a" pp_error err) in
+  Ok from
+
+let fetch ?authenticator remote he producer =
   let@ () = fun () -> Flux.Bqueue.close producer in
   let* from =
     match remote with
     | `Git (server, port, path) -> fetch_over_tcp ~server ?port path he
     | `SSH (user, server, port, path) -> fetch_over_ssh ~user ~server ?port path
-  in
+    | `HTTP uri -> fetch_over_http ?authenticator uri he in
   let filename = Filename.temp_file "public-inbox-" ".pack" in
   let oc = open_out_bin filename in
   let@ () = fun () -> close_out oc in
