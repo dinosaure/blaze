@@ -47,6 +47,8 @@ depends: [
   "encore"
   "progress"
   "carton-miou"
+  "httpcats" {>= "0.3.1"}
+  "h2"
   "dmarc" {>= "0.0.2"}
   "arc" {>= "0.0.2"}
   "stem"
