@@ -104,5 +104,7 @@
   hxd.core
   hxd.string
   happy-eyeballs-miou-unix
+  httpcats
+  h2
   blaze.smart
   miou.unix))
