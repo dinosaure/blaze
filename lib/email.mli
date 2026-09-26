@@ -10,7 +10,9 @@ module Skeleton : sig
 
   and 'octet multipart = {
     preamble : string;
-    epilogue : string * transport_padding;
+    epilogue : (string * transport_padding) option;
+        (** [None] when the close-delimiter is missing (a truncated multipart or
+            a boundary which never appears into the body). *)
     boundary : string;
     parts : (transport_padding * 'octet part) list;
   }

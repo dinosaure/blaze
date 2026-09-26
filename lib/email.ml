@@ -38,7 +38,7 @@ module Skeleton = struct
 
   and 'octet multipart = {
     preamble : string;
-    epilogue : string * transport_padding;
+    epilogue : (string * transport_padding) option;
     boundary : string;
     parts : (transport_padding * 'octet part) list;
   }
@@ -208,18 +208,28 @@ module Format = struct
     let fwd ((((preamble, epilogue), transport_padding), boundary), parts) =
       {
         Skeleton.preamble;
-        epilogue = (epilogue, transport_padding);
+        epilogue = Some (epilogue, transport_padding);
         boundary;
         parts;
       } in
-    let bwd
-        {
+    let bwd = function
+      | {
           Skeleton.preamble;
-          epilogue = epilogue, transport_padding;
+          epilogue = Some (epilogue, transport_padding);
           boundary;
           parts;
-        } =
-      ((((preamble, epilogue), transport_padding), boundary), parts) in
+        } ->
+          ((((preamble, epilogue), transport_padding), boundary), parts)
+      | _ -> raise Bij.Bijection in
+    Bij.v ~fwd ~bwd
+
+  let unclosed_multipart =
+    let fwd ((preamble, boundary), parts) =
+      { Skeleton.preamble; epilogue = None; boundary; parts } in
+    let bwd = function
+      | { Skeleton.preamble; epilogue = None; boundary; parts } ->
+          ((preamble, boundary), parts)
+      | _ -> raise Bij.Bijection in
     Bij.v ~fwd ~bwd
 
   let ctor chr =
@@ -250,6 +260,9 @@ module Format = struct
         <*> c_string
         <*> list (c_string <*> part))
 
+  let unclosed_multipart part =
+    unclosed_multipart <$> (c_string <*> c_string <*> list (c_string <*> part))
+
   let single_none =
     let single_none =
       let fwd () = Skeleton.Single None in
@@ -276,7 +289,11 @@ module Format = struct
         | Skeleton.Multipart multipart -> multipart
         | _ -> raise Bij.Bijection in
       Bij.v ~fwd ~bwd in
-    bijection <$> ctor '\003' *> multipart part
+    choice
+      [
+        bijection <$> ctor '\003' *> multipart part;
+        bijection <$> ctor '\009' *> unclosed_multipart part;
+      ]
 
   let body : string Skeleton.part t -> string Skeleton.body t =
    fun part ->
@@ -345,8 +362,24 @@ end
 module Parser = struct
   let crlf = Angstrom.string "\r\n"
 
+  (* NOTE(dinosaure): as [mrmime], we accept [\r+\n] as a line-break (some
+     emails were converted twice from LF to CRLF). *)
+  let lenient_crlf =
+    let open Angstrom in
+    char '\r' *> skip_while (( = ) '\r') *> char '\n'
+
   let transport_padding =
     Angstrom.take_while @@ function '\x09' | '\x20' -> true | _ -> false
+
+  let transport_padding_and_crlf =
+    let open Angstrom in
+    transport_padding >>= fun transport_padding ->
+    take_while1 (( = ) '\r') <* char '\n' >>| fun crs ->
+    transport_padding ^ String.sub crs 0 (String.length crs - 1)
+
+  let is str =
+    let open Angstrom in
+    peek_string (String.length str) >>| String.equal str <|> return false
 
   let to_dash_boundary boundary =
     let open Angstrom in
@@ -356,9 +389,8 @@ module Parser = struct
     peek_char >>= function
     | None -> return [ to_dash ]
     | Some '-' ->
-        let len = String.length dash_boundary in
-        peek_string len >>= fun str ->
-        if dash_boundary = str
+        is dash_boundary >>= fun found ->
+        if found
         then return [ to_dash ]
         else advance 1 *> m >>= fun sstr -> return (to_dash :: "-" :: sstr)
     | Some chr ->
@@ -369,8 +401,11 @@ module Parser = struct
     let open Angstrom in
     let delimiter = "\r\n--" ^ boundary in
     fix @@ fun m ->
-    skip_while (fun chr -> chr != '\r') *> peek_string (String.length delimiter)
-    >>= fun str -> if delimiter = str then return () else advance 1 *> m
+    skip_while (fun chr -> chr != '\r') *> peek_char >>= function
+    | None -> return ()
+    | Some _ ->
+        is delimiter >>= fun found ->
+        if found then return () else advance 1 *> m
 
   let to_delimiter boundary =
     let open Angstrom in
@@ -380,9 +415,8 @@ module Parser = struct
     peek_char >>= function
     | None -> return [ to_delimiter ]
     | Some '\r' ->
-        let len = String.length delimiter in
-        peek_string len >>= fun str ->
-        if delimiter = str
+        is delimiter >>= fun found ->
+        if found
         then return [ to_delimiter ]
         else advance 1 *> m >>= fun sstr -> return (to_delimiter :: "\r" :: sstr)
     | Some chr ->
@@ -392,10 +426,9 @@ module Parser = struct
   let boundary_or_crlf boundary =
     let open Angstrom in
     let boundary = "\r\n--" ^ boundary in
-    peek_string (String.length boundary) >>= fun str ->
-    if boundary = str
-    then return `Boundary
-    else char '\r' *> char '\n' *> return `CRLF
+    is boundary >>= function
+    | true -> return `Boundary
+    | false -> lenient_crlf *> return `CRLF
 
   let body_part boundary octet =
     let open Angstrom in
@@ -405,7 +438,9 @@ module Parser = struct
     pos >>= fun stop_hdrs ->
     commit >>= fun () ->
     boundary_or_crlf boundary >>= function
-    | `CRLF -> octet hdrs (start_hdrs, stop_hdrs)
+    | `CRLF ->
+        pos >>= fun stop_hdrs' ->
+        octet hdrs (start_hdrs, Int.max stop_hdrs (stop_hdrs' - 2))
     | `Boundary ->
         let body = Skeleton.Single None in
         return { Skeleton.headers = (start_hdrs, stop_hdrs); body }
@@ -413,8 +448,9 @@ module Parser = struct
   let encapsulation boundary octet =
     let open Angstrom in
     crlf >>= fun _ ->
-    string ("--" ^ boundary) *> transport_padding >>= fun transport_padding ->
-    crlf *> commit *> body_part boundary octet >>= fun part ->
+    string ("--" ^ boundary) *> transport_padding_and_crlf
+    >>= fun transport_padding ->
+    commit *> body_part boundary octet >>= fun part ->
     return (transport_padding, part)
 
   let epilogue = function
@@ -426,19 +462,27 @@ module Parser = struct
   let multipart ?parent boundary octet =
     let open Angstrom in
     to_dash_boundary boundary >>| String.concat "" >>= fun preamble ->
-    string ("--" ^ boundary) *> transport_padding >>= fun transport_padding0 ->
-    crlf *> commit *> body_part boundary octet >>= fun part ->
-    many (encapsulation boundary octet) >>= fun r ->
-    crlf *> commit *> string ("--" ^ boundary ^ "--") *> transport_padding
-    >>= fun transport_padding1 ->
-    option "" (epilogue parent) >>= fun epilogue ->
-    return
-      {
-        Skeleton.preamble;
-        epilogue = (epilogue, transport_padding1);
-        boundary;
-        parts = (transport_padding0, part) :: r;
-      }
+    at_end_of_input >>= function
+    | true ->
+        return { Skeleton.preamble; epilogue = None; boundary; parts = [] }
+    | false ->
+        string ("--" ^ boundary) *> transport_padding_and_crlf
+        >>= fun transport_padding0 ->
+        commit *> body_part boundary octet >>= fun part ->
+        many (encapsulation boundary octet) >>= fun r ->
+        let close_delimiter =
+          crlf *> commit *> string ("--" ^ boundary ^ "--") *> transport_padding
+          >>= fun transport_padding1 ->
+          option "" (epilogue parent) >>| fun epilogue ->
+          Some (epilogue, transport_padding1) in
+        let truncated = end_of_input *> return None in
+        close_delimiter <|> truncated >>| fun epilogue ->
+        {
+          Skeleton.preamble;
+          epilogue;
+          boundary;
+          parts = (transport_padding0, part) :: r;
+        }
 
   let find_boundary hdrs =
     let open Mrmime in
@@ -480,7 +524,7 @@ module Parser = struct
       let open Angstrom in
       let open Mrmime in
       pos >>= fun start_hdrs ->
-      Header.Decoder.header None <* char '\r' <* char '\n' >>= fun hdrs ->
+      Header.Decoder.header None <* lenient_crlf >>= fun hdrs ->
       pos >>= fun stop_hdrs ->
       commit >>= fun () ->
       match Content_type.ty (Header.content_type hdrs) with
@@ -812,7 +856,10 @@ let rec to_seq ~load t =
         else Seq.cons (`Value hdr) (Seq.return (`Value body))
     | Multipart { preamble; epilogue; boundary; parts } ->
         let suffix =
-          [ "\r\n"; "--" ^ boundary ^ "--"; fst epilogue; snd epilogue ] in
+          match epilogue with
+          | Some (epilogue, transport_padding) ->
+              [ "\r\n"; "--" ^ boundary ^ "--"; transport_padding; epilogue ]
+          | None -> [] in
         let suffix = List.to_seq suffix in
         let suffix = Seq.map (fun str -> `String str) suffix in
         let parts = List.to_seq parts in
@@ -824,16 +871,24 @@ let rec to_seq ~load t =
           let prefix = List.map (fun str -> `String str) prefix in
           List.fold_right Seq.cons prefix (go ~inner:true part) in
         let parts = Seq.map fn parts in
+        let hdr =
+          if inner
+          then Seq.(cons (`Value hdr) (return (`String "\r\n")))
+          else Seq.return (`Value hdr) in
         let lst =
           [
-            Seq.(return (return (`Value hdr)));
+            Seq.return hdr;
             Seq.(return (return (`String preamble)));
             parts;
             Seq.return suffix;
           ] in
         let seq = List.to_seq lst in
         Seq.(concat (concat seq))
-    | Message t -> Seq.cons (`Value hdr) (to_seq ~load t) in
+    | Message t ->
+        let body = to_seq ~load t in
+        if inner
+        then Seq.cons (`Value hdr) (Seq.cons (`String "\r\n") body)
+        else Seq.cons (`Value hdr) body in
   go t
 
 let of_string str =

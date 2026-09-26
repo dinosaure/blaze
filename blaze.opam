@@ -69,4 +69,6 @@ pin-depends: [
   [ "carton.dev"             "git+https://github.com/robur-coop/carton.git#67e36f44bba5627e95c4666e7ddb0a2310715737" ]
   [ "carton-miou.dev"        "git+https://github.com/robur-coop/carton.git#67e36f44bba5627e95c4666e7ddb0a2310715737" ]
   [ "arc.dev"                "git+https://git.robur.coop/robur/ocaml-arc.git#9b953d9be120fbbab91a87394f02a44a1cea8142" ]
+  [ "mrmime.dev"             "git+https://github.com/mirage/mrmime.git#accecfc982f93a4e7361c5c0817972a9790da800" ]
+  [ "unstrctrd.dev"          "git+https://github.com/dinosaure/unstrctrd.git#1f1bf9b3c365f19037e4d2e4f4cc3d8ed82d7a85" ]
 ]
