@@ -26,7 +26,8 @@ let pp_encoded ~charset ppf = function
       Fmt.pf ppf "=?%s?Q?%s?=" charset (Buffer.contents buf)
   | Emile.Base64 (Ok v) ->
       Fmt.pf ppf "=?%s?B?%s?=" charset (Base64.encode_exn ~pad:true v)
-  | _ -> assert false
+  | Emile.Quoted_printable (Error _) | Emile.Base64 (Error _) ->
+      Fmt.string ppf "\u{FFFD}"
 
 let pp_phrase ppf phrase =
   let pp_elem ppf = function
