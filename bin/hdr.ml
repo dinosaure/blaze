@@ -41,7 +41,14 @@ let pp_phrase ppf phrase =
   let pp_elem ppf = function
     | `Dot -> Fmt.string ppf "."
     | `Word (`Atom x) -> Fmt.string ppf x
-    | `Word (`String x) -> Fmt.(quote string) ppf x
+    | `Word (`String x) ->
+        let escape = function
+          | ('"' | '\\') as chr -> Fmt.str "\\%c" chr
+          | chr -> String.make 1 chr in
+        let lst = List.of_seq (String.to_seq x) in
+        let lst = List.map escape lst in
+        let x = String.concat "" lst in
+        Fmt.(quote string) ppf x
     | `Encoded (_, Emile.Quoted_printable (Ok v)) when !decode_rfc2047 ->
         Fmt.string ppf v
     | `Encoded (_, Emile.Base64 (Ok v)) when !decode_rfc2047 -> Fmt.string ppf v

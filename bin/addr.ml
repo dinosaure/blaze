@@ -33,7 +33,14 @@ let pp_phrase ppf phrase =
   let pp_elem ppf = function
     | `Dot -> Fmt.string ppf "."
     | `Word (`Atom x) -> Fmt.string ppf x
-    | `Word (`String x) -> Fmt.(quote string) ppf x
+    | `Word (`String x) ->
+        let escape = function
+          | ('"' | '\\') as chr -> Fmt.str "\\%c" chr
+          | chr -> String.make 1 chr in
+        let lst = List.of_seq (String.to_seq x) in
+        let lst = List.map escape lst in
+        let x = String.concat "" lst in
+        Fmt.(quote string) ppf x
     | `Encoded (charset, Emile.Quoted_printable (Ok v)) when !decode_rfc2047 ->
         let v' = Rosetta.to_utf_8_string ~charset v in
         if Option.is_none v'
