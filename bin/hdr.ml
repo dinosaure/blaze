@@ -12,7 +12,7 @@ let default =
   |> Map.add bcc Field.(Witness Addresses)
   |> Map.add sender Field.(Witness Mailbox)
   |> Map.add date Field.(Witness Date)
-  |> Map.add subject Field.(Witness Unstructured)
+  |> Map.add subject Field.(Witness Unstructured_with_encoded)
   |> Map.add message_id Field.(Witness MessageID)
   |> Map.add comments Field.(Witness Unstructured)
   |> Map.add content_type Field.(Witness Content)
@@ -34,13 +34,21 @@ let pp_encoded ~charset ppf = function
       Fmt.pf ppf "=?%s?Q?%s?=" charset (Buffer.contents buf)
   | Emile.Base64 (Ok v) ->
       Fmt.pf ppf "=?%s?B?%s?=" charset (Base64.encode_exn ~pad:true v)
-  | _ -> assert false
+  | Emile.Quoted_printable (Error _) | Emile.Base64 (Error _) ->
+      Fmt.string ppf "\u{FFFD}"
 
 let pp_phrase ppf phrase =
   let pp_elem ppf = function
     | `Dot -> Fmt.string ppf "."
     | `Word (`Atom x) -> Fmt.string ppf x
-    | `Word (`String x) -> Fmt.(quote string) ppf x
+    | `Word (`String x) ->
+        let escape = function
+          | ('"' | '\\') as chr -> Fmt.str "\\%c" chr
+          | chr -> String.make 1 chr in
+        let lst = List.of_seq (String.to_seq x) in
+        let lst = List.map escape lst in
+        let x = String.concat "" lst in
+        Fmt.(quote string) ppf x
     | `Encoded (_, Emile.Quoted_printable (Ok v)) when !decode_rfc2047 ->
         Fmt.string ppf v
     | `Encoded (_, Emile.Base64 (Ok v)) when !decode_rfc2047 -> Fmt.string ppf v
@@ -143,6 +151,40 @@ let show ~prefix hdr fields =
         let v = Unstrctrd.fold_fws v in
         Fmt.pf ppf "%a:%s" Field_name.pp field_name
           (Unstrctrd.to_utf_8_string v)
+    | Field (field_name, Unstructured_with_encoded, v) ->
+        let known charset =
+          match Encoded_word.charset_of_string charset with
+          | `Charset _ -> false
+          | _ -> true in
+        let to_string elts =
+          List.rev elts
+          |> Unstrctrd.of_list
+          |> Result.get_ok
+          |> Unstrctrd.fold_fws
+          |> Unstrctrd.to_utf_8_string in
+        let rec go buf elts = function
+          | [] -> Buffer.add_string buf (to_string elts)
+          | (#Unstrctrd.elt as elt) :: r -> go buf (elt :: elts) r
+          | `Encoded (charset, raw) :: r ->
+              Buffer.add_string buf (to_string elts) ;
+              let str =
+                match raw with
+                | (Emile.Quoted_printable (Ok v) | Emile.Base64 (Ok v))
+                  when !decode_rfc2047 && known charset ->
+                    v
+                | raw -> Fmt.str "%a" (pp_encoded ~charset) raw in
+              Buffer.add_string buf str ;
+              let r =
+                match r with
+                | (`WSP _ | `FWS _) :: (`Encoded _ :: _ as r)
+                  when !decode_rfc2047 ->
+                    r
+                | r -> r in
+              go buf [] r
+          | _ :: r -> go buf elts r in
+        let buf = Buffer.create 0x100 in
+        go buf [] v ;
+        Fmt.pf ppf "%a:%s" Field_name.pp field_name (Buffer.contents buf)
     | Field (field_name, MessageID, v) ->
         Fmt.pf ppf "%a: %a" Field_name.pp field_name MessageID.pp v
     | Field (field_name, Content, v) ->
